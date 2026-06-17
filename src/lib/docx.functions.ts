@@ -5,8 +5,8 @@ import {
   Packer,
   Paragraph,
   TextRun,
+  ImageRun,
   AlignmentType,
-  HeadingLevel,
   PageBreak,
   Header,
   Footer,
@@ -61,17 +61,51 @@ function stripLatex(s: string): string {
     .replace(/\\,/g, " ").replace(/\\ /g, " ");
 }
 
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function latexImageRun(latex: string, size: number): ImageRun {
+  const rendered = stripLatex(latex).trim() || latex.trim();
+  const fontSize = Math.max(14, Math.round(size * 1.45));
+  const width = Math.min(620, Math.max(48, Math.ceil(rendered.length * fontSize * 0.58) + 24));
+  const height = Math.max(26, fontSize + 14);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><text x="8" y="${Math.round(height * 0.68)}" font-family="Cambria Math, Cambria, Georgia, serif" font-size="${fontSize}" fill="#111827">${escapeXml(rendered)}</text></svg>`;
+
+  return new ImageRun({
+    type: "svg",
+    data: Buffer.from(svg),
+    transformation: { width, height },
+  } as never);
+}
+
+function runsFromText(text: string, opts: { size: number; bold?: boolean }) {
+  const parts = text.split(/(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$)/g).filter(Boolean);
+  return parts.flatMap((part) => {
+    const isMath = (part.startsWith("$$") && part.endsWith("$$")) || (part.startsWith("$") && part.endsWith("$"));
+    if (isMath) {
+      const latex = part.replace(/^\$\$?/, "").replace(/\$\$?$/, "");
+      return [latexImageRun(latex, opts.size)];
+    }
+
+    const lines = stripLatex(part).split("\n");
+    return lines.flatMap((line, i) => {
+      const runs = [new TextRun({ text: line, size: opts.size * 2, bold: opts.bold, font: "Arial" })];
+      if (i < lines.length - 1) runs.push(new TextRun({ break: 1, font: "Arial" }));
+      return runs;
+    });
+  });
+}
+
 function paragraphFromText(text: string, opts: { size: number; bold?: boolean; align?: typeof AlignmentType[keyof typeof AlignmentType]; spacingAfter?: number }) {
-  const clean = stripLatex(text);
-  const lines = clean.split("\n");
   return new Paragraph({
     alignment: opts.align ?? AlignmentType.JUSTIFIED,
     spacing: { after: opts.spacingAfter ?? 120, line: 300 },
-    children: lines.flatMap((line, i) => {
-      const runs: TextRun[] = [new TextRun({ text: line, size: opts.size * 2, bold: opts.bold, font: "Arial" })];
-      if (i < lines.length - 1) runs.push(new TextRun({ break: 1, font: "Arial" }));
-      return runs;
-    }),
+    children: runsFromText(text, opts),
   });
 }
 
@@ -126,7 +160,7 @@ export const generateDocx = createServerFn({ method: "POST" })
           indent: { left: 360, hanging: 360 },
           children: [
             new TextRun({ text: `${a.letra}) `, size: size * 2, bold: true, font: "Arial" }),
-            new TextRun({ text: stripLatex(a.texto), size: size * 2, font: "Arial" }),
+            ...runsFromText(a.texto, { size }),
           ],
         }));
       });
