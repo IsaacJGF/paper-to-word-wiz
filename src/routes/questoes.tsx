@@ -38,7 +38,7 @@ function Page() {
   const load = async () => {
     setLoading(true);
     const { data, error } = await supabase.from("questions").select("*").order("created_at", { ascending: false });
-    if (error) toast.error("Falha ao carregar"); else setItems((data as Q[]) ?? []);
+    if (error) toast.error("Falha ao carregar"); else setItems((data ?? []) as unknown as Q[]);
     setLoading(false);
   };
   useEffect(() => { load(); }, []);

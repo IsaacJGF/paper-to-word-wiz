@@ -9,8 +9,26 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as RevisarRouteImport } from './routes/revisar'
+import { Route as QuestoesRouteImport } from './routes/questoes'
+import { Route as DocumentoRouteImport } from './routes/documento'
 import { Route as IndexRouteImport } from './routes/index'
 
+const RevisarRoute = RevisarRouteImport.update({
+  id: '/revisar',
+  path: '/revisar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QuestoesRoute = QuestoesRouteImport.update({
+  id: '/questoes',
+  path: '/questoes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocumentoRoute = DocumentoRouteImport.update({
+  id: '/documento',
+  path: '/documento',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -19,28 +37,61 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/documento': typeof DocumentoRoute
+  '/questoes': typeof QuestoesRoute
+  '/revisar': typeof RevisarRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/documento': typeof DocumentoRoute
+  '/questoes': typeof QuestoesRoute
+  '/revisar': typeof RevisarRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/documento': typeof DocumentoRoute
+  '/questoes': typeof QuestoesRoute
+  '/revisar': typeof RevisarRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/documento' | '/questoes' | '/revisar'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/documento' | '/questoes' | '/revisar'
+  id: '__root__' | '/' | '/documento' | '/questoes' | '/revisar'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DocumentoRoute: typeof DocumentoRoute
+  QuestoesRoute: typeof QuestoesRoute
+  RevisarRoute: typeof RevisarRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/revisar': {
+      id: '/revisar'
+      path: '/revisar'
+      fullPath: '/revisar'
+      preLoaderRoute: typeof RevisarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/questoes': {
+      id: '/questoes'
+      path: '/questoes'
+      fullPath: '/questoes'
+      preLoaderRoute: typeof QuestoesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/documento': {
+      id: '/documento'
+      path: '/documento'
+      fullPath: '/documento'
+      preLoaderRoute: typeof DocumentoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -53,6 +104,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DocumentoRoute: DocumentoRoute,
+  QuestoesRoute: QuestoesRoute,
+  RevisarRoute: RevisarRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -50,7 +50,7 @@ function Page() {
       if (ids.length === 0) { setLoading(false); return; }
       const { data } = await supabase.from("questions").select("id, numero, enunciado, alternativas, resposta, fonte").in("id", ids);
       // preserve order from saved selection
-      const map = new Map((data ?? []).map((d) => [d.id, d as Q]));
+      const map = new Map(((data ?? []) as unknown as Q[]).map((d) => [d.id, d]));
       setQuestions(ids.map((i) => map.get(i)).filter((x): x is Q => !!x));
       setLoading(false);
     })();
