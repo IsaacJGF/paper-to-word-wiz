@@ -14,7 +14,75 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      questions: {
+        Row: {
+          alternativas: Json
+          ano: string | null
+          conteudo: string | null
+          created_at: string
+          dificuldade: string | null
+          disciplina: string | null
+          enunciado: string
+          fonte: string | null
+          id: string
+          imagem_original_url: string | null
+          instituicao: string | null
+          numero: string | null
+          observacoes: string | null
+          prova: string | null
+          resposta: string | null
+          tags: string[] | null
+          tem_equacao: boolean
+          tem_imagem: boolean
+          tipo: string
+          updated_at: string
+        }
+        Insert: {
+          alternativas?: Json
+          ano?: string | null
+          conteudo?: string | null
+          created_at?: string
+          dificuldade?: string | null
+          disciplina?: string | null
+          enunciado?: string
+          fonte?: string | null
+          id?: string
+          imagem_original_url?: string | null
+          instituicao?: string | null
+          numero?: string | null
+          observacoes?: string | null
+          prova?: string | null
+          resposta?: string | null
+          tags?: string[] | null
+          tem_equacao?: boolean
+          tem_imagem?: boolean
+          tipo?: string
+          updated_at?: string
+        }
+        Update: {
+          alternativas?: Json
+          ano?: string | null
+          conteudo?: string | null
+          created_at?: string
+          dificuldade?: string | null
+          disciplina?: string | null
+          enunciado?: string
+          fonte?: string | null
+          id?: string
+          imagem_original_url?: string | null
+          instituicao?: string | null
+          numero?: string | null
+          observacoes?: string | null
+          prova?: string | null
+          resposta?: string | null
+          tags?: string[] | null
+          tem_equacao?: boolean
+          tem_imagem?: boolean
+          tipo?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
