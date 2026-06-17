@@ -60,6 +60,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </nav>
       </header>
       <main className="flex-1">{children}</main>
+      <footer className="py-3 text-center text-[10px] text-muted-foreground">
+        Criado por Isaac Jose
+      </footer>
     </div>
   );
 }
