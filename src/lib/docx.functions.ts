@@ -44,6 +44,7 @@ const TRANSPARENT_PNG_FALLBACK = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
   "base64",
 );
+const DEFAULT_TEXT_COLOR = "000000";
 
 function stripLatex(s: string): string {
   // Lightweight LaTeX → plain unicode rendering for .docx text runs.
@@ -74,12 +75,87 @@ function escapeXml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function latexImageRun(latex: string, size: number): ImageRun {
-  const rendered = stripLatex(latex).trim() || latex.trim();
+function normalizeLatexForSvg(latex: string): string {
+  return latex
+    .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "($1)/($2)")
+    .replace(/\\sqrt\{([^}]*)\}/g, "√($1)")
+    .replace(/\\alpha/g, "α").replace(/\\beta/g, "β").replace(/\\gamma/g, "γ")
+    .replace(/\\delta/g, "δ").replace(/\\Delta/g, "Δ").replace(/\\theta/g, "θ")
+    .replace(/\\lambda/g, "λ").replace(/\\mu/g, "μ").replace(/\\pi/g, "π")
+    .replace(/\\sigma/g, "σ").replace(/\\Omega/g, "Ω").replace(/\\omega/g, "ω")
+    .replace(/\\times/g, "×").replace(/\\cdot/g, "·").replace(/\\pm/g, "±")
+    .replace(/\\leq/g, "≤").replace(/\\geq/g, "≥").replace(/\\neq/g, "≠")
+    .replace(/\\approx/g, "≈").replace(/\\infty/g, "∞").replace(/\\rightarrow/g, "→")
+    .replace(/\\\\/g, "\n")
+    .replace(/\\,/g, " ").replace(/\\ /g, " ");
+}
+
+function readLatexScript(input: string, start: number): { value: string; end: number } {
+  if (input[start] === "{") {
+    let depth = 1;
+    let i = start + 1;
+    while (i < input.length && depth > 0) {
+      if (input[i] === "{") depth++;
+      if (input[i] === "}") depth--;
+      i++;
+    }
+    return { value: input.slice(start + 1, Math.max(start + 1, i - 1)), end: i };
+  }
+
+  if (input[start] === "\\") {
+    const command = input.slice(start).match(/^\\[A-Za-z]+/);
+    if (command) return { value: command[0], end: start + command[0].length };
+  }
+
+  return { value: input[start] ?? "", end: start + 1 };
+}
+
+function latexSvgContent(latex: string, fontSize: number, color: string) {
+  const input = normalizeLatexForSvg(latex);
+  const segments: { text: string; script?: "super" | "sub" }[] = [];
+
+  for (let i = 0; i < input.length;) {
+    const char = input[i];
+    if ((char === "^" || char === "_") && i + 1 < input.length) {
+      const script = readLatexScript(input, i + 1);
+      segments.push({ text: normalizeLatexForSvg(script.value), script: char === "^" ? "super" : "sub" });
+      i = script.end;
+      continue;
+    }
+
+    let text = "";
+    while (i < input.length && input[i] !== "^" && input[i] !== "_") {
+      text += input[i];
+      i++;
+    }
+    if (text) segments.push({ text });
+  }
+
+  const width = Math.min(
+    620,
+    Math.max(48, Math.ceil(segments.reduce((sum, segment) => {
+      const factor = segment.script ? 0.42 : 0.58;
+      return sum + segment.text.length * fontSize * factor;
+    }, 0) + 24)),
+  );
+  const height = Math.max(30, fontSize + 18);
+  const y = Math.round(height * 0.68);
+  const tspans = segments.map((segment) => {
+    if (!segment.script) return `<tspan>${escapeXml(segment.text)}</tspan>`;
+    const shift = segment.script === "super" ? "super" : "sub";
+    return `<tspan baseline-shift="${shift}" font-size="70%">${escapeXml(segment.text)}</tspan>`;
+  }).join("");
+
+  return {
+    width,
+    height,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><text x="8" y="${y}" font-family="Cambria Math, Cambria, Georgia, serif" font-size="${fontSize}" fill="#${color}">${tspans}</text></svg>`,
+  };
+}
+
+function latexImageRun(latex: string, size: number, color = DEFAULT_TEXT_COLOR): ImageRun {
   const fontSize = Math.max(14, Math.round(size * 1.45));
-  const width = Math.min(620, Math.max(48, Math.ceil(rendered.length * fontSize * 0.58) + 24));
-  const height = Math.max(26, fontSize + 14);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><text x="8" y="${Math.round(height * 0.68)}" font-family="Cambria Math, Cambria, Georgia, serif" font-size="${fontSize}" fill="#111827">${escapeXml(rendered)}</text></svg>`;
+  const { width, height, svg } = latexSvgContent(latex.trim(), fontSize, color);
 
   return new ImageRun({
     type: "svg",
@@ -92,25 +168,33 @@ function latexImageRun(latex: string, size: number): ImageRun {
   } as never);
 }
 
-function runsFromText(text: string, opts: { size: number; bold?: boolean }) {
+type TextOptions = {
+  size: number;
+  bold?: boolean;
+  color?: string;
+  align?: typeof AlignmentType[keyof typeof AlignmentType];
+  spacingAfter?: number;
+};
+
+function runsFromText(text: string, opts: TextOptions) {
   const parts = text.split(/(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$)/g).filter(Boolean);
   return parts.flatMap((part) => {
     const isMath = (part.startsWith("$$") && part.endsWith("$$")) || (part.startsWith("$") && part.endsWith("$"));
     if (isMath) {
       const latex = part.replace(/^\$\$?/, "").replace(/\$\$?$/, "");
-      return [latexImageRun(latex, opts.size)];
+      return [latexImageRun(latex, opts.size, opts.color)];
     }
 
     const lines = stripLatex(part).split("\n");
     return lines.flatMap((line, i) => {
-      const runs = [new TextRun({ text: line, size: opts.size * 2, bold: opts.bold, font: "Arial" })];
-      if (i < lines.length - 1) runs.push(new TextRun({ break: 1, font: "Arial" }));
+      const runs = [new TextRun({ text: line, size: opts.size * 2, bold: opts.bold, font: "Arial", color: opts.color })];
+      if (i < lines.length - 1) runs.push(new TextRun({ break: 1, font: "Arial", color: opts.color }));
       return runs;
     });
   });
 }
 
-function paragraphFromText(text: string, opts: { size: number; bold?: boolean; align?: typeof AlignmentType[keyof typeof AlignmentType]; spacingAfter?: number }) {
+function paragraphFromText(text: string, opts: TextOptions) {
   return new Paragraph({
     alignment: opts.align ?? AlignmentType.JUSTIFIED,
     spacing: { after: opts.spacingAfter ?? 120, line: 300 },
