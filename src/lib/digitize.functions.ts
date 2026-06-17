@@ -61,13 +61,45 @@ export const digitizeQuestion = createServerFn({ method: "POST" })
       imageDataUrl: data.imageDataUrl,
     });
 
-    // Try parsing; the model may occasionally wrap in code fence
-    const cleaned = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
     let parsed: QuestaoExtraida;
     try {
-      parsed = JSON.parse(cleaned);
-    } catch {
+      parsed = extractJSON(raw) as QuestaoExtraida;
+    } catch (e) {
+      console.error("Falha ao parsear resposta da IA:", raw);
       throw new Error("A IA retornou um formato inválido. Tente novamente.");
     }
+    // Normalize defaults so downstream code is safe
+    parsed.numero = parsed.numero ?? "";
+    parsed.enunciado = parsed.enunciado ?? "";
+    parsed.alternativas = Array.isArray(parsed.alternativas) ? parsed.alternativas : [];
+    parsed.tipo = parsed.tipo ?? "discursiva";
+    parsed.resposta = parsed.resposta ?? "";
+    parsed.fonte = parsed.fonte ?? "";
+    parsed.tem_equacao = !!parsed.tem_equacao;
+    parsed.tem_imagem = !!parsed.tem_imagem;
+    parsed.baixa_confianca = Array.isArray(parsed.baixa_confianca) ? parsed.baixa_confianca : [];
     return parsed;
   });
+
+function extractJSON(raw: string): unknown {
+  let cleaned = raw
+    .replace(/^\uFEFF/, "")
+    .replace(/^```json\s*/im, "")
+    .replace(/^```\s*/im, "")
+    .replace(/```\s*$/im, "")
+    .trim();
+
+  if (!cleaned.startsWith("{") && !cleaned.startsWith("[")) {
+    const objStart = cleaned.indexOf("{");
+    const arrStart = cleaned.indexOf("[");
+    const isArray = arrStart !== -1 && (objStart === -1 || arrStart < objStart);
+    const start = isArray ? arrStart : objStart;
+    const end = isArray ? cleaned.lastIndexOf("]") : cleaned.lastIndexOf("}");
+    if (start !== -1 && end > start) {
+      cleaned = cleaned.slice(start, end + 1);
+    } else {
+      throw new Error("No JSON found");
+    }
+  }
+  return JSON.parse(cleaned);
+}
