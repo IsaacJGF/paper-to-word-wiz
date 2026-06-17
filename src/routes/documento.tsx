@@ -20,6 +20,7 @@ type Q = {
   id: string; numero: string | null; enunciado: string;
   alternativas: { letra: string; texto: string }[];
   resposta: string | null; fonte: string | null;
+  referencia_texto: string | null; referencia_fonte: string | null; grupo_id: string | null;
 };
 
 const SEL_KEY = "digitalizador.selecionadas";
@@ -48,7 +49,7 @@ function Page() {
     (async () => {
       const ids = loadSel();
       if (ids.length === 0) { setLoading(false); return; }
-      const { data } = await supabase.from("questions").select("id, numero, enunciado, alternativas, resposta, fonte").in("id", ids);
+      const { data } = await supabase.from("questions").select("id, numero, enunciado, alternativas, resposta, fonte, referencia_texto, referencia_fonte, grupo_id").in("id", ids);
       // preserve order from saved selection
       const map = new Map(((data ?? []) as unknown as Q[]).map((d) => [d.id, d]));
       setQuestions(ids.map((i) => map.get(i)).filter((x): x is Q => !!x));
@@ -135,6 +136,7 @@ function Page() {
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-bold text-sm">Questão {i + 1}.</span>
                         {q.fonte && <span className="text-xs text-muted-foreground italic">({q.fonte})</span>}
+                        {q.referencia_texto && <span className="text-xs text-muted-foreground">com referência</span>}
                       </div>
                       <p className="text-sm line-clamp-2">{q.enunciado}</p>
                       {q.alternativas.length > 0 && (

@@ -19,6 +19,7 @@ type Q = {
   alternativas: { letra: string; texto: string }[];
   tipo: string; resposta: string | null; fonte: string | null;
   disciplina: string | null; conteudo: string | null;
+  referencia_texto: string | null; referencia_fonte: string | null; grupo_id: string | null;
   tem_equacao: boolean; tem_imagem: boolean;
   created_at: string;
 };
@@ -52,7 +53,7 @@ function Page() {
   }, [items]);
 
   const filtered = useMemo(() => items.filter((i) => {
-    if (q && !(i.enunciado.toLowerCase().includes(q.toLowerCase()))) return false;
+    if (q && !(i.enunciado.toLowerCase().includes(q.toLowerCase()) || (i.referencia_texto ?? "").toLowerCase().includes(q.toLowerCase()))) return false;
     if (filtroDisc && i.disciplina !== filtroDisc) return false;
     return true;
   }), [items, q, filtroDisc]);
@@ -74,6 +75,7 @@ function Page() {
     const { error } = await supabase.from("questions").insert({
       numero: q.numero, enunciado: q.enunciado, alternativas: q.alternativas, tipo: q.tipo,
       resposta: q.resposta, fonte: q.fonte, disciplina: q.disciplina, conteudo: q.conteudo,
+      referencia_texto: q.referencia_texto, referencia_fonte: q.referencia_fonte, grupo_id: q.grupo_id,
       tem_equacao: q.tem_equacao, tem_imagem: q.tem_imagem,
     });
     if (error) toast.error("Falha ao duplicar"); else { toast.success("Questão duplicada"); load(); }
@@ -124,6 +126,7 @@ function Page() {
                         <span className="text-xs font-mono text-muted-foreground">#{it.id.slice(0, 6)}</span>
                         {it.numero && <Badge variant="outline">Q{it.numero}</Badge>}
                         {it.disciplina && <Badge variant="secondary">{it.disciplina}</Badge>}
+                        {it.referencia_texto && <Badge variant="outline">referência</Badge>}
                         {it.fonte && <span className="text-xs text-muted-foreground">{it.fonte}</span>}
                         {it.tem_equacao && <Sigma className="size-3.5 text-muted-foreground" />}
                         {it.tem_imagem && <ImageIcon className="size-3.5 text-muted-foreground" />}
