@@ -5,7 +5,12 @@ import {
   Packer,
   Paragraph,
   TextRun,
-  ImageRun,
+  Math as DocxMath,
+  MathRun,
+  MathSuperScript,
+  MathSubScript,
+  MathFraction,
+  MathRadical,
   AlignmentType,
   PageBreak,
   Header,
@@ -40,12 +45,6 @@ const Input = z.object({
   }),
 });
 
-const TRANSPARENT_PNG_FALLBACK = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
-  "base64",
-);
-const DEFAULT_TEXT_COLOR = "000000";
-
 function stripLatex(s: string): string {
   // Lightweight LaTeX → plain unicode rendering for .docx text runs.
   return s
@@ -67,28 +66,31 @@ function stripLatex(s: string): string {
     .replace(/\\,/g, " ").replace(/\\ /g, " ");
 }
 
-function escapeXml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+type MathComponent = ConstructorParameters<typeof DocxMath>[0]["children"][number];
 
-function normalizeLatexForSvg(latex: string): string {
-  return latex
-    .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "($1)/($2)")
-    .replace(/\\sqrt\{([^}]*)\}/g, "√($1)")
-    .replace(/\\alpha/g, "α").replace(/\\beta/g, "β").replace(/\\gamma/g, "γ")
-    .replace(/\\delta/g, "δ").replace(/\\Delta/g, "Δ").replace(/\\theta/g, "θ")
-    .replace(/\\lambda/g, "λ").replace(/\\mu/g, "μ").replace(/\\pi/g, "π")
-    .replace(/\\sigma/g, "σ").replace(/\\Omega/g, "Ω").replace(/\\omega/g, "ω")
-    .replace(/\\times/g, "×").replace(/\\cdot/g, "·").replace(/\\pm/g, "±")
-    .replace(/\\leq/g, "≤").replace(/\\geq/g, "≥").replace(/\\neq/g, "≠")
-    .replace(/\\approx/g, "≈").replace(/\\infty/g, "∞").replace(/\\rightarrow/g, "→")
-    .replace(/\\\\/g, "\n")
-    .replace(/\\,/g, " ").replace(/\\ /g, " ");
-}
+const MATH_SYMBOLS: Record<string, string> = {
+  alpha: "α",
+  beta: "β",
+  gamma: "γ",
+  delta: "δ",
+  Delta: "Δ",
+  theta: "θ",
+  lambda: "λ",
+  mu: "μ",
+  pi: "π",
+  sigma: "σ",
+  Omega: "Ω",
+  omega: "ω",
+  times: "×",
+  cdot: "·",
+  pm: "±",
+  leq: "≤",
+  geq: "≥",
+  neq: "≠",
+  approx: "≈",
+  infty: "∞",
+  rightarrow: "→",
+};
 
 function readLatexScript(input: string, start: number): { value: string; end: number } {
   if (input[start] === "{") {
@@ -110,62 +112,91 @@ function readLatexScript(input: string, start: number): { value: string; end: nu
   return { value: input[start] ?? "", end: start + 1 };
 }
 
-function latexSvgContent(latex: string, fontSize: number, color: string) {
-  const input = normalizeLatexForSvg(latex);
-  const segments: { text: string; script?: "super" | "sub" }[] = [];
+function readLatexGroup(input: string, start: number): { value: string; end: number } | null {
+  if (input[start] !== "{") return null;
+  return readLatexScript(input, start);
+}
 
-  for (let i = 0; i < input.length;) {
-    const char = input[i];
-    if ((char === "^" || char === "_") && i + 1 < input.length) {
-      const script = readLatexScript(input, i + 1);
-      segments.push({ text: normalizeLatexForSvg(script.value), script: char === "^" ? "super" : "sub" });
+function latexToMathComponents(latex: string): MathComponent[] {
+  const components: MathComponent[] = [];
+  let text = "";
+
+  const flushText = () => {
+    if (text) {
+      components.push(new MathRun(text));
+      text = "";
+    }
+  };
+
+  for (let i = 0; i < latex.length;) {
+    const char = latex[i];
+
+    if (char === "\\" && latex[i + 1] === "\\") {
+      text += " ";
+      i += 2;
+      continue;
+    }
+
+    if (char === "\\") {
+      const commandMatch = latex.slice(i + 1).match(/^[A-Za-z]+/);
+      const command = commandMatch?.[0] ?? "";
+
+      if (command === "frac") {
+        flushText();
+        const numerator = readLatexGroup(latex, i + 1 + command.length);
+        const denominator = numerator ? readLatexGroup(latex, numerator.end) : null;
+        if (numerator && denominator) {
+          components.push(new MathFraction({
+            numerator: latexToMathComponents(numerator.value),
+            denominator: latexToMathComponents(denominator.value),
+          }));
+          i = denominator.end;
+          continue;
+        }
+      }
+
+      if (command === "sqrt") {
+        flushText();
+        const radicand = readLatexGroup(latex, i + 1 + command.length);
+        if (radicand) {
+          components.push(new MathRadical({ children: latexToMathComponents(radicand.value) }));
+          i = radicand.end;
+          continue;
+        }
+      }
+
+      text += MATH_SYMBOLS[command] ?? command;
+      i += command ? command.length + 1 : 1;
+      continue;
+    }
+
+    if ((char === "^" || char === "_") && i + 1 < latex.length) {
+      flushText();
+      const base = components.pop() ?? new MathRun("");
+      const script = readLatexScript(latex, i + 1);
+      const scriptComponents = latexToMathComponents(script.value);
+      components.push(char === "^"
+        ? new MathSuperScript({ children: [base], superScript: scriptComponents })
+        : new MathSubScript({ children: [base], subScript: scriptComponents }));
       i = script.end;
       continue;
     }
 
-    let text = "";
-    while (i < input.length && input[i] !== "^" && input[i] !== "_") {
-      text += input[i];
+    if (char === "{" || char === "}") {
       i++;
+      continue;
     }
-    if (text) segments.push({ text });
+
+    text += char;
+    i++;
   }
 
-  const width = Math.min(
-    620,
-    Math.max(48, Math.ceil(segments.reduce((sum, segment) => {
-      const factor = segment.script ? 0.42 : 0.58;
-      return sum + segment.text.length * fontSize * factor;
-    }, 0) + 24)),
-  );
-  const height = Math.max(30, fontSize + 18);
-  const y = Math.round(height * 0.68);
-  const tspans = segments.map((segment) => {
-    if (!segment.script) return `<tspan>${escapeXml(segment.text)}</tspan>`;
-    const shift = segment.script === "super" ? "super" : "sub";
-    return `<tspan baseline-shift="${shift}" font-size="70%">${escapeXml(segment.text)}</tspan>`;
-  }).join("");
-
-  return {
-    width,
-    height,
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><text x="8" y="${y}" font-family="Cambria Math, Cambria, Georgia, serif" font-size="${fontSize}" fill="#${color}">${tspans}</text></svg>`,
-  };
+  flushText();
+  return components.length > 0 ? components : [new MathRun(latex)];
 }
 
-function latexImageRun(latex: string, size: number, color = DEFAULT_TEXT_COLOR): ImageRun {
-  const fontSize = Math.max(14, Math.round(size * 1.45));
-  const { width, height, svg } = latexSvgContent(latex.trim(), fontSize, color);
-
-  return new ImageRun({
-    type: "svg",
-    data: Buffer.from(svg),
-    transformation: { width, height },
-    fallback: {
-      type: "png",
-      data: TRANSPARENT_PNG_FALLBACK,
-    },
-  } as never);
+function latexMathRun(latex: string) {
+  return new DocxMath({ children: latexToMathComponents(latex.trim()) });
 }
 
 type TextOptions = {
@@ -182,7 +213,7 @@ function runsFromText(text: string, opts: TextOptions) {
     const isMath = (part.startsWith("$$") && part.endsWith("$$")) || (part.startsWith("$") && part.endsWith("$"));
     if (isMath) {
       const latex = part.replace(/^\$\$?/, "").replace(/\$\$?$/, "");
-      return [latexImageRun(latex, opts.size, opts.color)];
+      return [latexMathRun(latex)];
     }
 
     const lines = stripLatex(part).split("\n");
