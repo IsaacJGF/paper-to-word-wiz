@@ -40,6 +40,11 @@ const Input = z.object({
   }),
 });
 
+const TRANSPARENT_PNG_FALLBACK = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+  "base64",
+);
+
 function stripLatex(s: string): string {
   // Lightweight LaTeX → plain unicode rendering for .docx text runs.
   return s
@@ -80,6 +85,10 @@ function latexImageRun(latex: string, size: number): ImageRun {
     type: "svg",
     data: Buffer.from(svg),
     transformation: { width, height },
+    fallback: {
+      type: "png",
+      data: TRANSPARENT_PNG_FALLBACK,
+    },
   } as never);
 }
 
