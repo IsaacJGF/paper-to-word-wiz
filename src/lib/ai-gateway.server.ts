@@ -25,12 +25,19 @@ export async function callGeminiVision(opts: {
         },
       ],
       response_format: { type: "json_object" },
+      max_tokens: 8192,
     }),
   });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`AI Gateway ${res.status}: ${body}`);
   }
-  const json = await res.json() as { choices: { message: { content: string } }[] };
-  return json.choices[0]?.message?.content ?? "";
+  const json = await res.json() as {
+    choices: { message: { content: string }; finish_reason?: string }[];
+  };
+  const choice = json.choices[0];
+  if (choice?.finish_reason === "length") {
+    throw new Error("A resposta da IA foi truncada. Tente uma imagem com menos conteúdo.");
+  }
+  return choice?.message?.content ?? "";
 }
