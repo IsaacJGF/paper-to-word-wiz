@@ -1,12 +1,13 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Save, Trash2, Plus, GripVertical, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Save, Trash2, Plus, GripVertical, AlertTriangle, ImagePlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AppLayout } from "@/components/AppLayout";
+import { ImageCropDialog } from "@/components/ImageCropDialog";
 import { loadDraft, clearDraft, LETRAS, reletter, DraftDigitization, DraftQuestion } from "@/lib/draft-store";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
