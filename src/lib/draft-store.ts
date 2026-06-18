@@ -7,6 +7,11 @@ export type DraftQuestion = Omit<QuestaoExtraida, "alternativas"> & {
   disciplina?: string;
   conteudo?: string;
   dificuldade?: string;
+  area_geral?: string;
+  conteudo_principal?: string;
+  subconteudo_principal?: string;
+  conteudos_relacionados?: string[];
+  tags_livres?: string[];
   ano?: string;
   prova?: string;
   instituicao?: string;
