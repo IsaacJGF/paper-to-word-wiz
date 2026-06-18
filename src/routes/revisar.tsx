@@ -86,8 +86,10 @@ function Page() {
         referencia_fonte: draft.referencia_fonte || null,
         grupo_id: grupoId,
         tem_equacao: q.tem_equacao,
-        tem_imagem: q.tem_imagem || hasReference,
+        tem_imagem: q.tem_imagem || hasReference || !!q.enunciado_imagem || q.alternativas.some((a) => !!a.imagem),
         imagem_original_url: draft.imageDataUrl ?? null,
+        enunciado_imagem: q.enunciado_imagem ?? null,
+        enunciado_imagem_pos: q.enunciado_imagem_pos ?? null,
       }));
       const { error } = await supabase.from("questions").insert(rows);
       if (error) throw error;
