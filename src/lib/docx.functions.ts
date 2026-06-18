@@ -239,6 +239,65 @@ function paragraphFromText(text: string, opts: TextOptions) {
   });
 }
 
+type ImgInfo = { buffer: Buffer; type: "png" | "jpg" | "gif" | "bmp"; width: number; height: number };
+
+function decodeDataUrl(dataUrl: string): ImgInfo | null {
+  const m = dataUrl.match(/^data:image\/(png|jpe?g|gif|bmp);base64,(.+)$/i);
+  if (!m) return null;
+  const ext = m[1].toLowerCase();
+  const type: ImgInfo["type"] = ext === "jpeg" || ext === "jpg" ? "jpg" : (ext as ImgInfo["type"]);
+  const buffer = Buffer.from(m[2], "base64");
+  const dims = readImageSize(buffer, type);
+  return { buffer, type, width: dims.w, height: dims.h };
+}
+
+function readImageSize(buf: Buffer, type: ImgInfo["type"]): { w: number; h: number } {
+  try {
+    if (type === "png" && buf.length >= 24) {
+      return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+    }
+    if (type === "jpg") {
+      let i = 2;
+      while (i < buf.length) {
+        if (buf[i] !== 0xff) { i++; continue; }
+        const marker = buf[i + 1];
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          return { w: buf.readUInt16BE(i + 7), h: buf.readUInt16BE(i + 5) };
+        }
+        i += 2 + buf.readUInt16BE(i + 2);
+      }
+    }
+    if (type === "gif" && buf.length >= 10) {
+      return { w: buf.readUInt16LE(6), h: buf.readUInt16LE(8) };
+    }
+  } catch {}
+  return { w: 400, h: 300 };
+}
+
+function imageParagraph(dataUrl: string, maxWidthPx: number, align: typeof AlignmentType[keyof typeof AlignmentType] = AlignmentType.CENTER, forceHeightPx?: number): Paragraph | null {
+  const img = decodeDataUrl(dataUrl);
+  if (!img) return null;
+  let width: number;
+  let height: number;
+  if (forceHeightPx) {
+    height = forceHeightPx;
+    width = Math.min(maxWidthPx, (img.width / img.height) * height);
+  } else {
+    const ratio = img.height / img.width;
+    width = Math.min(maxWidthPx, img.width);
+    height = width * ratio;
+  }
+  return new Paragraph({
+    alignment: align,
+    spacing: { after: 120 },
+    children: [new ImageRun({
+      type: img.type,
+      data: img.buffer,
+      transformation: { width: Math.round(width), height: Math.round(height) },
+    })],
+  });
+}
+
 export const generateDocx = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => Input.parse(d))
   .handler(async ({ data }) => {
