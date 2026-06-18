@@ -18,9 +18,10 @@ export const Route = createFileRoute("/documento")({
 
 type Q = {
   id: string; numero: string | null; enunciado: string;
-  alternativas: { letra: string; texto: string }[];
+  alternativas: { letra: string; texto: string; imagem?: string | null }[];
   resposta: string | null; fonte: string | null;
   referencia_texto: string | null; referencia_fonte: string | null; grupo_id: string | null;
+  enunciado_imagem: string | null; enunciado_imagem_pos: string | null;
 };
 
 const SEL_KEY = "digitalizador.selecionadas";
