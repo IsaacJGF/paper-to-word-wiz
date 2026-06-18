@@ -56,7 +56,7 @@ function normalizeDraft(draft: DraftDigitization | DraftQuestion): DraftDigitiza
     referencia_texto: "",
     referencia_fonte: "",
     imageDataUrl: undefined,
-    questoes: [draft],
+    questoes: [draft as DraftQuestion],
   };
 }
 
