@@ -9,9 +9,10 @@ export type DraftQuestion = QuestaoExtraida & {
   prova?: string;
   instituicao?: string;
   observacoes?: string;
-  tipo: "multipla_escolha" | "certo_errado" | "numerica" | "discursiva";
 };
-export type DraftDigitization = DigitalizacaoExtraida & {
+export type DraftDigitization = {
+  referencia_texto: string;
+  referencia_fonte: string;
   imageDataUrl?: string;
   questoes: DraftQuestion[];
 };
