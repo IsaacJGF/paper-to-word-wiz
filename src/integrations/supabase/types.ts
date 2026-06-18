@@ -24,12 +24,15 @@ export type Database = {
           disciplina: string | null
           enunciado: string
           fonte: string | null
+          grupo_id: string | null
           id: string
           imagem_original_url: string | null
           instituicao: string | null
           numero: string | null
           observacoes: string | null
           prova: string | null
+          referencia_fonte: string | null
+          referencia_texto: string | null
           resposta: string | null
           tags: string[] | null
           tem_equacao: boolean
@@ -46,12 +49,15 @@ export type Database = {
           disciplina?: string | null
           enunciado?: string
           fonte?: string | null
+          grupo_id?: string | null
           id?: string
           imagem_original_url?: string | null
           instituicao?: string | null
           numero?: string | null
           observacoes?: string | null
           prova?: string | null
+          referencia_fonte?: string | null
+          referencia_texto?: string | null
           resposta?: string | null
           tags?: string[] | null
           tem_equacao?: boolean
@@ -68,12 +74,15 @@ export type Database = {
           disciplina?: string | null
           enunciado?: string
           fonte?: string | null
+          grupo_id?: string | null
           id?: string
           imagem_original_url?: string | null
           instituicao?: string | null
           numero?: string | null
           observacoes?: string | null
           prova?: string | null
+          referencia_fonte?: string | null
+          referencia_texto?: string | null
           resposta?: string | null
           tags?: string[] | null
           tem_equacao?: boolean

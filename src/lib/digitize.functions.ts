@@ -115,7 +115,7 @@ function normalizeDigitization(parsed: DigitalizacaoExtraida | QuestaoExtraida):
   return {
     referencia_texto: "",
     referencia_fonte: "",
-    questoes: [normalizeQuestion(parsed)],
+    questoes: [normalizeQuestion(parsed as Partial<QuestaoExtraida>)],
   };
 }
 
