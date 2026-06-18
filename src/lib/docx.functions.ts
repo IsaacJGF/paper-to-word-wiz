@@ -19,7 +19,7 @@ import {
   PageNumber,
 } from "docx";
 
-const Alt = z.object({ letra: z.string(), texto: z.string() });
+const Alt = z.object({ letra: z.string(), texto: z.string(), imagem: z.string().nullable().optional() });
 const QInput = z.object({
   id: z.string(),
   numero: z.string().nullable().optional(),
@@ -30,6 +30,8 @@ const QInput = z.object({
   referencia_texto: z.string().nullable().optional(),
   referencia_fonte: z.string().nullable().optional(),
   grupo_id: z.string().nullable().optional(),
+  enunciado_imagem: z.string().nullable().optional(),
+  enunciado_imagem_pos: z.string().nullable().optional(),
 });
 
 const Input = z.object({
