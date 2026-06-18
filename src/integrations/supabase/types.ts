@@ -23,6 +23,8 @@ export type Database = {
           dificuldade: string | null
           disciplina: string | null
           enunciado: string
+          enunciado_imagem: string | null
+          enunciado_imagem_pos: string | null
           fonte: string | null
           grupo_id: string | null
           id: string
@@ -48,6 +50,8 @@ export type Database = {
           dificuldade?: string | null
           disciplina?: string | null
           enunciado?: string
+          enunciado_imagem?: string | null
+          enunciado_imagem_pos?: string | null
           fonte?: string | null
           grupo_id?: string | null
           id?: string
@@ -73,6 +77,8 @@ export type Database = {
           dificuldade?: string | null
           disciplina?: string | null
           enunciado?: string
+          enunciado_imagem?: string | null
+          enunciado_imagem_pos?: string | null
           fonte?: string | null
           grupo_id?: string | null
           id?: string
