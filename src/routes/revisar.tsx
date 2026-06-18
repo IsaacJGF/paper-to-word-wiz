@@ -1,16 +1,67 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Save, Trash2, Plus, GripVertical, AlertTriangle, ImagePlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { AppLayout } from "@/components/AppLayout";
 import { ImageCropDialog } from "@/components/ImageCropDialog";
 import { loadDraft, clearDraft, LETRAS, reletter, DraftDigitization, DraftQuestion } from "@/lib/draft-store";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+
+const PEDAGOGICAL_TREE: Record<string, Record<string, string[]>> = {
+  Física: {
+    Cinemática: ["Movimento uniforme", "Movimento uniformemente variado", "Lançamentos", "Movimento circular"],
+    Dinâmica: ["Leis de Newton", "Força de atrito", "Trabalho e energia", "Impulso e quantidade de movimento"],
+    Eletrostática: ["Carga elétrica", "Campo elétrico", "Potencial elétrico", "Capacitores"],
+    Termologia: ["Temperatura e calor", "Dilatação térmica", "Calorimetria", "Gases"],
+    Ondulatória: ["Ondas mecânicas", "Som", "Interferência", "Efeito Doppler"],
+    Gravitação: ["Leis de Kepler", "Lei da gravitação universal", "Campo gravitacional"],
+    Hidrostática: ["Pressão", "Teorema de Stevin", "Princípio de Pascal", "Empuxo"],
+  },
+  Química: {
+    "Química geral": ["Estrutura atômica", "Tabela periódica", "Ligações químicas", "Funções inorgânicas"],
+    "Físico-química": ["Soluções", "Termoquímica", "Cinética química", "Equilíbrio químico"],
+    "Química orgânica": ["Funções orgânicas", "Isomeria", "Reações orgânicas", "Polímeros"],
+  },
+  Biologia: {
+    Citologia: ["Membrana plasmática", "Organelas", "Divisão celular", "Metabolismo celular"],
+    Genética: ["Leis de Mendel", "Heredogramas", "DNA e RNA", "Biotecnologia"],
+    Ecologia: ["Cadeias alimentares", "Ciclos biogeoquímicos", "Relações ecológicas", "Impactos ambientais"],
+  },
+  Matemática: {
+    Álgebra: ["Equações", "Funções", "Sistemas lineares", "Polinômios"],
+    Geometria: ["Geometria plana", "Geometria espacial", "Geometria analítica", "Trigonometria"],
+    Estatística: ["Média e mediana", "Probabilidade", "Análise combinatória", "Gráficos e tabelas"],
+  },
+  Português: {
+    Gramática: ["Morfologia", "Sintaxe", "Pontuação", "Concordância"],
+    Literatura: ["Escolas literárias", "Interpretação literária", "Autores e obras", "Figuras de linguagem"],
+    "Leitura e produção": ["Interpretação de texto", "Gêneros textuais", "Coesão e coerência", "Argumentação"],
+  },
+  História: {
+    "História geral": ["Antiguidade", "Idade Média", "Idade Moderna", "Idade Contemporânea"],
+    "História do Brasil": ["Brasil Colônia", "Brasil Império", "República", "Ditadura militar"],
+  },
+  Geografia: {
+    "Geografia física": ["Clima", "Relevo", "Hidrografia", "Biomas"],
+    "Geografia humana": ["Urbanização", "População", "Globalização", "Geopolítica"],
+    Cartografia: ["Escalas", "Coordenadas geográficas", "Fusos horários", "Projeções cartográficas"],
+  },
+};
 
 export const Route = createFileRoute("/revisar")({
   head: () => ({ meta: [{ title: "Revisar questão" }] }),
@@ -22,6 +73,9 @@ function Page() {
   const [draft, setDraft] = useState<DraftDigitization | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [classificationDialogOpen, setClassificationDialogOpen] = useState(false);
+  const [relatedQuery, setRelatedQuery] = useState("");
+  const [tagInput, setTagInput] = useState("");
   const [cropTarget, setCropTarget] = useState<
     | { kind: "enunciado"; pos: "antes" | "depois" }
     | { kind: "alt"; index: number }
@@ -37,8 +91,26 @@ function Page() {
     setDraft(d);
   }, [navigate]);
 
+  const allPedagogicalContents = useMemo(() => {
+    const names = Object.values(PEDAGOGICAL_TREE).flatMap((contents) =>
+      Object.entries(contents).flatMap(([content, subcontents]) => [content, ...subcontents]),
+    );
+    return [...new Set(names)].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, []);
+
   if (!draft) return null;
   const active = draft.questoes[Math.min(activeIndex, draft.questoes.length - 1)];
+  const areaOptions = Object.keys(PEDAGOGICAL_TREE);
+  const contentOptions = active.area_geral ? Object.keys(PEDAGOGICAL_TREE[active.area_geral] ?? {}) : [];
+  const subcontentOptions = active.area_geral && active.conteudo_principal
+    ? PEDAGOGICAL_TREE[active.area_geral]?.[active.conteudo_principal] ?? []
+    : [];
+  const relatedSelection = active.conteudos_relacionados ?? [];
+  const tagSelection = active.tags_livres ?? [];
+  const relatedOptions = allPedagogicalContents
+    .filter((name) => name.toLowerCase().includes(relatedQuery.trim().toLowerCase()))
+    .filter((name) => name !== active.conteudo_principal && name !== active.subconteudo_principal)
+    .slice(0, 10);
 
   const updateDraft = <K extends keyof DraftDigitization>(k: K, v: DraftDigitization[K]) => setDraft({ ...draft, [k]: v });
   const updateQuestion = (idx: number, updater: (q: DraftQuestion) => DraftQuestion) => {
@@ -47,6 +119,42 @@ function Page() {
   };
   const update = <K extends keyof DraftQuestion>(k: K, v: DraftQuestion[K]) => {
     updateQuestion(activeIndex, (q) => ({ ...q, [k]: v }));
+  };
+
+  const updateArea = (area: string) => {
+    updateQuestion(activeIndex, (q) => ({
+      ...q,
+      area_geral: area,
+      conteudo_principal: undefined,
+      subconteudo_principal: undefined,
+      conteudos_relacionados: [],
+    }));
+  };
+
+  const updateMainContent = (content: string) => {
+    updateQuestion(activeIndex, (q) => ({
+      ...q,
+      conteudo_principal: content,
+      subconteudo_principal: undefined,
+    }));
+  };
+
+  const toggleRelatedContent = (content: string) => {
+    const next = relatedSelection.includes(content)
+      ? relatedSelection.filter((item) => item !== content)
+      : [...relatedSelection, content];
+    update("conteudos_relacionados", next);
+  };
+
+  const addTag = () => {
+    const tag = tagInput.trim();
+    if (!tag || tagSelection.includes(tag)) return;
+    update("tags_livres", [...tagSelection, tag]);
+    setTagInput("");
+  };
+
+  const removeTag = (tag: string) => {
+    update("tags_livres", tagSelection.filter((item) => item !== tag));
   };
 
   const updateAlt = (i: number, key: "letra" | "texto", v: string) => {
@@ -63,7 +171,20 @@ function Page() {
     update("alternativas", reletter(next));
   };
 
+  const hasIncompleteClassification = draft.questoes.some((q) =>
+    !q.area_geral?.trim() || !q.conteudo_principal?.trim() || !q.subconteudo_principal?.trim(),
+  );
+
+  const requestSave = () => {
+    if (hasIncompleteClassification) {
+      setClassificationDialogOpen(true);
+      return;
+    }
+    onSave();
+  };
+
   const onSave = async () => {
+    setClassificationDialogOpen(false);
     setSaving(true);
     try {
       const hasReference = !!draft.referencia_texto.trim();
@@ -75,9 +196,15 @@ function Page() {
         tipo: q.tipo,
         resposta: q.resposta || null,
         fonte: q.fonte || draft.referencia_fonte || null,
-        disciplina: q.disciplina || null,
-        conteudo: q.conteudo || null,
+        disciplina: q.area_geral || q.disciplina || null,
+        conteudo: q.conteudo_principal || q.conteudo || null,
         dificuldade: q.dificuldade || null,
+        area_geral: q.area_geral || null,
+        conteudo_principal: q.conteudo_principal || null,
+        subconteudo_principal: q.subconteudo_principal || null,
+        conteudos_relacionados: q.conteudos_relacionados ?? [],
+        tags_livres: q.tags_livres ?? [],
+        tags: q.tags_livres ?? null,
         ano: q.ano || null,
         prova: q.prova || null,
         instituicao: q.instituicao || null,
@@ -123,8 +250,8 @@ function Page() {
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={onCancel}>Cancelar</Button>
-            <Button onClick={onSave} disabled={saving} className="gap-2">
-              <Save className="size-4" /> {saving ? "Salvando…" : `Salvar ${draft.questoes.length} item${draft.questoes.length > 1 ? "s" : ""}`}
+            <Button onClick={requestSave} disabled={saving} className="gap-2">
+              <Save className="size-4" /> {saving ? "Salvando..." : `Salvar ${draft.questoes.length} item${draft.questoes.length > 1 ? "s" : ""}`}
             </Button>
           </div>
         </div>
@@ -133,7 +260,7 @@ function Page() {
           <div className="mb-4 rounded-lg border border-accent bg-accent/30 p-3 flex gap-2 text-sm">
             <AlertTriangle className="size-4 mt-0.5 shrink-0" />
             <div>
-              <strong>Trechos com baixa confiança no item atual — revise:</strong>
+              <strong>Trechos com baixa confiança no item atual - revise:</strong>
               <ul className="list-disc pl-5 mt-1">
                 {active.baixa_confianca.map((t, i) => <li key={i}>{t}</li>)}
               </ul>
@@ -307,30 +434,133 @@ function Page() {
               </div>
             </div>
 
-            <details className="rounded-lg border p-3">
+            <details className="rounded-lg border p-3" open>
               <summary className="cursor-pointer text-sm font-medium">Metadados opcionais</summary>
-              <div className="grid grid-cols-2 gap-2 mt-3">
-                <div><Label>Disciplina</Label><Input value={active.disciplina ?? ""} onChange={(e) => update("disciplina", e.target.value)} /></div>
-                <div><Label>Conteúdo</Label><Input value={active.conteudo ?? ""} onChange={(e) => update("conteudo", e.target.value)} /></div>
-                <div><Label>Dificuldade</Label>
-                  <Select value={active.dificuldade ?? ""} onValueChange={(v) => update("dificuldade", v)}>
-                    <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="facil">Fácil</SelectItem>
-                      <SelectItem value="medio">Médio</SelectItem>
-                      <SelectItem value="dificil">Difícil</SelectItem>
-                    </SelectContent>
-                  </Select>
+              <div className="grid gap-4 mt-3">
+                <div className="grid sm:grid-cols-3 gap-2">
+                  <div>
+                    <Label>Área geral *</Label>
+                    <Select value={active.area_geral ?? ""} onValueChange={updateArea}>
+                      <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                      <SelectContent>
+                        {areaOptions.map((area) => <SelectItem key={area} value={area}>{area}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Conteúdo principal *</Label>
+                    <Select value={active.conteudo_principal ?? ""} onValueChange={updateMainContent} disabled={!active.area_geral}>
+                      <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                      <SelectContent>
+                        {contentOptions.map((content) => <SelectItem key={content} value={content}>{content}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Subconteúdo principal *</Label>
+                    <Select value={active.subconteudo_principal ?? ""} onValueChange={(v) => update("subconteudo_principal", v)} disabled={!active.conteudo_principal}>
+                      <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                      <SelectContent>
+                        {subcontentOptions.map((subcontent) => <SelectItem key={subcontent} value={subcontent}>{subcontent}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <div><Label>Ano</Label><Input value={active.ano ?? ""} onChange={(e) => update("ano", e.target.value)} /></div>
-                <div><Label>Prova</Label><Input value={active.prova ?? ""} onChange={(e) => update("prova", e.target.value)} /></div>
-                <div><Label>Instituição</Label><Input value={active.instituicao ?? ""} onChange={(e) => update("instituicao", e.target.value)} /></div>
-                <div className="col-span-2"><Label>Observações</Label><Textarea rows={2} value={active.observacoes ?? ""} onChange={(e) => update("observacoes", e.target.value)} /></div>
+
+                <div className="space-y-2">
+                  <Label>Conteúdos relacionados</Label>
+                  <Input
+                    value={relatedQuery}
+                    onChange={(e) => setRelatedQuery(e.target.value)}
+                    placeholder="Buscar e adicionar vários conteúdos"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    {relatedSelection.map((content) => (
+                      <button
+                        key={content}
+                        type="button"
+                        onClick={() => toggleRelatedContent(content)}
+                        className="inline-flex items-center gap-1 rounded-full border bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
+                      >
+                        {content}<X className="size-3" />
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {relatedOptions.map((content) => {
+                      const selected = relatedSelection.includes(content);
+                      return (
+                        <Button
+                          key={content}
+                          type="button"
+                          size="sm"
+                          variant={selected ? "default" : "outline"}
+                          className="h-7 rounded-full px-3 text-xs"
+                          onClick={() => toggleRelatedContent(content)}
+                        >
+                          {selected ? "Remover" : "Adicionar"} {content}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Tags livres</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={tagInput}
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addTag();
+                        }
+                      }}
+                      placeholder="Adicionar tags"
+                    />
+                    <Button type="button" variant="outline" onClick={addTag} className="gap-1"><Plus className="size-3" /> Adicionar</Button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {tagSelection.map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => removeTag(tag)}
+                        className="inline-flex items-center gap-1 rounded-full border bg-muted px-2.5 py-1 text-xs font-medium"
+                      >
+                        {tag}<X className="size-3" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid sm:grid-cols-3 gap-2">
+                  <div><Label>Ano</Label><Input value={active.ano ?? ""} onChange={(e) => update("ano", e.target.value)} /></div>
+                  <div><Label>Prova</Label><Input value={active.prova ?? ""} onChange={(e) => update("prova", e.target.value)} /></div>
+                  <div><Label>Instituição</Label><Input value={active.instituicao ?? ""} onChange={(e) => update("instituicao", e.target.value)} /></div>
+                </div>
+
+                <div><Label>Observações</Label><Textarea rows={2} value={active.observacoes ?? ""} onChange={(e) => update("observacoes", e.target.value)} /></div>
               </div>
             </details>
           </div>
         </div>
       </div>
+      <AlertDialog open={classificationDialogOpen} onOpenChange={setClassificationDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Atenção: esta questão ainda não possui classificação pedagógica completa.</AlertDialogTitle>
+            <AlertDialogDescription>
+              Área geral, Conteúdo principal e Subconteúdo principal ajudam a organizar o banco de questões. Deseja salvar mesmo assim?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar e completar</AlertDialogCancel>
+            <AlertDialogAction onClick={onSave}>Salvar mesmo assim</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <ImageCropDialog
         open={!!cropTarget}
         imageUrl={draft.imageDataUrl}
