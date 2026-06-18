@@ -5,6 +5,7 @@ import {
   Packer,
   Paragraph,
   TextRun,
+  ImageRun,
   Math as DocxMath,
   MathRun,
   MathSuperScript,
