@@ -22,6 +22,11 @@ function Page() {
   const [draft, setDraft] = useState<DraftDigitization | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [cropTarget, setCropTarget] = useState<
+    | { kind: "enunciado"; pos: "antes" | "depois" }
+    | { kind: "alt"; index: number }
+    | null
+  >(null);
 
   useEffect(() => {
     const d = loadDraft();
