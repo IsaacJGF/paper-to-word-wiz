@@ -306,6 +306,26 @@ export const generateDocx = createServerFn({ method: "POST" })
 
     const children: Paragraph[] = [];
 
+    // Content width on A4 with 1134 twip margins ≈ 9638 twips ≈ 642 px @96dpi
+    const CONTENT_WIDTH_PX = 640;
+
+    // Normalize alternative image heights across the whole document (same size = consistent layout)
+    let altImgHeightPx = 0;
+    for (const q of questions) {
+      for (const a of q.alternativas) {
+        if (a.imagem) {
+          const im = decodeDataUrl(a.imagem);
+          if (im) {
+            const targetWidth = Math.min(260, im.width);
+            const h = (targetWidth * im.height) / im.width;
+            if (h > altImgHeightPx) altImgHeightPx = h;
+          }
+        }
+      }
+    }
+    altImgHeightPx = Math.min(altImgHeightPx, 180); // cap
+
+
     // Header info
     if (config.instituicao) children.push(paragraphFromText(config.instituicao, { size, bold: true, align: AlignmentType.CENTER }));
     if (config.titulo) {
