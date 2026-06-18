@@ -1,12 +1,13 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Save, Trash2, Plus, GripVertical, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Save, Trash2, Plus, GripVertical, AlertTriangle, ImagePlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AppLayout } from "@/components/AppLayout";
+import { ImageCropDialog } from "@/components/ImageCropDialog";
 import { loadDraft, clearDraft, LETRAS, reletter, DraftDigitization, DraftQuestion } from "@/lib/draft-store";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -21,6 +22,11 @@ function Page() {
   const [draft, setDraft] = useState<DraftDigitization | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [cropTarget, setCropTarget] = useState<
+    | { kind: "enunciado"; pos: "antes" | "depois" }
+    | { kind: "alt"; index: number }
+    | null
+  >(null);
 
   useEffect(() => {
     const d = loadDraft();
@@ -80,8 +86,10 @@ function Page() {
         referencia_fonte: draft.referencia_fonte || null,
         grupo_id: grupoId,
         tem_equacao: q.tem_equacao,
-        tem_imagem: q.tem_imagem || hasReference,
+        tem_imagem: q.tem_imagem || hasReference || !!q.enunciado_imagem || q.alternativas.some((a) => !!a.imagem),
         imagem_original_url: draft.imageDataUrl ?? null,
+        enunciado_imagem: q.enunciado_imagem ?? null,
+        enunciado_imagem_pos: q.enunciado_imagem_pos ?? null,
       }));
       const { error } = await supabase.from("questions").insert(rows);
       if (error) throw error;
@@ -200,7 +208,41 @@ function Page() {
             </div>
 
             <div>
-              <Label>Enunciado</Label>
+              <div className="flex items-center justify-between mb-1 gap-2">
+                <Label>Enunciado</Label>
+                <div className="flex gap-1">
+                  {!active.enunciado_imagem && (
+                    <>
+                      <Button type="button" size="sm" variant="outline" className="gap-1 h-7"
+                        onClick={() => { update("enunciado_imagem_pos", "antes"); setCropTarget({ kind: "enunciado", pos: "antes" }); }}>
+                        <ImagePlus className="size-3" /> Imagem antes
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" className="gap-1 h-7"
+                        onClick={() => { update("enunciado_imagem_pos", "depois"); setCropTarget({ kind: "enunciado", pos: "depois" }); }}>
+                        <ImagePlus className="size-3" /> Imagem depois
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+              {active.enunciado_imagem && (
+                <div className="mb-2 rounded-lg border p-2 bg-muted/30 flex items-start gap-2">
+                  <img src={active.enunciado_imagem} alt="Imagem da questão" className="max-h-40 object-contain rounded" />
+                  <div className="flex-1 text-xs text-muted-foreground">
+                    Posicionada {active.enunciado_imagem_pos === "antes" ? "antes" : "depois"} do enunciado.
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Button type="button" size="sm" variant="outline" className="h-7"
+                      onClick={() => setCropTarget({ kind: "enunciado", pos: active.enunciado_imagem_pos ?? "depois" })}>
+                      Recortar de novo
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" className="h-7 text-destructive gap-1"
+                      onClick={() => { update("enunciado_imagem", undefined); update("enunciado_imagem_pos", undefined); }}>
+                      <X className="size-3" /> Remover
+                    </Button>
+                  </div>
+                </div>
+              )}
               <Textarea
                 value={active.enunciado}
                 onChange={(e) => update("enunciado", e.target.value)}
@@ -216,17 +258,37 @@ function Page() {
                   <Label>Alternativas</Label>
                   <Button size="sm" variant="outline" onClick={addAlt} className="gap-1"><Plus className="size-3" /> Adicionar</Button>
                 </div>
+                <p className="text-xs text-muted-foreground mb-2">Imagens das alternativas são normalizadas para o mesmo tamanho no documento final.</p>
                 <div className="space-y-2">
                   {active.alternativas.map((a, i) => (
                     <div key={i} className="flex gap-2 items-start">
                       <GripVertical className="size-4 mt-3 text-muted-foreground" />
                       <Input className="w-14 text-center font-bold" value={a.letra} onChange={(e) => updateAlt(i, "letra", e.target.value)} />
-                      <Textarea
-                        className="flex-1 text-sm"
-                        rows={2}
-                        value={a.texto}
-                        onChange={(e) => updateAlt(i, "texto", e.target.value)}
-                      />
+                      <div className="flex-1 space-y-1">
+                        <Textarea
+                          className="text-sm"
+                          rows={2}
+                          value={a.texto}
+                          onChange={(e) => updateAlt(i, "texto", e.target.value)}
+                        />
+                        {a.imagem ? (
+                          <div className="flex items-center gap-2 rounded-md border p-1.5 bg-muted/30">
+                            <img src={a.imagem} alt={`Imagem ${a.letra}`} className="h-16 object-contain rounded" />
+                            <div className="flex gap-1 ml-auto">
+                              <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setCropTarget({ kind: "alt", index: i })}>Recortar de novo</Button>
+                              <Button type="button" size="sm" variant="ghost" className="h-7 text-destructive gap-1" onClick={() => {
+                                const copy = [...active.alternativas];
+                                copy[i] = { ...copy[i], imagem: undefined };
+                                update("alternativas", copy);
+                              }}><X className="size-3" /> Remover</Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <Button type="button" size="sm" variant="outline" className="h-7 gap-1" onClick={() => setCropTarget({ kind: "alt", index: i })}>
+                            <ImagePlus className="size-3" /> Adicionar imagem
+                          </Button>
+                        )}
+                      </div>
                       <Button variant="ghost" size="icon" onClick={() => removeAlt(i)}><Trash2 className="size-4" /></Button>
                     </div>
                   ))}
@@ -269,6 +331,23 @@ function Page() {
           </div>
         </div>
       </div>
+      <ImageCropDialog
+        open={!!cropTarget}
+        imageUrl={draft.imageDataUrl}
+        title={cropTarget?.kind === "alt" ? `Recortar imagem da alternativa ${active.alternativas[cropTarget.index]?.letra ?? ""}` : "Recortar imagem do enunciado"}
+        onCancel={() => setCropTarget(null)}
+        onConfirm={(dataUrl) => {
+          if (!cropTarget) return;
+          if (cropTarget.kind === "enunciado") {
+            updateQuestion(activeIndex, (q) => ({ ...q, enunciado_imagem: dataUrl, enunciado_imagem_pos: cropTarget.pos }));
+          } else {
+            const copy = [...active.alternativas];
+            copy[cropTarget.index] = { ...copy[cropTarget.index], imagem: dataUrl };
+            updateQuestion(activeIndex, (q) => ({ ...q, alternativas: copy }));
+          }
+          setCropTarget(null);
+        }}
+      />
     </AppLayout>
   );
 }

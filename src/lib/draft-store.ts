@@ -1,6 +1,8 @@
-import { Alternativa, DigitalizacaoExtraida, QuestaoExtraida } from "@/lib/digitize.functions";
+import { Alternativa as AlternativaBase, DigitalizacaoExtraida, QuestaoExtraida } from "@/lib/digitize.functions";
 
-export type DraftQuestion = QuestaoExtraida & {
+export type Alternativa = AlternativaBase & { imagem?: string };
+
+export type DraftQuestion = Omit<QuestaoExtraida, "alternativas"> & {
   id?: string;
   disciplina?: string;
   conteudo?: string;
@@ -9,6 +11,9 @@ export type DraftQuestion = QuestaoExtraida & {
   prova?: string;
   instituicao?: string;
   observacoes?: string;
+  alternativas: Alternativa[];
+  enunciado_imagem?: string;
+  enunciado_imagem_pos?: "antes" | "depois";
 };
 export type DraftDigitization = {
   referencia_texto: string;

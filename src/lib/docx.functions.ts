@@ -5,6 +5,7 @@ import {
   Packer,
   Paragraph,
   TextRun,
+  ImageRun,
   Math as DocxMath,
   MathRun,
   MathSuperScript,
@@ -18,7 +19,7 @@ import {
   PageNumber,
 } from "docx";
 
-const Alt = z.object({ letra: z.string(), texto: z.string() });
+const Alt = z.object({ letra: z.string(), texto: z.string(), imagem: z.string().nullable().optional() });
 const QInput = z.object({
   id: z.string(),
   numero: z.string().nullable().optional(),
@@ -29,6 +30,8 @@ const QInput = z.object({
   referencia_texto: z.string().nullable().optional(),
   referencia_fonte: z.string().nullable().optional(),
   grupo_id: z.string().nullable().optional(),
+  enunciado_imagem: z.string().nullable().optional(),
+  enunciado_imagem_pos: z.string().nullable().optional(),
 });
 
 const Input = z.object({
@@ -236,6 +239,65 @@ function paragraphFromText(text: string, opts: TextOptions) {
   });
 }
 
+type ImgInfo = { buffer: Buffer; type: "png" | "jpg" | "gif" | "bmp"; width: number; height: number };
+
+function decodeDataUrl(dataUrl: string): ImgInfo | null {
+  const m = dataUrl.match(/^data:image\/(png|jpe?g|gif|bmp);base64,(.+)$/i);
+  if (!m) return null;
+  const ext = m[1].toLowerCase();
+  const type: ImgInfo["type"] = ext === "jpeg" || ext === "jpg" ? "jpg" : (ext as ImgInfo["type"]);
+  const buffer = Buffer.from(m[2], "base64");
+  const dims = readImageSize(buffer, type);
+  return { buffer, type, width: dims.w, height: dims.h };
+}
+
+function readImageSize(buf: Buffer, type: ImgInfo["type"]): { w: number; h: number } {
+  try {
+    if (type === "png" && buf.length >= 24) {
+      return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+    }
+    if (type === "jpg") {
+      let i = 2;
+      while (i < buf.length) {
+        if (buf[i] !== 0xff) { i++; continue; }
+        const marker = buf[i + 1];
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          return { w: buf.readUInt16BE(i + 7), h: buf.readUInt16BE(i + 5) };
+        }
+        i += 2 + buf.readUInt16BE(i + 2);
+      }
+    }
+    if (type === "gif" && buf.length >= 10) {
+      return { w: buf.readUInt16LE(6), h: buf.readUInt16LE(8) };
+    }
+  } catch {}
+  return { w: 400, h: 300 };
+}
+
+function imageParagraph(dataUrl: string, maxWidthPx: number, align: typeof AlignmentType[keyof typeof AlignmentType] = AlignmentType.CENTER, forceHeightPx?: number): Paragraph | null {
+  const img = decodeDataUrl(dataUrl);
+  if (!img) return null;
+  let width: number;
+  let height: number;
+  if (forceHeightPx) {
+    height = forceHeightPx;
+    width = Math.min(maxWidthPx, (img.width / img.height) * height);
+  } else {
+    const ratio = img.height / img.width;
+    width = Math.min(maxWidthPx, img.width);
+    height = width * ratio;
+  }
+  return new Paragraph({
+    alignment: align,
+    spacing: { after: 120 },
+    children: [new ImageRun({
+      type: img.type,
+      data: img.buffer,
+      transformation: { width: Math.round(width), height: Math.round(height) },
+    })],
+  });
+}
+
 export const generateDocx = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => Input.parse(d))
   .handler(async ({ data }) => {
@@ -243,6 +305,26 @@ export const generateDocx = createServerFn({ method: "POST" })
     const size = config.fontSize;
 
     const children: Paragraph[] = [];
+
+    // Content width on A4 with 1134 twip margins ≈ 9638 twips ≈ 642 px @96dpi
+    const CONTENT_WIDTH_PX = 640;
+
+    // Normalize alternative image heights across the whole document (same size = consistent layout)
+    let altImgHeightPx = 0;
+    for (const q of questions) {
+      for (const a of q.alternativas) {
+        if (a.imagem) {
+          const im = decodeDataUrl(a.imagem);
+          if (im) {
+            const targetWidth = Math.min(260, im.width);
+            const h = (targetWidth * im.height) / im.width;
+            if (h > altImgHeightPx) altImgHeightPx = h;
+          }
+        }
+      }
+    }
+    altImgHeightPx = Math.min(altImgHeightPx, 180); // cap
+
 
     // Header info
     if (config.instituicao) children.push(paragraphFromText(config.instituicao, { size, bold: true, align: AlignmentType.CENTER }));
@@ -289,17 +371,26 @@ export const generateDocx = createServerFn({ method: "POST" })
           ...(q.fonte ? [new TextRun({ text: `  (${q.fonte})`, size: (size - 1) * 2, italics: true, font: "Arial" })] : []),
         ],
       }));
+      const enunciadoImg = q.enunciado_imagem
+        ? imageParagraph(q.enunciado_imagem, CONTENT_WIDTH_PX, AlignmentType.CENTER)
+        : null;
+      if (enunciadoImg && q.enunciado_imagem_pos === "antes") children.push(enunciadoImg);
       children.push(paragraphFromText(q.enunciado, { size, spacingAfter: 120 }));
+      if (enunciadoImg && q.enunciado_imagem_pos !== "antes") children.push(enunciadoImg);
       q.alternativas.forEach((a) => {
         children.push(new Paragraph({
           alignment: AlignmentType.LEFT,
-          spacing: { after: 60, line: 280 },
+          spacing: { after: a.imagem ? 40 : 60, line: 280 },
           indent: { left: 360, hanging: 360 },
           children: [
             new TextRun({ text: `${a.letra}) `, size: size * 2, bold: true, font: "Arial" }),
             ...runsFromText(a.texto, { size }),
           ],
         }));
+        if (a.imagem && altImgHeightPx > 0) {
+          const im = imageParagraph(a.imagem, CONTENT_WIDTH_PX - 60, AlignmentType.LEFT, altImgHeightPx);
+          if (im) children.push(im);
+        }
       });
     });
 
