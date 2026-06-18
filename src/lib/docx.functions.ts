@@ -371,17 +371,26 @@ export const generateDocx = createServerFn({ method: "POST" })
           ...(q.fonte ? [new TextRun({ text: `  (${q.fonte})`, size: (size - 1) * 2, italics: true, font: "Arial" })] : []),
         ],
       }));
+      const enunciadoImg = q.enunciado_imagem
+        ? imageParagraph(q.enunciado_imagem, CONTENT_WIDTH_PX, AlignmentType.CENTER)
+        : null;
+      if (enunciadoImg && q.enunciado_imagem_pos === "antes") children.push(enunciadoImg);
       children.push(paragraphFromText(q.enunciado, { size, spacingAfter: 120 }));
+      if (enunciadoImg && q.enunciado_imagem_pos !== "antes") children.push(enunciadoImg);
       q.alternativas.forEach((a) => {
         children.push(new Paragraph({
           alignment: AlignmentType.LEFT,
-          spacing: { after: 60, line: 280 },
+          spacing: { after: a.imagem ? 40 : 60, line: 280 },
           indent: { left: 360, hanging: 360 },
           children: [
             new TextRun({ text: `${a.letra}) `, size: size * 2, bold: true, font: "Arial" }),
             ...runsFromText(a.texto, { size }),
           ],
         }));
+        if (a.imagem && altImgHeightPx > 0) {
+          const im = imageParagraph(a.imagem, CONTENT_WIDTH_PX - 60, AlignmentType.LEFT, altImgHeightPx);
+          if (im) children.push(im);
+        }
       });
     });
 
