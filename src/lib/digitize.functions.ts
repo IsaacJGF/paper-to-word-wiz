@@ -18,25 +18,42 @@ export type QuestaoExtraida = {
   tem_imagem: boolean;
   baixa_confianca: string[];
 };
+export type DigitalizacaoExtraida = {
+  referencia_texto: string;
+  referencia_fonte: string;
+  questoes: QuestaoExtraida[];
+};
 
 const SYSTEM = `Você é um OCR especializado em digitalização de questões de prova em português brasileiro.
 
-Analise a imagem fornecida e extraia a questão de forma estruturada. Retorne APENAS um objeto JSON válido com este formato exato:
+Analise a imagem fornecida e extraia a digitalização de forma estruturada. A imagem pode conter uma questão única OU um texto-base/referência seguido por vários itens numerados.
+
+Retorne APENAS um objeto JSON válido com este formato exato:
 
 {
-  "numero": "string (ex: \\"1\\", \\"15\\" ou \\"\\" se não houver)",
-  "enunciado": "string com o texto completo do enunciado, incluindo texto de apoio e comando",
-  "alternativas": [{"letra": "A", "texto": "..."}, ...],
-  "tipo": "multipla_escolha" | "certo_errado" | "numerica" | "discursiva",
-  "resposta": "string (gabarito se visível, senão \\"\\")",
-  "fonte": "string (instituição/prova/ano se visível, senão \\"\\")",
-  "tem_equacao": boolean,
-  "tem_imagem": boolean,
-  "baixa_confianca": ["trechos com baixa confiança de leitura"]
+  "referencia_texto": "texto-base, comando geral, tabela, descrição de imagem ou contexto comum aos itens; use \\"\\" se não houver",
+  "referencia_fonte": "fonte da referência, por exemplo Internet, ENEM, banca/ano; use \\"\\" se não houver",
+  "questoes": [
+    {
+      "numero": "string (ex: \\"1\\", \\"86\\" ou \\"\\" se não houver)",
+      "enunciado": "texto específico do item/questão, sem repetir a referência comum",
+      "alternativas": [{"letra": "A", "texto": "..."}, ...],
+      "tipo": "multipla_escolha" | "certo_errado" | "numerica" | "discursiva",
+      "resposta": "string (gabarito se visível, senão \\"\\")",
+      "fonte": "string (instituição/prova/ano se visível, senão \\"\\")",
+      "tem_equacao": boolean,
+      "tem_imagem": boolean,
+      "baixa_confianca": ["trechos com baixa confiança de leitura"]
+    }
+  ]
 }
 
 REGRAS CRÍTICAS:
 - NÃO invente texto, números ou símbolos que não estejam legíveis. Se um trecho estiver ilegível, escreva "[ilegível]" no local e adicione à lista "baixa_confianca".
+- Se houver um texto, imagem, tabela ou comando que vale para vários itens, coloque isso em "referencia_texto" e NÃO repita em cada "enunciado".
+- Em itens de julgamento como "julgue os próximos itens", use tipo "certo_errado", alternativas [] e crie uma questão para cada item numerado.
+- Se houver vários itens numerados (ex: 86, 87, 88), cada item deve virar um objeto próprio em "questoes".
+- Se houver apenas uma questão, retorne "questoes" com um único objeto.
 - Preserve equações usando notação LaTeX entre cifrões: $x^2 + 2x$ inline, ou $$\\frac{a}{b}$$ em linha separada.
 - Use letras gregas em LaTeX: $\\alpha$, $\\pi$, $\\Delta$.
 - Frações: $\\frac{numerador}{denominador}$. Potências: $x^{2}$. Índices: $H_{2}O$. Raízes: $\\sqrt{x}$.
@@ -61,25 +78,46 @@ export const digitizeQuestion = createServerFn({ method: "POST" })
       imageDataUrl: data.imageDataUrl,
     });
 
-    let parsed: QuestaoExtraida;
+    let parsed: DigitalizacaoExtraida | QuestaoExtraida;
     try {
-      parsed = extractJSON(raw) as QuestaoExtraida;
+      parsed = extractJSON(raw) as DigitalizacaoExtraida | QuestaoExtraida;
     } catch (e) {
       console.error("Falha ao parsear resposta da IA:", raw);
       throw new Error("A IA retornou um formato inválido. Tente novamente.");
     }
-    // Normalize defaults so downstream code is safe
-    parsed.numero = parsed.numero ?? "";
-    parsed.enunciado = parsed.enunciado ?? "";
-    parsed.alternativas = Array.isArray(parsed.alternativas) ? parsed.alternativas : [];
-    parsed.tipo = parsed.tipo ?? "discursiva";
-    parsed.resposta = parsed.resposta ?? "";
-    parsed.fonte = parsed.fonte ?? "";
-    parsed.tem_equacao = !!parsed.tem_equacao;
-    parsed.tem_imagem = !!parsed.tem_imagem;
-    parsed.baixa_confianca = Array.isArray(parsed.baixa_confianca) ? parsed.baixa_confianca : [];
-    return parsed;
+    return normalizeDigitization(parsed);
   });
+
+function normalizeQuestion(q: Partial<QuestaoExtraida>): QuestaoExtraida {
+  return {
+    numero: q.numero ?? "",
+    enunciado: q.enunciado ?? "",
+    alternativas: Array.isArray(q.alternativas) ? q.alternativas : [],
+    tipo: q.tipo ?? "discursiva",
+    resposta: q.resposta ?? "",
+    fonte: q.fonte ?? "",
+    tem_equacao: !!q.tem_equacao,
+    tem_imagem: !!q.tem_imagem,
+    baixa_confianca: Array.isArray(q.baixa_confianca) ? q.baixa_confianca : [],
+  };
+}
+
+function normalizeDigitization(parsed: DigitalizacaoExtraida | QuestaoExtraida): DigitalizacaoExtraida {
+  if ("questoes" in parsed && Array.isArray(parsed.questoes)) {
+    const questoes = parsed.questoes.map(normalizeQuestion);
+    return {
+      referencia_texto: parsed.referencia_texto ?? "",
+      referencia_fonte: parsed.referencia_fonte ?? "",
+      questoes: questoes.length > 0 ? questoes : [normalizeQuestion({})],
+    };
+  }
+
+  return {
+    referencia_texto: "",
+    referencia_fonte: "",
+    questoes: [normalizeQuestion(parsed)],
+  };
+}
 
 function extractJSON(raw: string): unknown {
   let cleaned = raw

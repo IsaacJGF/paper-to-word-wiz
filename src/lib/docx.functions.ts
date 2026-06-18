@@ -26,6 +26,9 @@ const QInput = z.object({
   alternativas: z.array(Alt),
   resposta: z.string().nullable().optional(),
   fonte: z.string().nullable().optional(),
+  referencia_texto: z.string().nullable().optional(),
+  referencia_fonte: z.string().nullable().optional(),
+  grupo_id: z.string().nullable().optional(),
 });
 
 const Input = z.object({
@@ -265,9 +268,19 @@ export const generateDocx = createServerFn({ method: "POST" })
       children.push(paragraphFromText(config.instrucoes, { size, spacingAfter: 240 }));
     }
 
+    const renderedReferences = new Set<string>();
+
     // Questions
     questions.forEach((q, idx) => {
       const n = idx + 1;
+      const referenceKey = q.grupo_id || q.referencia_texto || "";
+      if (q.referencia_texto && !renderedReferences.has(referenceKey)) {
+        renderedReferences.add(referenceKey);
+        children.push(paragraphFromText(q.referencia_texto, { size, align: AlignmentType.JUSTIFIED, spacingAfter: 100 }));
+        if (q.referencia_fonte) {
+          children.push(paragraphFromText(q.referencia_fonte, { size: size - 2, align: AlignmentType.RIGHT, spacingAfter: 180 }));
+        }
+      }
       children.push(new Paragraph({
         spacing: { before: config.espacamentoQuestoes, after: 100 },
         keepNext: true,
