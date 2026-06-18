@@ -331,6 +331,23 @@ function Page() {
           </div>
         </div>
       </div>
+      <ImageCropDialog
+        open={!!cropTarget}
+        imageUrl={draft.imageDataUrl}
+        title={cropTarget?.kind === "alt" ? `Recortar imagem da alternativa ${active.alternativas[cropTarget.index]?.letra ?? ""}` : "Recortar imagem do enunciado"}
+        onCancel={() => setCropTarget(null)}
+        onConfirm={(dataUrl) => {
+          if (!cropTarget) return;
+          if (cropTarget.kind === "enunciado") {
+            updateQuestion(activeIndex, (q) => ({ ...q, enunciado_imagem: dataUrl, enunciado_imagem_pos: cropTarget.pos }));
+          } else {
+            const copy = [...active.alternativas];
+            copy[cropTarget.index] = { ...copy[cropTarget.index], imagem: dataUrl };
+            updateQuestion(activeIndex, (q) => ({ ...q, alternativas: copy }));
+          }
+          setCropTarget(null);
+        }}
+      />
     </AppLayout>
   );
 }
