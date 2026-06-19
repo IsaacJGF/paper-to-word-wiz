@@ -13,6 +13,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { CATALOG_LABEL, CATALOG_TABLE, type CatalogKind, countUsage, renameInQuestions } from "@/lib/catalogos";
 
+// O cliente Supabase tipa `from(table)` por union — relaxamos para nomes dinâmicos de catálogo.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const db = supabase as any;
+
 export const Route = createFileRoute("/catalogos")({
   head: () => ({ meta: [{ title: "Catálogos" }] }),
   component: Page,
