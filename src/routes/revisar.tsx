@@ -94,7 +94,7 @@ function Page() {
 
   const relatedSelection = active.conteudos_relacionados ?? [];
   const tagSelection = active.tags_livres ?? [];
-    .slice(0, 10);
+    
 
   const updateDraft = <K extends keyof DraftDigitization>(k: K, v: DraftDigitization[K]) => setDraft({ ...draft, [k]: v });
   const updateQuestion = (idx: number, updater: (q: DraftQuestion) => DraftQuestion) => {
