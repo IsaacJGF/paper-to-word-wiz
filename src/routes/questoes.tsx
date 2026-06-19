@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/dialog";
 import { AppLayout } from "@/components/AppLayout";
 import { supabase } from "@/integrations/supabase/client";
+import { insertQuestionsWithCompatibility } from "@/lib/question-compat";
+import type { ImagePlacementLayout } from "@/lib/image-layout";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/questoes")({
@@ -24,19 +26,22 @@ export const Route = createFileRoute("/questoes")({
 
 type Q = {
   id: string; numero: string | null; enunciado: string;
-  alternativas: { letra: string; texto: string }[];
+  alternativas: { letra: string; texto: string; imagem?: string | null }[];
   tipo: string; resposta: string | null; fonte: string | null;
   disciplina: string | null; conteudo: string | null;
   area_geral?: string | null; conteudo_principal?: string | null; subconteudo_principal?: string | null;
-  conteudos_relacionados?: string[] | null; tags_livres?: string[] | null;
-  prova?: string | null; instituicao?: string | null;
+  conteudos_relacionados?: string[] | null; tags_livres?: string[] | null; tags?: string[] | null;
+  ano?: string | null; prova?: string | null; instituicao?: string | null; observacoes?: string | null;
   referencia_texto?: string | null; referencia_fonte?: string | null; grupo_id?: string | null;
+  referencia_imagem?: string | null; referencia_imagem_pos?: string | null; referencia_imagem_layout?: ImagePlacementLayout | null;
+  referencia_texto_apos?: string | null;
+  enunciado_imagem?: string | null; enunciado_imagem_pos?: string | null; enunciado_imagem_layout?: ImagePlacementLayout | null;
+  imagem_original_url?: string | null;
   tem_equacao: boolean; tem_imagem: boolean;
   created_at: string;
 };
 
 const SEL_KEY = "digitalizador.selecionadas";
-const REFERENCE_COLUMNS = ["referencia_texto", "referencia_fonte", "grupo_id"];
 const NO_CONTENT_FILTER = "__sem_conteudo__";
 function loadSel(): string[] { try { return JSON.parse(localStorage.getItem(SEL_KEY) ?? "[]"); } catch { return []; } }
 function saveSel(ids: string[]) { localStorage.setItem(SEL_KEY, JSON.stringify(ids)); }
@@ -100,29 +105,52 @@ function Page() {
 
   const onDuplicate = async (q: Q) => {
     const duplicated = {
-      numero: q.numero, enunciado: q.enunciado, alternativas: q.alternativas, tipo: q.tipo,
-      resposta: q.resposta, fonte: q.fonte, disciplina: q.disciplina, conteudo: q.conteudo,
-      referencia_texto: q.referencia_texto, referencia_fonte: q.referencia_fonte, grupo_id: q.grupo_id,
-      tem_equacao: q.tem_equacao, tem_imagem: q.tem_imagem,
+      numero: q.numero,
+      enunciado: q.enunciado,
+      alternativas: q.alternativas,
+      tipo: q.tipo,
+      resposta: q.resposta,
+      fonte: q.fonte,
+      disciplina: q.disciplina,
+      conteudo: q.conteudo,
+      dificuldade: null,
+      area_geral: q.area_geral ?? null,
+      conteudo_principal: q.conteudo_principal ?? null,
+      subconteudo_principal: q.subconteudo_principal ?? null,
+      conteudos_relacionados: q.conteudos_relacionados ?? [],
+      tags_livres: q.tags_livres ?? [],
+      tags: q.tags ?? q.tags_livres ?? null,
+      ano: q.ano ?? null,
+      prova: q.prova ?? null,
+      instituicao: q.instituicao ?? null,
+      observacoes: q.observacoes ?? null,
+      referencia_texto: q.referencia_texto ?? null,
+      referencia_fonte: q.referencia_fonte ?? null,
+      grupo_id: q.grupo_id ?? null,
+      referencia_imagem: q.referencia_imagem ?? null,
+      referencia_imagem_pos: q.referencia_imagem_pos ?? null,
+      referencia_imagem_layout: q.referencia_imagem_layout ?? null,
+      referencia_texto_apos: q.referencia_texto_apos ?? null,
+      enunciado_imagem: q.enunciado_imagem ?? null,
+      enunciado_imagem_pos: q.enunciado_imagem_pos ?? null,
+      enunciado_imagem_layout: q.enunciado_imagem_layout ?? null,
+      imagem_original_url: q.imagem_original_url ?? null,
+      tem_equacao: q.tem_equacao,
+      tem_imagem: q.tem_imagem,
     };
-    const { error } = await supabase.from("questions").insert(duplicated);
-    if (error) {
-      if (!isMissingReferenceColumnError(error)) {
-        toast.error("Falha ao duplicar");
-        return;
-      }
 
-      const { referencia_texto, referencia_fonte, grupo_id, ...legacyDuplicated } = duplicated;
-      const { error: retryError } = await supabase.from("questions").insert(legacyDuplicated);
-      if (retryError) {
-        toast.error("Falha ao duplicar");
-        return;
+    try {
+      const { removedColumns } = await insertQuestionsWithCompatibility([duplicated]);
+      if (removedColumns.length > 0) {
+        toast.warning("Questão duplicada. Alguns campos novos não foram gravados porque o banco ainda precisa da atualização.");
+      } else {
+        toast.success("Questão duplicada");
       }
-      toast.warning("Questão duplicada sem a referência comum, pois o banco ainda precisa da atualização.");
       load();
-      return;
+    } catch (error) {
+      console.error(error);
+      toast.error("Falha ao duplicar");
     }
-    toast.success("Questão duplicada"); load();
   };
 
   const openContentEditor = (question: Q) => {
@@ -284,14 +312,6 @@ function Page() {
       </div>
     </AppLayout>
   );
-}
-
-function isMissingReferenceColumnError(error: unknown) {
-  const message = String((error as { message?: string }).message ?? "");
-  const details = String((error as { details?: string }).details ?? "");
-  const hint = String((error as { hint?: string }).hint ?? "");
-  const text = `${message} ${details} ${hint}`.toLowerCase();
-  return REFERENCE_COLUMNS.some((column) => text.includes(column));
 }
 
 function getConteudos(question: Q) {

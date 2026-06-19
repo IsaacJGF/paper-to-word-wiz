@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { ImagePlacementLayout } from "@/lib/image-layout";
 
 export type QuestionInsertRow = Record<string, unknown>;
 
@@ -14,17 +15,21 @@ export type DocumentQuestion = {
   grupo_id: string | null;
   referencia_imagem: string | null;
   referencia_imagem_pos: string | null;
+  referencia_imagem_layout: ImagePlacementLayout | null;
   referencia_texto_apos: string | null;
   enunciado_imagem: string | null;
   enunciado_imagem_pos: string | null;
+  enunciado_imagem_layout: ImagePlacementLayout | null;
 };
 
 const OPTIONAL_INSERT_COLUMNS = [
   "referencia_imagem",
   "referencia_imagem_pos",
+  "referencia_imagem_layout",
   "referencia_texto_apos",
   "enunciado_imagem",
   "enunciado_imagem_pos",
+  "enunciado_imagem_layout",
   "area_geral",
   "conteudo_principal",
   "subconteudo_principal",
@@ -56,9 +61,11 @@ const DOCUMENT_FULL_SELECT = [
   "grupo_id",
   "referencia_imagem",
   "referencia_imagem_pos",
+  "referencia_imagem_layout",
   "referencia_texto_apos",
   "enunciado_imagem",
   "enunciado_imagem_pos",
+  "enunciado_imagem_layout",
 ].join(", ");
 
 const DOCUMENT_LEGACY_SELECT = [
@@ -108,7 +115,7 @@ export async function insertQuestionsWithCompatibility(rows: QuestionInsertRow[]
 }
 
 export async function fetchDocumentQuestions(ids: string[]): Promise<DocumentQuestion[]> {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("questions")
     .select(DOCUMENT_FULL_SELECT)
     .in("id", ids);
@@ -116,14 +123,14 @@ export async function fetchDocumentQuestions(ids: string[]): Promise<DocumentQue
   if (!error) return normalizeDocumentRows(data ?? []);
   if (!isMissingColumnError(error)) throw error;
 
-  const { data: legacyData, error: legacyError } = await supabase
+  const { data: legacyData, error: legacyError } = await db
     .from("questions")
     .select(DOCUMENT_LEGACY_SELECT)
     .in("id", ids);
   if (!legacyError) return normalizeDocumentRows(legacyData ?? []);
   if (!isMissingColumnError(legacyError)) throw legacyError;
 
-  const { data: baseData, error: baseError } = await supabase
+  const { data: baseData, error: baseError } = await db
     .from("questions")
     .select(DOCUMENT_BASE_SELECT)
     .in("id", ids);
@@ -145,9 +152,11 @@ function normalizeDocumentRows(rows: unknown[]): DocumentQuestion[] {
     grupo_id: row.grupo_id ?? null,
     referencia_imagem: row.referencia_imagem ?? null,
     referencia_imagem_pos: row.referencia_imagem_pos ?? null,
+    referencia_imagem_layout: row.referencia_imagem_layout ?? null,
     referencia_texto_apos: row.referencia_texto_apos ?? null,
     enunciado_imagem: row.enunciado_imagem ?? null,
     enunciado_imagem_pos: row.enunciado_imagem_pos ?? null,
+    enunciado_imagem_layout: row.enunciado_imagem_layout ?? null,
   }));
 }
 
