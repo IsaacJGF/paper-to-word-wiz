@@ -10,8 +10,8 @@ ADD COLUMN IF NOT EXISTS enunciado_imagem_pos TEXT,
 ADD COLUMN IF NOT EXISTS area_geral TEXT,
 ADD COLUMN IF NOT EXISTS conteudo_principal TEXT,
 ADD COLUMN IF NOT EXISTS subconteudo_principal TEXT,
-ADD COLUMN IF NOT EXISTS conteudos_relacionados TEXT[] NOT NULL DEFAULT '{}',
-ADD COLUMN IF NOT EXISTS tags_livres TEXT[] NOT NULL DEFAULT '{}';
+ADD COLUMN IF NOT EXISTS conteudos_relacionados TEXT[] NOT NULL DEFAULT '{}'::text[],
+ADD COLUMN IF NOT EXISTS tags_livres TEXT[] NOT NULL DEFAULT '{}'::text[];
 
 CREATE INDEX IF NOT EXISTS questions_grupo_id_idx ON public.questions (grupo_id);
 CREATE INDEX IF NOT EXISTS questions_area_geral_idx ON public.questions (area_geral);
