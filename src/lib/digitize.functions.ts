@@ -26,7 +26,7 @@ export type DigitalizacaoExtraida = {
 
 const SYSTEM = `Você é um OCR especializado em digitalização de questões de prova em português brasileiro.
 
-Analise a imagem fornecida e extraia a digitalização de forma estruturada. A imagem pode conter uma questão única OU um texto-base/referência seguido por vários itens numerados.
+Analise a imagem fornecida e extraia a digitalização de forma estruturada. A imagem pode conter uma questão única, um texto-base/referência seguido por vários itens numerados, OU uma montagem vertical com partes sequenciais da mesma questão.
 
 Retorne APENAS um objeto JSON válido com este formato exato:
 
@@ -50,6 +50,8 @@ Retorne APENAS um objeto JSON válido com este formato exato:
 
 REGRAS CRÍTICAS:
 - NÃO invente texto, números ou símbolos que não estejam legíveis. Se um trecho estiver ilegível, escreva "[ilegível]" no local e adicione à lista "baixa_confianca".
+- Se a imagem tiver marcadores como "Parte 1 de 3", "Parte 2 de 3", etc., leia essas partes como sequência contínua da mesma questão/referência. Não trate cada parte como uma nova questão apenas por causa do marcador.
+- Se houver quebra entre partes sequenciais, junte o texto na ordem visual de cima para baixo.
 - Se houver um texto, imagem, tabela ou comando que vale para vários itens, coloque isso em "referencia_texto" e NÃO repita em cada "enunciado".
 - Em itens de julgamento como "julgue os próximos itens", use tipo "certo_errado", alternativas [] e crie uma questão para cada item numerado.
 - Se houver vários itens numerados (ex: 86, 87, 88), cada item deve virar um objeto próprio em "questoes".
@@ -74,7 +76,7 @@ export const digitizeQuestion = createServerFn({ method: "POST" })
       apiKey,
       model: "google/gemini-2.5-flash",
       systemPrompt: SYSTEM,
-      userText: "Digitalize esta questão seguindo as regras do sistema.",
+      userText: "Digitalize esta questão seguindo as regras do sistema. Se a imagem tiver partes sequenciais, leia de cima para baixo e una o conteúdo na ordem correta.",
       imageDataUrl: data.imageDataUrl,
     });
 
