@@ -295,11 +295,12 @@ function isMissingReferenceColumnError(error: unknown) {
 }
 
 function getConteudos(question: Q) {
-  const linked = question.question_contents
-    ?.map((item) => item.contents?.nome)
-    .filter((nome): nome is string => !!nome?.trim()) ?? [];
+  const principal = (question.conteudo_principal ?? "").trim();
+  const sub = (question.subconteudo_principal ?? "").trim();
+  const related = (question.conteudos_relacionados ?? []).map((s) => s.trim()).filter(Boolean);
   const direct = splitConteudos(question.conteudo);
-  return Array.from(new Set([...linked, ...direct])).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const all = [principal, sub, ...related, ...direct].filter(Boolean);
+  return Array.from(new Set(all)).sort((a, b) => a.localeCompare(b, "pt-BR"));
 }
 
 function splitConteudos(value: string | null) {
