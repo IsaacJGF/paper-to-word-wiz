@@ -1,6 +1,7 @@
 import { Alternativa as AlternativaBase, DigitalizacaoExtraida, QuestaoExtraida } from "@/lib/digitize.functions";
 
 export type Alternativa = AlternativaBase & { imagem?: string };
+export type ReferenceImagePosition = "antes" | "entre" | "depois";
 
 export type DraftQuestion = Omit<QuestaoExtraida, "alternativas"> & {
   id?: string;
@@ -23,6 +24,9 @@ export type DraftQuestion = Omit<QuestaoExtraida, "alternativas"> & {
 export type DraftDigitization = {
   referencia_texto: string;
   referencia_fonte: string;
+  referencia_imagem?: string;
+  referencia_imagem_pos?: ReferenceImagePosition;
+  referencia_texto_apos?: string;
   imageDataUrl?: string;
   questoes: DraftQuestion[];
 };
@@ -47,6 +51,9 @@ function normalizeDraft(draft: DraftDigitization | DraftQuestion): DraftDigitiza
     return {
       referencia_texto: draft.referencia_texto ?? "",
       referencia_fonte: draft.referencia_fonte ?? "",
+      referencia_imagem: draft.referencia_imagem,
+      referencia_imagem_pos: draft.referencia_imagem_pos,
+      referencia_texto_apos: draft.referencia_texto_apos ?? "",
       imageDataUrl: draft.imageDataUrl,
       questoes: draft.questoes.length > 0 ? draft.questoes : [{
         numero: "",
@@ -65,6 +72,9 @@ function normalizeDraft(draft: DraftDigitization | DraftQuestion): DraftDigitiza
   return {
     referencia_texto: "",
     referencia_fonte: "",
+    referencia_imagem: undefined,
+    referencia_imagem_pos: undefined,
+    referencia_texto_apos: "",
     imageDataUrl: undefined,
     questoes: [draft as DraftQuestion],
   };
