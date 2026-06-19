@@ -179,7 +179,6 @@ function CatalogManager({ kind }: { kind: CatalogKind }) {
       const patch: Record<string, unknown> = { nome };
       if (kind === "conteudo") patch.area_id = editParentId;
       if (kind === "subconteudo") patch.conteudo_id = editParentId;
-      // @ts-expect-error patch dinâmico
       const { error } = await db.from(table).update(patch).eq("id", editing.id);
       if (error) throw error;
       // Cascata: renomear nas questões
