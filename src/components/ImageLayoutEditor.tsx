@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { ImagePlacementLayout, normalizeImagePlacementLayout } from "@/lib/image-layout";
+import type { ImagePlacementLayout } from "@/lib/image-layout";
+import { normalizeImagePlacementLayout } from "@/lib/image-layout";
 
 type Handle = "nw" | "ne" | "sw" | "se";
 type DragAction =
@@ -37,6 +38,16 @@ export function ImageLayoutEditor({ imageUrl, layout, text, placeholder, onLayou
   const onMove = (event: React.PointerEvent) => {
     if (!action || !containerRef.current) return;
     const bounds = containerRef.current.getBoundingClientRect();
+
+    if (action.type === "rotate") {
+      const angle = pointerAngle(event.clientX, event.clientY, bounds, action.start);
+      onLayoutChange(normalizeImagePlacementLayout({
+        ...action.start,
+        rotation: action.start.rotation + angle - action.startAngle,
+      }));
+      return;
+    }
+
     const dx = ((event.clientX - action.pointerX) / bounds.width) * 100;
     const dy = ((event.clientY - action.pointerY) / bounds.height) * 100;
 
@@ -49,16 +60,7 @@ export function ImageLayoutEditor({ imageUrl, layout, text, placeholder, onLayou
       return;
     }
 
-    if (action.type === "resize") {
-      onLayoutChange(resizeFromHandle(action.start, action.handle, dx, dy));
-      return;
-    }
-
-    const angle = pointerAngle(event.clientX, event.clientY, bounds, action.start);
-    onLayoutChange(normalizeImagePlacementLayout({
-      ...action.start,
-      rotation: action.start.rotation + angle - action.startAngle,
-    }));
+    onLayoutChange(resizeFromHandle(action.start, action.handle, dx, dy));
   };
 
   const endDrag = (event: React.PointerEvent) => {
