@@ -27,25 +27,17 @@ type Q = {
   alternativas: { letra: string; texto: string }[];
   tipo: string; resposta: string | null; fonte: string | null;
   disciplina: string | null; conteudo: string | null;
+  area_geral?: string | null; conteudo_principal?: string | null; subconteudo_principal?: string | null;
+  conteudos_relacionados?: string[] | null; tags_livres?: string[] | null;
+  prova?: string | null; instituicao?: string | null;
   referencia_texto?: string | null; referencia_fonte?: string | null; grupo_id?: string | null;
-  question_contents?: { contents: { nome: string } | null }[];
   tem_equacao: boolean; tem_imagem: boolean;
   created_at: string;
 };
 
 const SEL_KEY = "digitalizador.selecionadas";
 const REFERENCE_COLUMNS = ["referencia_texto", "referencia_fonte", "grupo_id"];
-const QUESTION_SELECT = "*, question_contents(contents(nome))";
 const NO_CONTENT_FILTER = "__sem_conteudo__";
-const CONTENT_SUGGESTIONS = [
-  "Cinemática",
-  "Dinâmica",
-  "Eletrostática",
-  "Termologia",
-  "Ondulatória",
-  "Gravitação",
-  "Hidrostática",
-];
 function loadSel(): string[] { try { return JSON.parse(localStorage.getItem(SEL_KEY) ?? "[]"); } catch { return []; } }
 function saveSel(ids: string[]) { localStorage.setItem(SEL_KEY, JSON.stringify(ids)); }
 
@@ -62,12 +54,7 @@ function Page() {
 
   const load = async () => {
     setLoading(true);
-    let { data, error } = await supabase.from("questions").select(QUESTION_SELECT).order("created_at", { ascending: false });
-    if (error) {
-      const retry = await supabase.from("questions").select("*").order("created_at", { ascending: false });
-      data = retry.data;
-      error = retry.error;
-    }
+    const { data, error } = await supabase.from("questions").select("*").order("created_at", { ascending: false });
     if (error) toast.error("Falha ao carregar"); else setItems((data ?? []) as unknown as Q[]);
     setLoading(false);
   };
@@ -82,7 +69,7 @@ function Page() {
   }, [items]);
 
   const conteudos = useMemo(() => {
-    const s = new Set<string>(CONTENT_SUGGESTIONS);
+    const s = new Set<string>();
     items.forEach((i) => getConteudos(i).forEach((c) => s.add(c)));
     return [...s].sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [items]);
@@ -155,7 +142,7 @@ function Page() {
     setItems((current) =>
       current.map((item) =>
         item.id === editingContent.id
-          ? { ...item, conteudo, question_contents: conteudo ? [{ contents: { nome: conteudo } }] : [] }
+          ? { ...item, conteudo }
           : item,
       ),
     );
@@ -308,11 +295,12 @@ function isMissingReferenceColumnError(error: unknown) {
 }
 
 function getConteudos(question: Q) {
-  const linked = question.question_contents
-    ?.map((item) => item.contents?.nome)
-    .filter((nome): nome is string => !!nome?.trim()) ?? [];
+  const principal = (question.conteudo_principal ?? "").trim();
+  const sub = (question.subconteudo_principal ?? "").trim();
+  const related = (question.conteudos_relacionados ?? []).map((s) => s.trim()).filter(Boolean);
   const direct = splitConteudos(question.conteudo);
-  return Array.from(new Set([...linked, ...direct])).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const all = [principal, sub, ...related, ...direct].filter(Boolean);
+  return Array.from(new Set(all)).sort((a, b) => a.localeCompare(b, "pt-BR"));
 }
 
 function splitConteudos(value: string | null) {

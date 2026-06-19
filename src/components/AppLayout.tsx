@@ -1,11 +1,12 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { ScanLine, Library, FileText } from "lucide-react";
+import { ScanLine, Library, FileText, BookMarked } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 const tabs = [
   { to: "/", label: "Digitalizar", icon: ScanLine },
   { to: "/questoes", label: "Questões salvas", icon: Library },
+  { to: "/catalogos", label: "Catálogos", icon: BookMarked },
   { to: "/documento", label: "Criar documento", icon: FileText },
 ] as const;
 

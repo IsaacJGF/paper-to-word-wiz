@@ -14,11 +14,204 @@ export type Database = {
   }
   public: {
     Tables: {
+      catalog_areas: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          id: string
+          nome: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          nome: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          nome?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      catalog_conteudos: {
+        Row: {
+          area_id: string
+          ativo: boolean
+          created_at: string
+          id: string
+          nome: string
+          updated_at: string
+        }
+        Insert: {
+          area_id: string
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          nome: string
+          updated_at?: string
+        }
+        Update: {
+          area_id?: string
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          nome?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catalog_conteudos_area_id_fkey"
+            columns: ["area_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      catalog_instituicoes: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          id: string
+          nome: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          nome: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          nome?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      catalog_provas: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          id: string
+          nome: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          nome: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          nome?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      catalog_relacionados: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          id: string
+          nome: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          nome: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          nome?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      catalog_subconteudos: {
+        Row: {
+          ativo: boolean
+          conteudo_id: string
+          created_at: string
+          id: string
+          nome: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          conteudo_id: string
+          created_at?: string
+          id?: string
+          nome: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          conteudo_id?: string
+          created_at?: string
+          id?: string
+          nome?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catalog_subconteudos_conteudo_id_fkey"
+            columns: ["conteudo_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_conteudos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      catalog_tags: {
+        Row: {
+          ativo: boolean
+          created_at: string
+          id: string
+          nome: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          nome: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean
+          created_at?: string
+          id?: string
+          nome?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       questions: {
         Row: {
           alternativas: Json
           ano: string | null
+          area_geral: string | null
           conteudo: string | null
+          conteudo_principal: string | null
+          conteudos_relacionados: string[]
           created_at: string
           dificuldade: string | null
           disciplina: string | null
@@ -36,7 +229,9 @@ export type Database = {
           referencia_fonte: string | null
           referencia_texto: string | null
           resposta: string | null
+          subconteudo_principal: string | null
           tags: string[] | null
+          tags_livres: string[]
           tem_equacao: boolean
           tem_imagem: boolean
           tipo: string
@@ -45,7 +240,10 @@ export type Database = {
         Insert: {
           alternativas?: Json
           ano?: string | null
+          area_geral?: string | null
           conteudo?: string | null
+          conteudo_principal?: string | null
+          conteudos_relacionados?: string[]
           created_at?: string
           dificuldade?: string | null
           disciplina?: string | null
@@ -63,7 +261,9 @@ export type Database = {
           referencia_fonte?: string | null
           referencia_texto?: string | null
           resposta?: string | null
+          subconteudo_principal?: string | null
           tags?: string[] | null
+          tags_livres?: string[]
           tem_equacao?: boolean
           tem_imagem?: boolean
           tipo?: string
@@ -72,7 +272,10 @@ export type Database = {
         Update: {
           alternativas?: Json
           ano?: string | null
+          area_geral?: string | null
           conteudo?: string | null
+          conteudo_principal?: string | null
+          conteudos_relacionados?: string[]
           created_at?: string
           dificuldade?: string | null
           disciplina?: string | null
@@ -90,7 +293,9 @@ export type Database = {
           referencia_fonte?: string | null
           referencia_texto?: string | null
           resposta?: string | null
+          subconteudo_principal?: string | null
           tags?: string[] | null
+          tags_livres?: string[]
           tem_equacao?: boolean
           tem_imagem?: boolean
           tipo?: string
@@ -103,7 +308,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      count_catalog_usage: {
+        Args: { _kind: string; _name: string }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never

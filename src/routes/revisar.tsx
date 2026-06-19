@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Save, Trash2, Plus, GripVertical, AlertTriangle, ImagePlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,50 +18,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AppLayout } from "@/components/AppLayout";
 import { ImageCropDialog } from "@/components/ImageCropDialog";
+import { CatalogSelect, CatalogMultiSelect } from "@/components/CatalogSelect";
 import { loadDraft, clearDraft, LETRAS, reletter, DraftDigitization, DraftQuestion } from "@/lib/draft-store";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-const PEDAGOGICAL_TREE: Record<string, Record<string, string[]>> = {
-  Física: {
-    Cinemática: ["Movimento uniforme", "Movimento uniformemente variado", "Lançamentos", "Movimento circular"],
-    Dinâmica: ["Leis de Newton", "Força de atrito", "Trabalho e energia", "Impulso e quantidade de movimento"],
-    Eletrostática: ["Carga elétrica", "Campo elétrico", "Potencial elétrico", "Capacitores"],
-    Termologia: ["Temperatura e calor", "Dilatação térmica", "Calorimetria", "Gases"],
-    Ondulatória: ["Ondas mecânicas", "Som", "Interferência", "Efeito Doppler"],
-    Gravitação: ["Leis de Kepler", "Lei da gravitação universal", "Campo gravitacional"],
-    Hidrostática: ["Pressão", "Teorema de Stevin", "Princípio de Pascal", "Empuxo"],
-  },
-  Química: {
-    "Química geral": ["Estrutura atômica", "Tabela periódica", "Ligações químicas", "Funções inorgânicas"],
-    "Físico-química": ["Soluções", "Termoquímica", "Cinética química", "Equilíbrio químico"],
-    "Química orgânica": ["Funções orgânicas", "Isomeria", "Reações orgânicas", "Polímeros"],
-  },
-  Biologia: {
-    Citologia: ["Membrana plasmática", "Organelas", "Divisão celular", "Metabolismo celular"],
-    Genética: ["Leis de Mendel", "Heredogramas", "DNA e RNA", "Biotecnologia"],
-    Ecologia: ["Cadeias alimentares", "Ciclos biogeoquímicos", "Relações ecológicas", "Impactos ambientais"],
-  },
-  Matemática: {
-    Álgebra: ["Equações", "Funções", "Sistemas lineares", "Polinômios"],
-    Geometria: ["Geometria plana", "Geometria espacial", "Geometria analítica", "Trigonometria"],
-    Estatística: ["Média e mediana", "Probabilidade", "Análise combinatória", "Gráficos e tabelas"],
-  },
-  Português: {
-    Gramática: ["Morfologia", "Sintaxe", "Pontuação", "Concordância"],
-    Literatura: ["Escolas literárias", "Interpretação literária", "Autores e obras", "Figuras de linguagem"],
-    "Leitura e produção": ["Interpretação de texto", "Gêneros textuais", "Coesão e coerência", "Argumentação"],
-  },
-  História: {
-    "História geral": ["Antiguidade", "Idade Média", "Idade Moderna", "Idade Contemporânea"],
-    "História do Brasil": ["Brasil Colônia", "Brasil Império", "República", "Ditadura militar"],
-  },
-  Geografia: {
-    "Geografia física": ["Clima", "Relevo", "Hidrografia", "Biomas"],
-    "Geografia humana": ["Urbanização", "População", "Globalização", "Geopolítica"],
-    Cartografia: ["Escalas", "Coordenadas geográficas", "Fusos horários", "Projeções cartográficas"],
-  },
-};
+type CatalogItem = { id: string; nome: string; ativo: boolean; area_id?: string; conteudo_id?: string };
 
 export const Route = createFileRoute("/revisar")({
   head: () => ({ meta: [{ title: "Revisar questão" }] }),
@@ -74,13 +36,20 @@ function Page() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [saving, setSaving] = useState(false);
   const [classificationDialogOpen, setClassificationDialogOpen] = useState(false);
-  const [relatedQuery, setRelatedQuery] = useState("");
-  const [tagInput, setTagInput] = useState("");
   const [cropTarget, setCropTarget] = useState<
     | { kind: "enunciado"; pos: "antes" | "depois" }
     | { kind: "alt"; index: number }
     | null
   >(null);
+
+  // Catálogos
+  const [areas, setAreas] = useState<CatalogItem[]>([]);
+  const [conteudos, setConteudos] = useState<CatalogItem[]>([]);
+  const [subconteudos, setSubconteudos] = useState<CatalogItem[]>([]);
+  const [relacionados, setRelacionados] = useState<CatalogItem[]>([]);
+  const [tagsCat, setTagsCat] = useState<CatalogItem[]>([]);
+  const [provas, setProvas] = useState<CatalogItem[]>([]);
+  const [instituicoes, setInstituicoes] = useState<CatalogItem[]>([]);
 
   useEffect(() => {
     const d = loadDraft();
@@ -91,26 +60,41 @@ function Page() {
     setDraft(d);
   }, [navigate]);
 
-  const allPedagogicalContents = useMemo(() => {
-    const names = Object.values(PEDAGOGICAL_TREE).flatMap((contents) =>
-      Object.entries(contents).flatMap(([content, subcontents]) => [content, ...subcontents]),
-    );
-    return [...new Set(names)].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  useEffect(() => {
+    (async () => {
+      const tables = [
+        ["catalog_areas", setAreas],
+        ["catalog_conteudos", setConteudos],
+        ["catalog_subconteudos", setSubconteudos],
+        ["catalog_relacionados", setRelacionados],
+        ["catalog_tags", setTagsCat],
+        ["catalog_provas", setProvas],
+        ["catalog_instituicoes", setInstituicoes],
+      ] as const;
+      for (const [t, set] of tables) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data, error } = await (supabase as any).from(t).select("*").order("nome");
+        if (!error) set((data ?? []) as CatalogItem[]);
+      }
+    })();
   }, []);
 
   if (!draft) return null;
   const active = draft.questoes[Math.min(activeIndex, draft.questoes.length - 1)];
-  const areaOptions = Object.keys(PEDAGOGICAL_TREE);
-  const contentOptions = active.area_geral ? Object.keys(PEDAGOGICAL_TREE[active.area_geral] ?? {}) : [];
-  const subcontentOptions = active.area_geral && active.conteudo_principal
-    ? PEDAGOGICAL_TREE[active.area_geral]?.[active.conteudo_principal] ?? []
+
+  // Filtros hierárquicos por NOME (não por id) — as colunas em questions guardam o nome
+  const areaItem = areas.find((a) => a.nome === active.area_geral);
+  const conteudoOptions = areaItem
+    ? conteudos.filter((c) => c.area_id === areaItem.id)
     : [];
+  const conteudoItem = conteudoOptions.find((c) => c.nome === active.conteudo_principal);
+  const subOptions = conteudoItem
+    ? subconteudos.filter((s) => s.conteudo_id === conteudoItem.id)
+    : [];
+
   const relatedSelection = active.conteudos_relacionados ?? [];
   const tagSelection = active.tags_livres ?? [];
-  const relatedOptions = allPedagogicalContents
-    .filter((name) => name.toLowerCase().includes(relatedQuery.trim().toLowerCase()))
-    .filter((name) => name !== active.conteudo_principal && name !== active.subconteudo_principal)
-    .slice(0, 10);
+    
 
   const updateDraft = <K extends keyof DraftDigitization>(k: K, v: DraftDigitization[K]) => setDraft({ ...draft, [k]: v });
   const updateQuestion = (idx: number, updater: (q: DraftQuestion) => DraftQuestion) => {
@@ -139,23 +123,9 @@ function Page() {
     }));
   };
 
-  const toggleRelatedContent = (content: string) => {
-    const next = relatedSelection.includes(content)
-      ? relatedSelection.filter((item) => item !== content)
-      : [...relatedSelection, content];
-    update("conteudos_relacionados", next);
-  };
+  const setRelacionadosSel = (next: string[]) => update("conteudos_relacionados", next);
+  const setTagsSel = (next: string[]) => update("tags_livres", next);
 
-  const addTag = () => {
-    const tag = tagInput.trim();
-    if (!tag || tagSelection.includes(tag)) return;
-    update("tags_livres", [...tagSelection, tag]);
-    setTagInput("");
-  };
-
-  const removeTag = (tag: string) => {
-    update("tags_livres", tagSelection.filter((item) => item !== tag));
-  };
 
   const updateAlt = (i: number, key: "letra" | "texto", v: string) => {
     const copy = [...active.alternativas];
@@ -440,105 +410,73 @@ function Page() {
                 <div className="grid sm:grid-cols-3 gap-2">
                   <div>
                     <Label>Área geral *</Label>
-                    <Select value={active.area_geral ?? ""} onValueChange={updateArea}>
-                      <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                      <SelectContent>
-                        {areaOptions.map((area) => <SelectItem key={area} value={area}>{area}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <CatalogSelect
+                      value={active.area_geral ?? ""}
+                      onChange={updateArea}
+                      options={areas}
+                    />
                   </div>
                   <div>
                     <Label>Conteúdo principal *</Label>
-                    <Select value={active.conteudo_principal ?? ""} onValueChange={updateMainContent} disabled={!active.area_geral}>
-                      <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                      <SelectContent>
-                        {contentOptions.map((content) => <SelectItem key={content} value={content}>{content}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <CatalogSelect
+                      value={active.conteudo_principal ?? ""}
+                      onChange={updateMainContent}
+                      options={conteudoOptions}
+                      disabled={!active.area_geral}
+                      emptyHint={active.area_geral ? "Nenhum conteúdo cadastrado para esta área." : "Selecione uma área primeiro."}
+                    />
                   </div>
                   <div>
                     <Label>Subconteúdo principal *</Label>
-                    <Select value={active.subconteudo_principal ?? ""} onValueChange={(v) => update("subconteudo_principal", v)} disabled={!active.conteudo_principal}>
-                      <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                      <SelectContent>
-                        {subcontentOptions.map((subcontent) => <SelectItem key={subcontent} value={subcontent}>{subcontent}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <CatalogSelect
+                      value={active.subconteudo_principal ?? ""}
+                      onChange={(v) => update("subconteudo_principal", v)}
+                      options={subOptions}
+                      disabled={!active.conteudo_principal}
+                      emptyHint={active.conteudo_principal ? "Nenhum subconteúdo cadastrado para este conteúdo." : "Selecione um conteúdo principal primeiro."}
+                    />
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <Label>Conteúdos relacionados</Label>
-                  <Input
-                    value={relatedQuery}
-                    onChange={(e) => setRelatedQuery(e.target.value)}
-                    placeholder="Buscar e adicionar vários conteúdos"
+                  <CatalogMultiSelect
+                    values={relatedSelection}
+                    onChange={setRelacionadosSel}
+                    options={relacionados}
                   />
-                  <div className="flex flex-wrap gap-2">
-                    {relatedSelection.map((content) => (
-                      <button
-                        key={content}
-                        type="button"
-                        onClick={() => toggleRelatedContent(content)}
-                        className="inline-flex items-center gap-1 rounded-full border bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
-                      >
-                        {content}<X className="size-3" />
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {relatedOptions.map((content) => {
-                      const selected = relatedSelection.includes(content);
-                      return (
-                        <Button
-                          key={content}
-                          type="button"
-                          size="sm"
-                          variant={selected ? "default" : "outline"}
-                          className="h-7 rounded-full px-3 text-xs"
-                          onClick={() => toggleRelatedContent(content)}
-                        >
-                          {selected ? "Remover" : "Adicionar"} {content}
-                        </Button>
-                      );
-                    })}
-                  </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Tags livres</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={tagInput}
-                      onChange={(e) => setTagInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          addTag();
-                        }
-                      }}
-                      placeholder="Adicionar tags"
-                    />
-                    <Button type="button" variant="outline" onClick={addTag} className="gap-1"><Plus className="size-3" /> Adicionar</Button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {tagSelection.map((tag) => (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => removeTag(tag)}
-                        className="inline-flex items-center gap-1 rounded-full border bg-muted px-2.5 py-1 text-xs font-medium"
-                      >
-                        {tag}<X className="size-3" />
-                      </button>
-                    ))}
-                  </div>
+                  <Label>Tags</Label>
+                  <CatalogMultiSelect
+                    values={tagSelection}
+                    onChange={setTagsSel}
+                    options={tagsCat}
+                  />
                 </div>
 
                 <div className="grid sm:grid-cols-3 gap-2">
-                  <div><Label>Ano</Label><Input value={active.ano ?? ""} onChange={(e) => update("ano", e.target.value)} /></div>
-                  <div><Label>Prova</Label><Input value={active.prova ?? ""} onChange={(e) => update("prova", e.target.value)} /></div>
-                  <div><Label>Instituição</Label><Input value={active.instituicao ?? ""} onChange={(e) => update("instituicao", e.target.value)} /></div>
+                  <div>
+                    <Label>Ano</Label>
+                    <Input value={active.ano ?? ""} onChange={(e) => update("ano", e.target.value)} placeholder="2023" />
+                  </div>
+                  <div>
+                    <Label>Prova</Label>
+                    <CatalogSelect
+                      value={active.prova ?? ""}
+                      onChange={(v) => update("prova", v)}
+                      options={provas}
+                    />
+                  </div>
+                  <div>
+                    <Label>Instituição</Label>
+                    <CatalogSelect
+                      value={active.instituicao ?? ""}
+                      onChange={(v) => update("instituicao", v)}
+                      options={instituicoes}
+                    />
+                  </div>
                 </div>
 
                 <div><Label>Observações</Label><Textarea rows={2} value={active.observacoes ?? ""} onChange={(e) => update("observacoes", e.target.value)} /></div>
