@@ -29,6 +29,9 @@ const QInput = z.object({
   fonte: z.string().nullable().optional(),
   referencia_texto: z.string().nullable().optional(),
   referencia_fonte: z.string().nullable().optional(),
+  referencia_imagem: z.string().nullable().optional(),
+  referencia_imagem_pos: z.string().nullable().optional(),
+  referencia_texto_apos: z.string().nullable().optional(),
   grupo_id: z.string().nullable().optional(),
   enunciado_imagem: z.string().nullable().optional(),
   enunciado_imagem_pos: z.string().nullable().optional(),
@@ -355,10 +358,21 @@ export const generateDocx = createServerFn({ method: "POST" })
     // Questions
     questions.forEach((q, idx) => {
       const n = idx + 1;
-      const referenceKey = q.grupo_id || q.referencia_texto || "";
-      if (q.referencia_texto && !renderedReferences.has(referenceKey)) {
+      const hasReference = Boolean(q.referencia_texto || q.referencia_texto_apos || q.referencia_imagem);
+      const referenceKey = q.grupo_id || [q.referencia_texto, q.referencia_texto_apos, q.referencia_imagem].filter(Boolean).join("|");
+      if (hasReference && !renderedReferences.has(referenceKey)) {
         renderedReferences.add(referenceKey);
-        children.push(paragraphFromText(q.referencia_texto, { size, align: AlignmentType.JUSTIFIED, spacingAfter: 100 }));
+        const referenceImage = q.referencia_imagem ? imageParagraph(q.referencia_imagem, CONTENT_WIDTH_PX, AlignmentType.CENTER) : null;
+        const imagePos = q.referencia_imagem_pos ?? "depois";
+        if (referenceImage && imagePos === "antes") children.push(referenceImage);
+        if (q.referencia_texto) {
+          children.push(paragraphFromText(q.referencia_texto, { size, align: AlignmentType.JUSTIFIED, spacingAfter: 100 }));
+        }
+        if (referenceImage && imagePos === "entre") children.push(referenceImage);
+        if (q.referencia_texto_apos) {
+          children.push(paragraphFromText(q.referencia_texto_apos, { size, align: AlignmentType.JUSTIFIED, spacingAfter: 100 }));
+        }
+        if (referenceImage && imagePos !== "antes" && imagePos !== "entre") children.push(referenceImage);
         if (q.referencia_fonte) {
           children.push(paragraphFromText(q.referencia_fonte, { size: size - 2, align: AlignmentType.RIGHT, spacingAfter: 180 }));
         }
