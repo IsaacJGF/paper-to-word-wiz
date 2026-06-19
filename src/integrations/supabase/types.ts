@@ -18,10 +18,7 @@ export type Database = {
         Row: {
           alternativas: Json
           ano: string | null
-          area_geral: string | null
           conteudo: string | null
-          conteudo_principal: string | null
-          conteudos_relacionados: string[]
           created_at: string
           dificuldade: string | null
           disciplina: string | null
@@ -39,9 +36,7 @@ export type Database = {
           referencia_fonte: string | null
           referencia_texto: string | null
           resposta: string | null
-          subconteudo_principal: string | null
           tags: string[] | null
-          tags_livres: string[]
           tem_equacao: boolean
           tem_imagem: boolean
           tipo: string
@@ -50,10 +45,7 @@ export type Database = {
         Insert: {
           alternativas?: Json
           ano?: string | null
-          area_geral?: string | null
           conteudo?: string | null
-          conteudo_principal?: string | null
-          conteudos_relacionados?: string[]
           created_at?: string
           dificuldade?: string | null
           disciplina?: string | null
@@ -71,9 +63,7 @@ export type Database = {
           referencia_fonte?: string | null
           referencia_texto?: string | null
           resposta?: string | null
-          subconteudo_principal?: string | null
           tags?: string[] | null
-          tags_livres?: string[]
           tem_equacao?: boolean
           tem_imagem?: boolean
           tipo?: string
@@ -82,10 +72,7 @@ export type Database = {
         Update: {
           alternativas?: Json
           ano?: string | null
-          area_geral?: string | null
           conteudo?: string | null
-          conteudo_principal?: string | null
-          conteudos_relacionados?: string[]
           created_at?: string
           dificuldade?: string | null
           disciplina?: string | null
@@ -103,9 +90,7 @@ export type Database = {
           referencia_fonte?: string | null
           referencia_texto?: string | null
           resposta?: string | null
-          subconteudo_principal?: string | null
           tags?: string[] | null
-          tags_livres?: string[]
           tem_equacao?: boolean
           tem_imagem?: boolean
           tipo?: string
