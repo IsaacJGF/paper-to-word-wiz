@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Save, Trash2, Plus, GripVertical, AlertTriangle, ImagePlus, X, Sparkles } from "lucide-react";
+import { ArrowLeft, Save, Trash2, Plus, GripVertical, AlertTriangle, ImagePlus, X, Sparkles, RotateCcw, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,8 +18,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AppLayout } from "@/components/AppLayout";
 import { ImageCropDialog } from "@/components/ImageCropDialog";
+import { ImageLayoutEditor } from "@/components/ImageLayoutEditor";
 import { CatalogSelect, CatalogMultiSelect } from "@/components/CatalogSelect";
-import { loadDraft, clearDraft, LETRAS, reletter, DraftDigitization, DraftQuestion, ReferenceImagePosition } from "@/lib/draft-store";
+import { loadDraft, clearDraft, LETRAS, reletter, DraftDigitization, DraftQuestion } from "@/lib/draft-store";
+import { DEFAULT_IMAGE_PLACEMENT_LAYOUT, normalizeImagePlacementLayout, type ImagePlacementLayout } from "@/lib/image-layout";
 import { formatMetadataSuggestion, hasMetadataSuggestion, suggestQuestionMetadata } from "@/lib/metadata-suggestions";
 import { insertQuestionsWithCompatibility } from "@/lib/question-compat";
 import { supabase } from "@/integrations/supabase/client";
@@ -39,8 +41,8 @@ function Page() {
   const [saving, setSaving] = useState(false);
   const [classificationDialogOpen, setClassificationDialogOpen] = useState(false);
   const [cropTarget, setCropTarget] = useState<
-    | { kind: "referencia"; pos: ReferenceImagePosition }
-    | { kind: "enunciado"; pos: "antes" | "depois" }
+    | { kind: "referencia" }
+    | { kind: "enunciado" }
     | { kind: "alt"; index: number }
     | null
   >(null);
@@ -97,7 +99,7 @@ function Page() {
 
   const relatedSelection = active.conteudos_relacionados ?? [];
   const tagSelection = active.tags_livres ?? [];
-    
+  const referencePreviewText = [draft.referencia_texto, draft.referencia_texto_apos ?? ""].filter((part) => part.trim()).join("\n\n");
 
   const updateDraft = <K extends keyof DraftDigitization>(k: K, v: DraftDigitization[K]) => setDraft({ ...draft, [k]: v });
   const updateQuestion = (idx: number, updater: (q: DraftQuestion) => DraftQuestion) => {
@@ -126,6 +128,22 @@ function Page() {
     }));
   };
 
+  const setReferenceImageLayout = (layout: ImagePlacementLayout) => {
+    setDraft({ ...draft, referencia_imagem_layout: layout, referencia_imagem_pos: "livre" });
+  };
+  const rotateReferenceImage = (delta: number) => {
+    setReferenceImageLayout(normalizeImagePlacementLayout({
+      ...draft.referencia_imagem_layout,
+      rotation: (draft.referencia_imagem_layout?.rotation ?? 0) + delta,
+    }));
+  };
+  const setQuestionImageLayout = (layout: ImagePlacementLayout) => updateQuestion(activeIndex, (q) => ({ ...q, enunciado_imagem_layout: layout, enunciado_imagem_pos: "livre" }));
+  const rotateQuestionImage = (delta: number) => {
+    setQuestionImageLayout(normalizeImagePlacementLayout({
+      ...active.enunciado_imagem_layout,
+      rotation: (active.enunciado_imagem_layout?.rotation ?? 0) + delta,
+    }));
+  };
   const setRelacionadosSel = (next: string[]) => update("conteudos_relacionados", next);
   const setTagsSel = (next: string[]) => update("tags_livres", next);
 
@@ -173,7 +191,6 @@ function Page() {
     }));
     toast.success("Sugestões aplicadas. Revise os metadados antes de salvar.");
   };
-
 
   const updateAlt = (i: number, key: "letra" | "texto", v: string) => {
     const copy = [...active.alternativas];
@@ -230,14 +247,16 @@ function Page() {
         referencia_texto: draft.referencia_texto || null,
         referencia_fonte: draft.referencia_fonte || null,
         referencia_imagem: draft.referencia_imagem ?? null,
-        referencia_imagem_pos: draft.referencia_imagem_pos ?? null,
+        referencia_imagem_pos: draft.referencia_imagem ? "livre" : draft.referencia_imagem_pos ?? null,
+        referencia_imagem_layout: draft.referencia_imagem ? normalizeImagePlacementLayout(draft.referencia_imagem_layout) : null,
         referencia_texto_apos: draft.referencia_texto_apos || null,
         grupo_id: grupoId,
         tem_equacao: q.tem_equacao,
         tem_imagem: q.tem_imagem || !!draft.referencia_imagem || !!q.enunciado_imagem || q.alternativas.some((a) => !!a.imagem),
         imagem_original_url: draft.imageDataUrl ?? null,
         enunciado_imagem: q.enunciado_imagem ?? null,
-        enunciado_imagem_pos: q.enunciado_imagem_pos ?? null,
+        enunciado_imagem_pos: q.enunciado_imagem ? "livre" : q.enunciado_imagem_pos ?? null,
+        enunciado_imagem_layout: q.enunciado_imagem ? normalizeImagePlacementLayout(q.enunciado_imagem_layout) : null,
       }));
       const { removedColumns } = await insertQuestionsWithCompatibility(rows);
       clearDraft();
@@ -312,49 +331,43 @@ function Page() {
                 <span className="text-xs text-muted-foreground">{draft.questoes.length} item{draft.questoes.length > 1 ? "s" : ""}</span>
               </div>
               <div className="flex flex-wrap gap-1">
-                {!draft.referencia_imagem && (
+                {!draft.referencia_imagem ? (
+                  <Button type="button" size="sm" variant="outline" className="gap-1 h-7" onClick={() => setCropTarget({ kind: "referencia" })}>
+                    <ImagePlus className="size-3" /> Adicionar imagem
+                  </Button>
+                ) : (
                   <>
-                    <Button type="button" size="sm" variant="outline" className="gap-1 h-7" onClick={() => setCropTarget({ kind: "referencia", pos: "antes" })}>
-                      <ImagePlus className="size-3" /> Imagem antes
-                    </Button>
-                    <Button type="button" size="sm" variant="outline" className="gap-1 h-7" onClick={() => setCropTarget({ kind: "referencia", pos: "entre" })}>
-                      <ImagePlus className="size-3" /> Imagem entre
-                    </Button>
-                    <Button type="button" size="sm" variant="outline" className="gap-1 h-7" onClick={() => setCropTarget({ kind: "referencia", pos: "depois" })}>
-                      <ImagePlus className="size-3" /> Imagem depois
+                    <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setCropTarget({ kind: "referencia" })}>Recortar de novo</Button>
+                    <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => rotateReferenceImage(-15)} aria-label="Girar imagem para a esquerda"><RotateCcw className="size-3" /></Button>
+                    <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => rotateReferenceImage(15)} aria-label="Girar imagem para a direita"><RotateCw className="size-3" /></Button>
+                    <Button type="button" size="sm" variant="ghost" className="h-7 text-destructive gap-1" onClick={() => setDraft({ ...draft, referencia_imagem: undefined, referencia_imagem_pos: undefined, referencia_imagem_layout: undefined })}>
+                      <X className="size-3" /> Remover
                     </Button>
                   </>
                 )}
               </div>
               {draft.referencia_imagem && (
-                <div className="rounded-lg border p-2 bg-muted/30 flex items-start gap-2">
-                  <img src={draft.referencia_imagem} alt="Imagem da referência" className="max-h-40 object-contain rounded" />
-                  <div className="flex-1 text-xs text-muted-foreground">
-                    Posicionada {referencePositionLabel(draft.referencia_imagem_pos)} da referência.
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setCropTarget({ kind: "referencia", pos: draft.referencia_imagem_pos ?? "depois" })}>
-                      Recortar de novo
-                    </Button>
-                    <Button type="button" size="sm" variant="ghost" className="h-7 text-destructive gap-1" onClick={() => setDraft({ ...draft, referencia_imagem: undefined, referencia_imagem_pos: undefined })}>
-                      <X className="size-3" /> Remover
-                    </Button>
-                  </div>
-                </div>
+                <ImageLayoutEditor
+                  imageUrl={draft.referencia_imagem}
+                  layout={draft.referencia_imagem_layout}
+                  text={referencePreviewText}
+                  placeholder="Referência"
+                  onLayoutChange={setReferenceImageLayout}
+                />
               )}
               <Textarea
                 value={draft.referencia_texto}
                 onChange={(e) => updateDraft("referencia_texto", e.target.value)}
-                rows={draft.referencia_imagem_pos === "entre" ? 4 : 5}
-                placeholder={draft.referencia_imagem_pos === "entre" ? "Texto da referência antes da imagem." : "Texto, imagem descrita, tabela ou comando geral que vale para todos os itens."}
+                rows={5}
+                placeholder="Texto, imagem descrita, tabela ou comando geral que vale para todos os itens."
                 className="text-sm"
               />
-              {(draft.referencia_imagem_pos === "entre" || !!draft.referencia_texto_apos?.trim()) && (
+              {(draft.referencia_imagem || !!draft.referencia_texto_apos?.trim()) && (
                 <Textarea
                   value={draft.referencia_texto_apos ?? ""}
                   onChange={(e) => updateDraft("referencia_texto_apos", e.target.value)}
-                  rows={4}
-                  placeholder="Texto da referência depois da imagem."
+                  rows={3}
+                  placeholder="Complemento da referência, se necessário."
                   className="text-sm"
                 />
               )}
@@ -403,36 +416,32 @@ function Page() {
               <div className="flex items-center justify-between mb-1 gap-2">
                 <Label>Enunciado</Label>
                 <div className="flex gap-1">
-                  {!active.enunciado_imagem && (
+                  {!active.enunciado_imagem ? (
+                    <Button type="button" size="sm" variant="outline" className="gap-1 h-7" onClick={() => setCropTarget({ kind: "enunciado" })}>
+                      <ImagePlus className="size-3" /> Adicionar imagem
+                    </Button>
+                  ) : (
                     <>
-                      <Button type="button" size="sm" variant="outline" className="gap-1 h-7"
-                        onClick={() => { update("enunciado_imagem_pos", "antes"); setCropTarget({ kind: "enunciado", pos: "antes" }); }}>
-                        <ImagePlus className="size-3" /> Imagem antes
-                      </Button>
-                      <Button type="button" size="sm" variant="outline" className="gap-1 h-7"
-                        onClick={() => { update("enunciado_imagem_pos", "depois"); setCropTarget({ kind: "enunciado", pos: "depois" }); }}>
-                        <ImagePlus className="size-3" /> Imagem depois
+                      <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setCropTarget({ kind: "enunciado" })}>Recortar de novo</Button>
+                      <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => rotateQuestionImage(-15)} aria-label="Girar imagem para a esquerda"><RotateCcw className="size-3" /></Button>
+                      <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => rotateQuestionImage(15)} aria-label="Girar imagem para a direita"><RotateCw className="size-3" /></Button>
+                      <Button type="button" size="sm" variant="ghost" className="h-7 text-destructive gap-1"
+                        onClick={() => { update("enunciado_imagem", undefined); update("enunciado_imagem_pos", undefined); update("enunciado_imagem_layout", undefined); }}>
+                        <X className="size-3" /> Remover
                       </Button>
                     </>
                   )}
                 </div>
               </div>
               {active.enunciado_imagem && (
-                <div className="mb-2 rounded-lg border p-2 bg-muted/30 flex items-start gap-2">
-                  <img src={active.enunciado_imagem} alt="Imagem da questão" className="max-h-40 object-contain rounded" />
-                  <div className="flex-1 text-xs text-muted-foreground">
-                    Posicionada {active.enunciado_imagem_pos === "antes" ? "antes" : "depois"} do enunciado.
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <Button type="button" size="sm" variant="outline" className="h-7"
-                      onClick={() => setCropTarget({ kind: "enunciado", pos: active.enunciado_imagem_pos ?? "depois" })}>
-                      Recortar de novo
-                    </Button>
-                    <Button type="button" size="sm" variant="ghost" className="h-7 text-destructive gap-1"
-                      onClick={() => { update("enunciado_imagem", undefined); update("enunciado_imagem_pos", undefined); }}>
-                      <X className="size-3" /> Remover
-                    </Button>
-                  </div>
+                <div className="mb-2">
+                  <ImageLayoutEditor
+                    imageUrl={active.enunciado_imagem}
+                    layout={active.enunciado_imagem_layout}
+                    text={active.enunciado}
+                    placeholder="Enunciado"
+                    onLayoutChange={setQuestionImageLayout}
+                  />
                 </div>
               )}
               <Textarea
@@ -607,9 +616,19 @@ function Page() {
         onConfirm={(dataUrl) => {
           if (!cropTarget) return;
           if (cropTarget.kind === "referencia") {
-            setDraft({ ...draft, referencia_imagem: dataUrl, referencia_imagem_pos: cropTarget.pos });
+            setDraft({
+              ...draft,
+              referencia_imagem: dataUrl,
+              referencia_imagem_pos: "livre",
+              referencia_imagem_layout: draft.referencia_imagem_layout ?? DEFAULT_IMAGE_PLACEMENT_LAYOUT,
+            });
           } else if (cropTarget.kind === "enunciado") {
-            updateQuestion(activeIndex, (q) => ({ ...q, enunciado_imagem: dataUrl, enunciado_imagem_pos: cropTarget.pos }));
+            updateQuestion(activeIndex, (q) => ({
+              ...q,
+              enunciado_imagem: dataUrl,
+              enunciado_imagem_pos: "livre",
+              enunciado_imagem_layout: q.enunciado_imagem_layout ?? DEFAULT_IMAGE_PLACEMENT_LAYOUT,
+            }));
           } else {
             const copy = [...active.alternativas];
             copy[cropTarget.index] = { ...copy[cropTarget.index], imagem: dataUrl };
@@ -624,10 +643,4 @@ function Page() {
 
 function mergeUnique(current: string[], next: string[]) {
   return Array.from(new Set([...current, ...next].map((item) => item.trim()).filter(Boolean)));
-}
-
-function referencePositionLabel(pos?: ReferenceImagePosition) {
-  if (pos === "antes") return "antes";
-  if (pos === "entre") return "entre as partes";
-  return "depois";
 }
