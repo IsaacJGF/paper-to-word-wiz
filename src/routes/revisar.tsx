@@ -410,105 +410,73 @@ function Page() {
                 <div className="grid sm:grid-cols-3 gap-2">
                   <div>
                     <Label>Área geral *</Label>
-                    <Select value={active.area_geral ?? ""} onValueChange={updateArea}>
-                      <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                      <SelectContent>
-                        {areaOptions.map((area) => <SelectItem key={area} value={area}>{area}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <CatalogSelect
+                      value={active.area_geral ?? ""}
+                      onChange={updateArea}
+                      options={areas}
+                    />
                   </div>
                   <div>
                     <Label>Conteúdo principal *</Label>
-                    <Select value={active.conteudo_principal ?? ""} onValueChange={updateMainContent} disabled={!active.area_geral}>
-                      <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                      <SelectContent>
-                        {contentOptions.map((content) => <SelectItem key={content} value={content}>{content}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <CatalogSelect
+                      value={active.conteudo_principal ?? ""}
+                      onChange={updateMainContent}
+                      options={conteudoOptions}
+                      disabled={!active.area_geral}
+                      emptyHint={active.area_geral ? "Nenhum conteúdo cadastrado para esta área." : "Selecione uma área primeiro."}
+                    />
                   </div>
                   <div>
                     <Label>Subconteúdo principal *</Label>
-                    <Select value={active.subconteudo_principal ?? ""} onValueChange={(v) => update("subconteudo_principal", v)} disabled={!active.conteudo_principal}>
-                      <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                      <SelectContent>
-                        {subcontentOptions.map((subcontent) => <SelectItem key={subcontent} value={subcontent}>{subcontent}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <CatalogSelect
+                      value={active.subconteudo_principal ?? ""}
+                      onChange={(v) => update("subconteudo_principal", v)}
+                      options={subOptions}
+                      disabled={!active.conteudo_principal}
+                      emptyHint={active.conteudo_principal ? "Nenhum subconteúdo cadastrado para este conteúdo." : "Selecione um conteúdo principal primeiro."}
+                    />
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <Label>Conteúdos relacionados</Label>
-                  <Input
-                    value={relatedQuery}
-                    onChange={(e) => setRelatedQuery(e.target.value)}
-                    placeholder="Buscar e adicionar vários conteúdos"
+                  <CatalogMultiSelect
+                    values={relatedSelection}
+                    onChange={setRelacionadosSel}
+                    options={relacionados}
                   />
-                  <div className="flex flex-wrap gap-2">
-                    {relatedSelection.map((content) => (
-                      <button
-                        key={content}
-                        type="button"
-                        onClick={() => toggleRelatedContent(content)}
-                        className="inline-flex items-center gap-1 rounded-full border bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
-                      >
-                        {content}<X className="size-3" />
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {relatedOptions.map((content) => {
-                      const selected = relatedSelection.includes(content);
-                      return (
-                        <Button
-                          key={content}
-                          type="button"
-                          size="sm"
-                          variant={selected ? "default" : "outline"}
-                          className="h-7 rounded-full px-3 text-xs"
-                          onClick={() => toggleRelatedContent(content)}
-                        >
-                          {selected ? "Remover" : "Adicionar"} {content}
-                        </Button>
-                      );
-                    })}
-                  </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Tags livres</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={tagInput}
-                      onChange={(e) => setTagInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          addTag();
-                        }
-                      }}
-                      placeholder="Adicionar tags"
-                    />
-                    <Button type="button" variant="outline" onClick={addTag} className="gap-1"><Plus className="size-3" /> Adicionar</Button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {tagSelection.map((tag) => (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => removeTag(tag)}
-                        className="inline-flex items-center gap-1 rounded-full border bg-muted px-2.5 py-1 text-xs font-medium"
-                      >
-                        {tag}<X className="size-3" />
-                      </button>
-                    ))}
-                  </div>
+                  <Label>Tags</Label>
+                  <CatalogMultiSelect
+                    values={tagSelection}
+                    onChange={setTagsSel}
+                    options={tagsCat}
+                  />
                 </div>
 
                 <div className="grid sm:grid-cols-3 gap-2">
-                  <div><Label>Ano</Label><Input value={active.ano ?? ""} onChange={(e) => update("ano", e.target.value)} /></div>
-                  <div><Label>Prova</Label><Input value={active.prova ?? ""} onChange={(e) => update("prova", e.target.value)} /></div>
-                  <div><Label>Instituição</Label><Input value={active.instituicao ?? ""} onChange={(e) => update("instituicao", e.target.value)} /></div>
+                  <div>
+                    <Label>Ano</Label>
+                    <Input value={active.ano ?? ""} onChange={(e) => update("ano", e.target.value)} placeholder="2023" />
+                  </div>
+                  <div>
+                    <Label>Prova</Label>
+                    <CatalogSelect
+                      value={active.prova ?? ""}
+                      onChange={(v) => update("prova", v)}
+                      options={provas}
+                    />
+                  </div>
+                  <div>
+                    <Label>Instituição</Label>
+                    <CatalogSelect
+                      value={active.instituicao ?? ""}
+                      onChange={(v) => update("instituicao", v)}
+                      options={instituicoes}
+                    />
+                  </div>
                 </div>
 
                 <div><Label>Observações</Label><Textarea rows={2} value={active.observacoes ?? ""} onChange={(e) => update("observacoes", e.target.value)} /></div>
