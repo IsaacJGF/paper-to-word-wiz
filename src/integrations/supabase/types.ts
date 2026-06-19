@@ -227,7 +227,10 @@ export type Database = {
           observacoes: string | null
           prova: string | null
           referencia_fonte: string | null
+          referencia_imagem: string | null
+          referencia_imagem_pos: string | null
           referencia_texto: string | null
+          referencia_texto_apos: string | null
           resposta: string | null
           subconteudo_principal: string | null
           tags: string[] | null
@@ -259,7 +262,10 @@ export type Database = {
           observacoes?: string | null
           prova?: string | null
           referencia_fonte?: string | null
+          referencia_imagem?: string | null
+          referencia_imagem_pos?: string | null
           referencia_texto?: string | null
+          referencia_texto_apos?: string | null
           resposta?: string | null
           subconteudo_principal?: string | null
           tags?: string[] | null
@@ -291,7 +297,10 @@ export type Database = {
           observacoes?: string | null
           prova?: string | null
           referencia_fonte?: string | null
+          referencia_imagem?: string | null
+          referencia_imagem_pos?: string | null
           referencia_texto?: string | null
+          referencia_texto_apos?: string | null
           resposta?: string | null
           subconteudo_principal?: string | null
           tags?: string[] | null
@@ -419,7 +428,7 @@ export type Enums<
 }
   ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
-    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions]
     : never
 
 export type CompositeTypes<
