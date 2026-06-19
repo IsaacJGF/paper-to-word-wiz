@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Save, Trash2, Plus, GripVertical, AlertTriangle, ImagePlus, X } from "lucide-react";
+import { ArrowLeft, Save, Trash2, Plus, GripVertical, AlertTriangle, ImagePlus, X, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,6 +20,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { ImageCropDialog } from "@/components/ImageCropDialog";
 import { CatalogSelect, CatalogMultiSelect } from "@/components/CatalogSelect";
 import { loadDraft, clearDraft, LETRAS, reletter, DraftDigitization, DraftQuestion } from "@/lib/draft-store";
+import { formatMetadataSuggestion, hasMetadataSuggestion, suggestQuestionMetadata } from "@/lib/metadata-suggestions";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -125,6 +126,51 @@ function Page() {
 
   const setRelacionadosSel = (next: string[]) => update("conteudos_relacionados", next);
   const setTagsSel = (next: string[]) => update("tags_livres", next);
+
+  const suggestMetadata = () => {
+    if (areas.length === 0 && conteudos.length === 0 && subconteudos.length === 0) {
+      toast.info("Cadastre itens em Catálogos para gerar sugestões.");
+      return;
+    }
+
+    const suggestion = suggestQuestionMetadata({
+      question: active,
+      referenceText: draft.referencia_texto,
+      areas,
+      conteudos,
+      subconteudos,
+      relacionados,
+      tags: tagsCat,
+    });
+
+    if (!hasMetadataSuggestion(suggestion)) {
+      toast.info("Não encontrei uma sugestão segura para esta questão.");
+      return;
+    }
+
+    const hasManualMetadata = Boolean(
+      active.area_geral ||
+      active.conteudo_principal ||
+      active.subconteudo_principal ||
+      relatedSelection.length > 0 ||
+      tagSelection.length > 0,
+    );
+
+    const accepted = confirm(
+      `${hasManualMetadata ? "Esta questão já possui metadados preenchidos. Revise as sugestões antes de aplicar." : "Sugestões encontradas para esta questão."}\n\n${formatMetadataSuggestion(suggestion)}\n\nDeseja aplicar estas sugestões agora? Você ainda poderá editar tudo antes de salvar.`,
+    );
+    if (!accepted) return;
+
+    updateQuestion(activeIndex, (q) => ({
+      ...q,
+      area_geral: suggestion.area_geral ?? q.area_geral,
+      conteudo_principal: suggestion.conteudo_principal ?? q.conteudo_principal,
+      subconteudo_principal: suggestion.subconteudo_principal ?? q.subconteudo_principal,
+      conteudos_relacionados: mergeUnique(q.conteudos_relacionados ?? [], suggestion.conteudos_relacionados),
+      tags_livres: mergeUnique(q.tags_livres ?? [], suggestion.tags_livres),
+    }));
+    toast.success("Sugestões aplicadas. Revise os metadados antes de salvar.");
+  };
 
 
   const updateAlt = (i: number, key: "letra" | "texto", v: string) => {
@@ -406,6 +452,11 @@ function Page() {
 
             <details className="rounded-lg border p-3" open>
               <summary className="cursor-pointer text-sm font-medium">Metadados opcionais</summary>
+              <div className="mt-3 flex justify-end">
+                <Button type="button" size="sm" variant="outline" className="gap-1" onClick={suggestMetadata}>
+                  <Sparkles className="size-3.5" /> Sugerir metadados
+                </Button>
+              </div>
               <div className="grid gap-4 mt-3">
                 <div className="grid sm:grid-cols-3 gap-2">
                   <div>
@@ -518,4 +569,8 @@ function Page() {
       />
     </AppLayout>
   );
+}
+
+function mergeUnique(current: string[], next: string[]) {
+  return Array.from(new Set([...current, ...next].map((item) => item.trim()).filter(Boolean)));
 }
