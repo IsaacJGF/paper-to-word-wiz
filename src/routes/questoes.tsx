@@ -69,7 +69,7 @@ function Page() {
   }, [items]);
 
   const conteudos = useMemo(() => {
-    const s = new Set<string>(CONTENT_SUGGESTIONS);
+    const s = new Set<string>();
     items.forEach((i) => getConteudos(i).forEach((c) => s.add(c)));
     return [...s].sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [items]);
