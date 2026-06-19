@@ -23,7 +23,10 @@ export function ensureDefaultCatalog() {
 
 async function seedDefaultCatalog() {
   if (typeof window !== "undefined" && window.localStorage.getItem(SEED_STORAGE_KEY) === "done") {
-    return;
+    const { count, error } = await supabase
+      .from("catalog_areas")
+      .select("id", { count: "exact", head: true });
+    if (!error && (count ?? 0) > 0) return;
   }
 
   const areas = linesFromBlock(physicsCatalogSql, "areas");
