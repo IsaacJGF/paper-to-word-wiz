@@ -75,6 +75,15 @@ const DOCUMENT_LEGACY_SELECT = [
   "enunciado_imagem_pos",
 ].join(", ");
 
+const DOCUMENT_BASE_SELECT = [
+  "id",
+  "numero",
+  "enunciado",
+  "alternativas",
+  "resposta",
+  "fonte",
+].join(", ");
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
 
@@ -111,9 +120,16 @@ export async function fetchDocumentQuestions(ids: string[]): Promise<DocumentQue
     .from("questions")
     .select(DOCUMENT_LEGACY_SELECT)
     .in("id", ids);
-  if (legacyError) throw legacyError;
+  if (!legacyError) return normalizeDocumentRows(legacyData ?? []);
+  if (!isMissingColumnError(legacyError)) throw legacyError;
 
-  return normalizeDocumentRows(legacyData ?? []);
+  const { data: baseData, error: baseError } = await supabase
+    .from("questions")
+    .select(DOCUMENT_BASE_SELECT)
+    .in("id", ids);
+  if (baseError) throw baseError;
+
+  return normalizeDocumentRows(baseData ?? []);
 }
 
 function normalizeDocumentRows(rows: unknown[]): DocumentQuestion[] {
