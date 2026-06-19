@@ -123,8 +123,8 @@ function Page() {
     }));
   };
 
-  const setRelacionados = (next: string[]) => update("conteudos_relacionados", next);
-  const setTags = (next: string[]) => update("tags_livres", next);
+  const setRelacionadosSel = (next: string[]) => update("conteudos_relacionados", next);
+  const setTagsSel = (next: string[]) => update("tags_livres", next);
 
 
   const updateAlt = (i: number, key: "letra" | "texto", v: string) => {
