@@ -23,43 +23,78 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 const PEDAGOGICAL_TREE: Record<string, Record<string, string[]>> = {
-  Física: {
+  "Fundamentos da Física": {
+    "Grandezas físicas": ["Unidades de medida", "Sistema Internacional", "Notação científica", "Ordem de grandeza"],
+    "Análise dimensional": ["Dimensões físicas", "Conversão de unidades", "Homogeneidade dimensional"],
+    Vetores: ["Grandezas escalares e vetoriais", "Decomposição vetorial", "Soma de vetores"],
+    "Método científico": ["Modelos físicos", "Leis e teorias", "Interpretação de fenômenos"],
+  },
+  Mecânica: {
     Cinemática: ["Movimento uniforme", "Movimento uniformemente variado", "Lançamentos", "Movimento circular"],
-    Dinâmica: ["Leis de Newton", "Força de atrito", "Trabalho e energia", "Impulso e quantidade de movimento"],
-    Eletrostática: ["Carga elétrica", "Campo elétrico", "Potencial elétrico", "Capacitores"],
-    Termologia: ["Temperatura e calor", "Dilatação térmica", "Calorimetria", "Gases"],
-    Ondulatória: ["Ondas mecânicas", "Som", "Interferência", "Efeito Doppler"],
+    Dinâmica: ["Leis de Newton", "Força de atrito", "Força elástica", "Plano inclinado"],
+    "Trabalho, energia e potência": ["Trabalho de uma força", "Energia cinética", "Energia potencial", "Conservação da energia"],
+    "Quantidade de movimento": ["Impulso", "Colisões", "Conservação da quantidade de movimento"],
     Gravitação: ["Leis de Kepler", "Lei da gravitação universal", "Campo gravitacional"],
+  },
+  Fluidos: {
     Hidrostática: ["Pressão", "Teorema de Stevin", "Princípio de Pascal", "Empuxo"],
+    Hidrodinâmica: ["Vazão", "Equação da continuidade", "Princípio de Bernoulli"],
+    "Propriedades dos fluidos": ["Densidade", "Massa específica", "Viscosidade"],
   },
-  Química: {
-    "Química geral": ["Estrutura atômica", "Tabela periódica", "Ligações químicas", "Funções inorgânicas"],
-    "Físico-química": ["Soluções", "Termoquímica", "Cinética química", "Equilíbrio químico"],
-    "Química orgânica": ["Funções orgânicas", "Isomeria", "Reações orgânicas", "Polímeros"],
+  "Termologia e Termodinâmica": {
+    Termometria: ["Temperatura", "Escalas termométricas", "Conversão de escalas"],
+    Dilatação: ["Dilatação linear", "Dilatação superficial", "Dilatação volumétrica"],
+    Calorimetria: ["Calor sensível", "Calor latente", "Trocas de calor", "Mudanças de estado"],
+    Gases: ["Transformações gasosas", "Equação de Clapeyron", "Lei geral dos gases"],
+    Termodinâmica: ["Primeira lei", "Segunda lei", "Máquinas térmicas", "Rendimento"],
   },
-  Biologia: {
-    Citologia: ["Membrana plasmática", "Organelas", "Divisão celular", "Metabolismo celular"],
-    Genética: ["Leis de Mendel", "Heredogramas", "DNA e RNA", "Biotecnologia"],
-    Ecologia: ["Cadeias alimentares", "Ciclos biogeoquímicos", "Relações ecológicas", "Impactos ambientais"],
+  Ondulatória: {
+    "Ondas mecânicas": ["Elementos de uma onda", "Velocidade de propagação", "Ondas em cordas"],
+    Acústica: ["Som", "Altura, intensidade e timbre", "Efeito Doppler"],
+    "Fenômenos ondulatórios": ["Reflexão", "Refração", "Difração", "Interferência", "Ressonância"],
   },
-  Matemática: {
-    Álgebra: ["Equações", "Funções", "Sistemas lineares", "Polinômios"],
-    Geometria: ["Geometria plana", "Geometria espacial", "Geometria analítica", "Trigonometria"],
-    Estatística: ["Média e mediana", "Probabilidade", "Análise combinatória", "Gráficos e tabelas"],
+  Óptica: {
+    "Óptica geométrica": ["Propagação da luz", "Sombra e penumbra", "Câmara escura"],
+    Reflexão: ["Espelhos planos", "Espelhos esféricos", "Formação de imagens"],
+    Refração: ["Lei de Snell", "Lentes esféricas", "Instrumentos ópticos"],
+    "Óptica física": ["Interferência luminosa", "Difração da luz", "Polarização"],
   },
-  Português: {
-    Gramática: ["Morfologia", "Sintaxe", "Pontuação", "Concordância"],
-    Literatura: ["Escolas literárias", "Interpretação literária", "Autores e obras", "Figuras de linguagem"],
-    "Leitura e produção": ["Interpretação de texto", "Gêneros textuais", "Coesão e coerência", "Argumentação"],
+  Eletricidade: {
+    Eletrostática: ["Carga elétrica", "Força elétrica", "Campo elétrico", "Potencial elétrico"],
+    Eletrodinâmica: ["Corrente elétrica", "Resistores", "Leis de Ohm", "Potência elétrica"],
+    "Circuitos elétricos": ["Associação de resistores", "Geradores e receptores", "Capacitores"],
   },
-  História: {
-    "História geral": ["Antiguidade", "Idade Média", "Idade Moderna", "Idade Contemporânea"],
-    "História do Brasil": ["Brasil Colônia", "Brasil Império", "República", "Ditadura militar"],
+  "Magnetismo e Eletromagnetismo": {
+    Magnetismo: ["Ímãs", "Campo magnético", "Linhas de campo"],
+    "Força magnética": ["Força sobre cargas", "Força sobre fios", "Movimento de cargas em campo magnético"],
+    "Indução eletromagnética": ["Fluxo magnético", "Lei de Faraday", "Lei de Lenz", "Transformadores"],
+    "Ondas eletromagnéticas": ["Espectro eletromagnético", "Propagação", "Aplicações tecnológicas"],
   },
-  Geografia: {
-    "Geografia física": ["Clima", "Relevo", "Hidrografia", "Biomas"],
-    "Geografia humana": ["Urbanização", "População", "Globalização", "Geopolítica"],
-    Cartografia: ["Escalas", "Coordenadas geográficas", "Fusos horários", "Projeções cartográficas"],
+  "Física Moderna": {
+    Relatividade: ["Postulados da relatividade", "Dilatação do tempo", "Contração do espaço", "Equivalência massa-energia"],
+    "Física quântica": ["Quantização da energia", "Efeito fotoelétrico", "Dualidade onda-partícula"],
+    "Modelos atômicos": ["Modelo de Bohr", "Níveis de energia", "Espectros atômicos"],
+  },
+  "Física Nuclear e Radiações": {
+    Radioatividade: ["Decaimento alfa", "Decaimento beta", "Radiação gama", "Meia-vida"],
+    "Reações nucleares": ["Fissão nuclear", "Fusão nuclear", "Energia nuclear"],
+    Radiações: ["Radiações ionizantes", "Proteção radiológica", "Aplicações médicas"],
+  },
+  "Astronomia e Cosmologia": {
+    "Sistema Solar": ["Planetas", "Satélites", "Movimentos celestes"],
+    "Gravitação astronômica": ["Órbitas", "Leis de Kepler", "Velocidade orbital"],
+    Cosmologia: ["Big Bang", "Expansão do universo", "Galáxias", "Evolução estelar"],
+  },
+  "Física Experimental": {
+    "Medidas e incertezas": ["Algarismos significativos", "Erro absoluto", "Erro relativo", "Incerteza experimental"],
+    "Análise de dados": ["Tabelas", "Gráficos", "Linearização", "Ajuste de curvas"],
+    Instrumentação: ["Instrumentos de medida", "Calibração", "Procedimentos experimentais"],
+  },
+  "Interdisciplinar e Aplicações Tecnológicas": {
+    "Energia e sustentabilidade": ["Fontes de energia", "Eficiência energética", "Impactos ambientais"],
+    "Tecnologia e sociedade": ["Dispositivos elétricos", "Telecomunicações", "Transporte", "Materiais"],
+    "Física médica": ["Imagem médica", "Radioterapia", "Biomecânica"],
+    "Física no cotidiano": ["Esportes", "Máquinas simples", "Segurança", "Fenômenos naturais"],
   },
 };
 
