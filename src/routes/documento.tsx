@@ -7,8 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AppLayout } from "@/components/AppLayout";
-import { supabase } from "@/integrations/supabase/client";
 import { generateDocx } from "@/lib/docx.functions";
+import { fetchDocumentQuestions, type DocumentQuestion } from "@/lib/question-compat";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/documento")({
@@ -16,21 +16,12 @@ export const Route = createFileRoute("/documento")({
   component: Page,
 });
 
-type Q = {
-  id: string; numero: string | null; enunciado: string;
-  alternativas: { letra: string; texto: string; imagem?: string | null }[];
-  resposta: string | null; fonte: string | null;
-  referencia_texto: string | null; referencia_fonte: string | null; grupo_id: string | null;
-  referencia_imagem: string | null; referencia_imagem_pos: string | null; referencia_texto_apos: string | null;
-  enunciado_imagem: string | null; enunciado_imagem_pos: string | null;
-};
-
 const SEL_KEY = "digitalizador.selecionadas";
 function loadSel(): string[] { try { return JSON.parse(localStorage.getItem(SEL_KEY) ?? "[]"); } catch { return []; } }
 function saveSel(ids: string[]) { localStorage.setItem(SEL_KEY, JSON.stringify(ids)); }
 
 function Page() {
-  const [questions, setQuestions] = useState<Q[]>([]);
+  const [questions, setQuestions] = useState<DocumentQuestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [config, setConfig] = useState({
@@ -51,11 +42,17 @@ function Page() {
     (async () => {
       const ids = loadSel();
       if (ids.length === 0) { setLoading(false); return; }
-      const { data } = await supabase.from("questions").select("id, numero, enunciado, alternativas, resposta, fonte, referencia_texto, referencia_fonte, grupo_id, referencia_imagem, referencia_imagem_pos, referencia_texto_apos, enunciado_imagem, enunciado_imagem_pos").in("id", ids);
-      // preserve order from saved selection
-      const map = new Map(((data ?? []) as unknown as Q[]).map((d) => [d.id, d]));
-      setQuestions(ids.map((i) => map.get(i)).filter((x): x is Q => !!x));
-      setLoading(false);
+      try {
+        const data = await fetchDocumentQuestions(ids);
+        // preserve order from saved selection
+        const map = new Map(data.map((d) => [d.id, d]));
+        setQuestions(ids.map((i) => map.get(i)).filter((x): x is DocumentQuestion => !!x));
+      } catch (e) {
+        console.error(e);
+        toast.error("Falha ao carregar as questões selecionadas.");
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
