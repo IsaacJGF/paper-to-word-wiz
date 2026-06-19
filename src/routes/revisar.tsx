@@ -21,6 +21,7 @@ import { ImageCropDialog } from "@/components/ImageCropDialog";
 import { CatalogSelect, CatalogMultiSelect } from "@/components/CatalogSelect";
 import { loadDraft, clearDraft, LETRAS, reletter, DraftDigitization, DraftQuestion, ReferenceImagePosition } from "@/lib/draft-store";
 import { formatMetadataSuggestion, hasMetadataSuggestion, suggestQuestionMetadata } from "@/lib/metadata-suggestions";
+import { insertQuestionsWithCompatibility } from "@/lib/question-compat";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -233,15 +234,19 @@ function Page() {
         referencia_texto_apos: draft.referencia_texto_apos || null,
         grupo_id: grupoId,
         tem_equacao: q.tem_equacao,
-        tem_imagem: q.tem_imagem || hasReference || !!q.enunciado_imagem || q.alternativas.some((a) => !!a.imagem),
+        tem_imagem: q.tem_imagem || !!draft.referencia_imagem || !!q.enunciado_imagem || q.alternativas.some((a) => !!a.imagem),
         imagem_original_url: draft.imageDataUrl ?? null,
         enunciado_imagem: q.enunciado_imagem ?? null,
         enunciado_imagem_pos: q.enunciado_imagem_pos ?? null,
       }));
-      const { error } = await supabase.from("questions").insert(rows);
-      if (error) throw error;
+      const { removedColumns } = await insertQuestionsWithCompatibility(rows);
       clearDraft();
-      toast.success(draft.questoes.length > 1 ? "Itens salvos com sucesso!" : "Questão salva com sucesso!");
+      const successMessage = draft.questoes.length > 1 ? "Itens salvos com sucesso!" : "Questão salva com sucesso!";
+      if (removedColumns.length > 0) {
+        toast.warning(`${successMessage} Alguns campos novos não foram gravados porque o banco ainda precisa da atualização.`);
+      } else {
+        toast.success(successMessage);
+      }
       navigate({ to: "/questoes" });
     } catch (e) {
       console.error(e);
