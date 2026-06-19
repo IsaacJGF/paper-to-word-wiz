@@ -142,7 +142,7 @@ function CatalogManager({ kind }: { kind: CatalogKind }) {
     const payload: Record<string, unknown> = { nome, ativo: true };
     if (kind === "conteudo") payload.area_id = newParentId;
     if (kind === "subconteudo") payload.conteudo_id = newParentId;
-    // @ts-expect-error payload dinâmico
+    
     const { error } = await db.from(table).insert(payload);
     setBusy(false);
     if (error) {
