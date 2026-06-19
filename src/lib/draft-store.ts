@@ -1,5 +1,5 @@
 import { Alternativa as AlternativaBase, DigitalizacaoExtraida, QuestaoExtraida } from "@/lib/digitize.functions";
-import { ImagePlacementLayout } from "@/lib/image-layout";
+import type { ImagePlacementLayout } from "@/lib/image-layout";
 
 export type Alternativa = AlternativaBase & { imagem?: string };
 export type ReferenceImagePosition = "antes" | "entre" | "depois" | "livre";
@@ -85,7 +85,7 @@ function normalizeDraft(draft: DraftDigitization | DraftQuestion): DraftDigitiza
   };
 }
 
-export const LETRAS = ["A", "B", "D", "D", "E", "F", "G", "H"] as const;
+export const LETRAS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;
 export function reletter(alts: Alternativa[]): Alternativa[] {
   return alts.map((a, i) => ({ ...a, letra: LETRAS[i] ?? a.letra }));
 }
