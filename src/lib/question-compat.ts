@@ -115,7 +115,7 @@ export async function insertQuestionsWithCompatibility(rows: QuestionInsertRow[]
 }
 
 export async function fetchDocumentQuestions(ids: string[]): Promise<DocumentQuestion[]> {
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("questions")
     .select(DOCUMENT_FULL_SELECT)
     .in("id", ids);
@@ -123,14 +123,14 @@ export async function fetchDocumentQuestions(ids: string[]): Promise<DocumentQue
   if (!error) return normalizeDocumentRows(data ?? []);
   if (!isMissingColumnError(error)) throw error;
 
-  const { data: legacyData, error: legacyError } = await supabase
+  const { data: legacyData, error: legacyError } = await db
     .from("questions")
     .select(DOCUMENT_LEGACY_SELECT)
     .in("id", ids);
   if (!legacyError) return normalizeDocumentRows(legacyData ?? []);
   if (!isMissingColumnError(legacyError)) throw legacyError;
 
-  const { data: baseData, error: baseError } = await supabase
+  const { data: baseData, error: baseError } = await db
     .from("questions")
     .select(DOCUMENT_BASE_SELECT)
     .in("id", ids);
