@@ -17,9 +17,15 @@ import {
   Header,
   Footer,
   PageNumber,
+  HorizontalPositionRelativeFrom,
+  VerticalPositionRelativeFrom,
+  TextWrappingType,
+  TextWrappingSide,
 } from "docx";
+import { normalizeImagePlacementLayout, type ImagePlacementLayout } from "@/lib/image-layout";
 
 const Alt = z.object({ letra: z.string(), texto: z.string(), imagem: z.string().nullable().optional() });
+const ImagePlacement = z.any().nullable().optional();
 const QInput = z.object({
   id: z.string(),
   numero: z.string().nullable().optional(),
@@ -31,10 +37,12 @@ const QInput = z.object({
   referencia_fonte: z.string().nullable().optional(),
   referencia_imagem: z.string().nullable().optional(),
   referencia_imagem_pos: z.string().nullable().optional(),
+  referencia_imagem_layout: ImagePlacement,
   referencia_texto_apos: z.string().nullable().optional(),
   grupo_id: z.string().nullable().optional(),
   enunciado_imagem: z.string().nullable().optional(),
   enunciado_imagem_pos: z.string().nullable().optional(),
+  enunciado_imagem_layout: ImagePlacement,
 });
 
 const Input = z.object({
@@ -277,9 +285,38 @@ function readImageSize(buf: Buffer, type: ImgInfo["type"]): { w: number; h: numb
   return { w: 400, h: 300 };
 }
 
-function imageParagraph(dataUrl: string, maxWidthPx: number, align: typeof AlignmentType[keyof typeof AlignmentType] = AlignmentType.CENTER, forceHeightPx?: number): Paragraph | null {
+const PLACEMENT_SURFACE_HEIGHT_PX = 300;
+const EMUS_PER_PIXEL = 9525;
+
+function imageParagraph(dataUrl: string, maxWidthPx: number, align: typeof AlignmentType[keyof typeof AlignmentType] = AlignmentType.CENTER, forceHeightPx?: number, placementInput?: unknown): Paragraph | null {
   const img = decodeDataUrl(dataUrl);
   if (!img) return null;
+
+  const placement = readPlacement(placementInput);
+  if (placement) {
+    const width = Math.max(40, Math.min(maxWidthPx, (maxWidthPx * placement.width) / 100));
+    const height = Math.max(30, (PLACEMENT_SURFACE_HEIGHT_PX * placement.height) / 100);
+    const x = (maxWidthPx * placement.x) / 100;
+    const y = (PLACEMENT_SURFACE_HEIGHT_PX * placement.y) / 100;
+    return new Paragraph({
+      alignment: AlignmentType.LEFT,
+      spacing: { after: 80 },
+      children: [new ImageRun({
+        type: img.type,
+        data: img.buffer,
+        transformation: { width: Math.round(width), height: Math.round(height), rotation: placement.rotation },
+        floating: {
+          horizontalPosition: { relative: HorizontalPositionRelativeFrom.MARGIN, offset: pxToEmu(x) },
+          verticalPosition: { relative: VerticalPositionRelativeFrom.PARAGRAPH, offset: pxToEmu(y) },
+          wrap: { type: TextWrappingType.SQUARE, side: TextWrappingSide.BOTH_SIDES },
+          margins: { top: 0, bottom: 0, left: 0, right: 0 },
+          allowOverlap: true,
+          layoutInCell: true,
+        },
+      })],
+    });
+  }
+
   let width: number;
   let height: number;
   if (forceHeightPx) {
@@ -299,6 +336,15 @@ function imageParagraph(dataUrl: string, maxWidthPx: number, align: typeof Align
       transformation: { width: Math.round(width), height: Math.round(height) },
     })],
   });
+}
+
+function readPlacement(value: unknown): ImagePlacementLayout | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return normalizeImagePlacementLayout(value as Partial<ImagePlacementLayout>);
+}
+
+function pxToEmu(value: number) {
+  return Math.round(value * EMUS_PER_PIXEL);
 }
 
 export const generateDocx = createServerFn({ method: "POST" })
@@ -327,7 +373,6 @@ export const generateDocx = createServerFn({ method: "POST" })
       }
     }
     altImgHeightPx = Math.min(altImgHeightPx, 180); // cap
-
 
     // Header info
     if (config.instituicao) children.push(paragraphFromText(config.instituicao, { size, bold: true, align: AlignmentType.CENTER }));
@@ -359,11 +404,17 @@ export const generateDocx = createServerFn({ method: "POST" })
     questions.forEach((q, idx) => {
       const n = idx + 1;
       const hasReference = Boolean(q.referencia_texto || q.referencia_texto_apos || q.referencia_imagem);
-      const referenceKey = q.grupo_id || [q.referencia_texto, q.referencia_texto_apos, q.referencia_imagem].filter(Boolean).join("|");
+      const referenceKey = q.grupo_id || [q.referencia_texto, q.referencia_texto_apos, q.referencia_imagem, JSON.stringify(q.referencia_imagem_layout ?? null)].filter(Boolean).join("|");
       if (hasReference && !renderedReferences.has(referenceKey)) {
         renderedReferences.add(referenceKey);
-        const referenceImage = q.referencia_imagem ? imageParagraph(q.referencia_imagem, CONTENT_WIDTH_PX, AlignmentType.CENTER) : null;
+        const freeReferenceImage = q.referencia_imagem && q.referencia_imagem_layout
+          ? imageParagraph(q.referencia_imagem, CONTENT_WIDTH_PX, AlignmentType.CENTER, undefined, q.referencia_imagem_layout)
+          : null;
+        const referenceImage = q.referencia_imagem && !q.referencia_imagem_layout
+          ? imageParagraph(q.referencia_imagem, CONTENT_WIDTH_PX, AlignmentType.CENTER)
+          : null;
         const imagePos = q.referencia_imagem_pos ?? "depois";
+        if (freeReferenceImage) children.push(freeReferenceImage);
         if (referenceImage && imagePos === "antes") children.push(referenceImage);
         if (q.referencia_texto) {
           children.push(paragraphFromText(q.referencia_texto, { size, align: AlignmentType.JUSTIFIED, spacingAfter: 100 }));
@@ -385,9 +436,13 @@ export const generateDocx = createServerFn({ method: "POST" })
           ...(q.fonte ? [new TextRun({ text: `  (${q.fonte})`, size: (size - 1) * 2, italics: true, font: "Arial" })] : []),
         ],
       }));
-      const enunciadoImg = q.enunciado_imagem
+      const freeEnunciadoImg = q.enunciado_imagem && q.enunciado_imagem_layout
+        ? imageParagraph(q.enunciado_imagem, CONTENT_WIDTH_PX, AlignmentType.CENTER, undefined, q.enunciado_imagem_layout)
+        : null;
+      const enunciadoImg = q.enunciado_imagem && !q.enunciado_imagem_layout
         ? imageParagraph(q.enunciado_imagem, CONTENT_WIDTH_PX, AlignmentType.CENTER)
         : null;
+      if (freeEnunciadoImg) children.push(freeEnunciadoImg);
       if (enunciadoImg && q.enunciado_imagem_pos === "antes") children.push(enunciadoImg);
       children.push(paragraphFromText(q.enunciado, { size, spacingAfter: 120 }));
       if (enunciadoImg && q.enunciado_imagem_pos !== "antes") children.push(enunciadoImg);
