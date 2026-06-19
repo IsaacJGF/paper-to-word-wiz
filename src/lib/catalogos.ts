@@ -83,14 +83,16 @@ export async function renameInQuestions(kind: CatalogKind, oldName: string, newN
     .select(`id, ${col}`)
     .contains(col, [oldName]);
   if (error) throw error;
-  for (const row of (data ?? []) as unknown as { id: string; [k: string]: string[] }[]) {
-    const arr = (row[col] ?? []).map((v) => (v === oldName ? newName : v));
+  const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
+  for (const row of rows) {
+    const id = row.id as string;
+    const arr = ((row[col] as string[] | null) ?? []).map((v) => (v === oldName ? newName : v));
     const dedup = Array.from(new Set(arr));
     const { error: upErr } = await supabase
       .from("questions")
       // @ts-expect-error coluna dinâmica
       .update({ [col]: dedup })
-      .eq("id", row.id);
+      .eq("id", id);
     if (upErr) throw upErr;
   }
 }
