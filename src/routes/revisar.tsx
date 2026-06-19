@@ -25,47 +25,6 @@ import { toast } from "sonner";
 
 type CatalogItem = { id: string; nome: string; ativo: boolean; area_id?: string; conteudo_id?: string };
 
-const PEDAGOGICAL_TREE: Record<string, Record<string, string[]>> = {
-  Física: {
-    Cinemática: ["Movimento uniforme", "Movimento uniformemente variado", "Lançamentos", "Movimento circular"],
-    Dinâmica: ["Leis de Newton", "Força de atrito", "Trabalho e energia", "Impulso e quantidade de movimento"],
-    Eletrostática: ["Carga elétrica", "Campo elétrico", "Potencial elétrico", "Capacitores"],
-    Termologia: ["Temperatura e calor", "Dilatação térmica", "Calorimetria", "Gases"],
-    Ondulatória: ["Ondas mecânicas", "Som", "Interferência", "Efeito Doppler"],
-    Gravitação: ["Leis de Kepler", "Lei da gravitação universal", "Campo gravitacional"],
-    Hidrostática: ["Pressão", "Teorema de Stevin", "Princípio de Pascal", "Empuxo"],
-  },
-  Química: {
-    "Química geral": ["Estrutura atômica", "Tabela periódica", "Ligações químicas", "Funções inorgânicas"],
-    "Físico-química": ["Soluções", "Termoquímica", "Cinética química", "Equilíbrio químico"],
-    "Química orgânica": ["Funções orgânicas", "Isomeria", "Reações orgânicas", "Polímeros"],
-  },
-  Biologia: {
-    Citologia: ["Membrana plasmática", "Organelas", "Divisão celular", "Metabolismo celular"],
-    Genética: ["Leis de Mendel", "Heredogramas", "DNA e RNA", "Biotecnologia"],
-    Ecologia: ["Cadeias alimentares", "Ciclos biogeoquímicos", "Relações ecológicas", "Impactos ambientais"],
-  },
-  Matemática: {
-    Álgebra: ["Equações", "Funções", "Sistemas lineares", "Polinômios"],
-    Geometria: ["Geometria plana", "Geometria espacial", "Geometria analítica", "Trigonometria"],
-    Estatística: ["Média e mediana", "Probabilidade", "Análise combinatória", "Gráficos e tabelas"],
-  },
-  Português: {
-    Gramática: ["Morfologia", "Sintaxe", "Pontuação", "Concordância"],
-    Literatura: ["Escolas literárias", "Interpretação literária", "Autores e obras", "Figuras de linguagem"],
-    "Leitura e produção": ["Interpretação de texto", "Gêneros textuais", "Coesão e coerência", "Argumentação"],
-  },
-  História: {
-    "História geral": ["Antiguidade", "Idade Média", "Idade Moderna", "Idade Contemporânea"],
-    "História do Brasil": ["Brasil Colônia", "Brasil Império", "República", "Ditadura militar"],
-  },
-  Geografia: {
-    "Geografia física": ["Clima", "Relevo", "Hidrografia", "Biomas"],
-    "Geografia humana": ["Urbanização", "População", "Globalização", "Geopolítica"],
-    Cartografia: ["Escalas", "Coordenadas geográficas", "Fusos horários", "Projeções cartográficas"],
-  },
-};
-
 export const Route = createFileRoute("/revisar")({
   head: () => ({ meta: [{ title: "Revisar questão" }] }),
   component: Page,
@@ -77,13 +36,20 @@ function Page() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [saving, setSaving] = useState(false);
   const [classificationDialogOpen, setClassificationDialogOpen] = useState(false);
-  const [relatedQuery, setRelatedQuery] = useState("");
-  const [tagInput, setTagInput] = useState("");
   const [cropTarget, setCropTarget] = useState<
     | { kind: "enunciado"; pos: "antes" | "depois" }
     | { kind: "alt"; index: number }
     | null
   >(null);
+
+  // Catálogos
+  const [areas, setAreas] = useState<CatalogItem[]>([]);
+  const [conteudos, setConteudos] = useState<CatalogItem[]>([]);
+  const [subconteudos, setSubconteudos] = useState<CatalogItem[]>([]);
+  const [relacionados, setRelacionados] = useState<CatalogItem[]>([]);
+  const [tagsCat, setTagsCat] = useState<CatalogItem[]>([]);
+  const [provas, setProvas] = useState<CatalogItem[]>([]);
+  const [instituicoes, setInstituicoes] = useState<CatalogItem[]>([]);
 
   useEffect(() => {
     const d = loadDraft();
@@ -94,25 +60,40 @@ function Page() {
     setDraft(d);
   }, [navigate]);
 
-  const allPedagogicalContents = useMemo(() => {
-    const names = Object.values(PEDAGOGICAL_TREE).flatMap((contents) =>
-      Object.entries(contents).flatMap(([content, subcontents]) => [content, ...subcontents]),
-    );
-    return [...new Set(names)].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  useEffect(() => {
+    (async () => {
+      const tables = [
+        ["catalog_areas", setAreas],
+        ["catalog_conteudos", setConteudos],
+        ["catalog_subconteudos", setSubconteudos],
+        ["catalog_relacionados", setRelacionados],
+        ["catalog_tags", setTagsCat],
+        ["catalog_provas", setProvas],
+        ["catalog_instituicoes", setInstituicoes],
+      ] as const;
+      for (const [t, set] of tables) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data, error } = await (supabase as any).from(t).select("*").order("nome");
+        if (!error) set((data ?? []) as CatalogItem[]);
+      }
+    })();
   }, []);
 
   if (!draft) return null;
   const active = draft.questoes[Math.min(activeIndex, draft.questoes.length - 1)];
-  const areaOptions = Object.keys(PEDAGOGICAL_TREE);
-  const contentOptions = active.area_geral ? Object.keys(PEDAGOGICAL_TREE[active.area_geral] ?? {}) : [];
-  const subcontentOptions = active.area_geral && active.conteudo_principal
-    ? PEDAGOGICAL_TREE[active.area_geral]?.[active.conteudo_principal] ?? []
+
+  // Filtros hierárquicos por NOME (não por id) — as colunas em questions guardam o nome
+  const areaItem = areas.find((a) => a.nome === active.area_geral);
+  const conteudoOptions = areaItem
+    ? conteudos.filter((c) => c.area_id === areaItem.id)
     : [];
+  const conteudoItem = conteudoOptions.find((c) => c.nome === active.conteudo_principal);
+  const subOptions = conteudoItem
+    ? subconteudos.filter((s) => s.conteudo_id === conteudoItem.id)
+    : [];
+
   const relatedSelection = active.conteudos_relacionados ?? [];
   const tagSelection = active.tags_livres ?? [];
-  const relatedOptions = allPedagogicalContents
-    .filter((name) => name.toLowerCase().includes(relatedQuery.trim().toLowerCase()))
-    .filter((name) => name !== active.conteudo_principal && name !== active.subconteudo_principal)
     .slice(0, 10);
 
   const updateDraft = <K extends keyof DraftDigitization>(k: K, v: DraftDigitization[K]) => setDraft({ ...draft, [k]: v });
