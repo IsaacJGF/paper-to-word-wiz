@@ -123,23 +123,9 @@ function Page() {
     }));
   };
 
-  const toggleRelatedContent = (content: string) => {
-    const next = relatedSelection.includes(content)
-      ? relatedSelection.filter((item) => item !== content)
-      : [...relatedSelection, content];
-    update("conteudos_relacionados", next);
-  };
+  const setRelacionados = (next: string[]) => update("conteudos_relacionados", next);
+  const setTags = (next: string[]) => update("tags_livres", next);
 
-  const addTag = () => {
-    const tag = tagInput.trim();
-    if (!tag || tagSelection.includes(tag)) return;
-    update("tags_livres", [...tagSelection, tag]);
-    setTagInput("");
-  };
-
-  const removeTag = (tag: string) => {
-    update("tags_livres", tagSelection.filter((item) => item !== tag));
-  };
 
   const updateAlt = (i: number, key: "letra" | "texto", v: string) => {
     const copy = [...active.alternativas];
