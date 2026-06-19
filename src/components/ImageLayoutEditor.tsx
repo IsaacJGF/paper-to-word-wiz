@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type PointerEvent } from "react";
 import type { ImagePlacementLayout } from "@/lib/image-layout";
 import { normalizeImagePlacementLayout } from "@/lib/image-layout";
 
@@ -27,7 +27,7 @@ export function ImageLayoutEditor({ imageUrl, layout, text, placeholder, onLayou
   const current = normalizeImagePlacementLayout(layout);
   const previewText = text?.trim() || placeholder || "";
 
-  const beginDrag = (event: React.PointerEvent, nextAction: DragAction) => {
+  const beginDrag = (event: PointerEvent, nextAction: DragAction) => {
     event.preventDefault();
     event.stopPropagation();
     setSelected(true);
@@ -35,7 +35,7 @@ export function ImageLayoutEditor({ imageUrl, layout, text, placeholder, onLayou
     boxRef.current?.setPointerCapture(event.pointerId);
   };
 
-  const onMove = (event: React.PointerEvent) => {
+  const onMove = (event: PointerEvent) => {
     if (!action || !containerRef.current) return;
     const bounds = containerRef.current.getBoundingClientRect();
 
@@ -63,12 +63,12 @@ export function ImageLayoutEditor({ imageUrl, layout, text, placeholder, onLayou
     onLayoutChange(resizeFromHandle(action.start, action.handle, dx, dy));
   };
 
-  const endDrag = (event: React.PointerEvent) => {
+  const endDrag = (event: PointerEvent) => {
     setAction(null);
     try { boxRef.current?.releasePointerCapture(event.pointerId); } catch {}
   };
 
-  const beginRotate = (event: React.PointerEvent) => {
+  const beginRotate = (event: PointerEvent) => {
     if (!containerRef.current) return;
     const bounds = containerRef.current.getBoundingClientRect();
     beginDrag(event, {
