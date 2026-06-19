@@ -86,7 +86,7 @@ function CatalogManager({ kind }: { kind: CatalogKind }) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase.from(table).select("*").order("nome");
+    const { data, error } = await db.from(table).select("*").order("nome");
     if (error) toast.error("Falha ao carregar");
     else setItems((data ?? []) as unknown as Item[]);
 
@@ -143,7 +143,7 @@ function CatalogManager({ kind }: { kind: CatalogKind }) {
     if (kind === "conteudo") payload.area_id = newParentId;
     if (kind === "subconteudo") payload.conteudo_id = newParentId;
     // @ts-expect-error payload dinâmico
-    const { error } = await supabase.from(table).insert(payload);
+    const { error } = await db.from(table).insert(payload);
     setBusy(false);
     if (error) {
       toast.error(error.message.includes("duplicate") ? "Já existe um item com esse nome." : "Falha ao criar.");
@@ -157,7 +157,7 @@ function CatalogManager({ kind }: { kind: CatalogKind }) {
   };
 
   const onToggleAtivo = async (item: Item, ativo: boolean) => {
-    const { error } = await supabase.from(table).update({ ativo }).eq("id", item.id);
+    const { error } = await db.from(table).update({ ativo }).eq("id", item.id);
     if (error) toast.error("Falha ao atualizar.");
     else {
       setItems((cur) => cur.map((i) => (i.id === item.id ? { ...i, ativo } : i)));
@@ -180,7 +180,7 @@ function CatalogManager({ kind }: { kind: CatalogKind }) {
       if (kind === "conteudo") patch.area_id = editParentId;
       if (kind === "subconteudo") patch.conteudo_id = editParentId;
       // @ts-expect-error patch dinâmico
-      const { error } = await supabase.from(table).update(patch).eq("id", editing.id);
+      const { error } = await db.from(table).update(patch).eq("id", editing.id);
       if (error) throw error;
       // Cascata: renomear nas questões
       if (nome !== editing.nome) {
@@ -204,7 +204,7 @@ function CatalogManager({ kind }: { kind: CatalogKind }) {
       return;
     }
     if (!confirm(`Excluir "${item.nome}"? Esta ação não pode ser desfeita.`)) return;
-    const { error } = await supabase.from(table).delete().eq("id", item.id);
+    const { error } = await db.from(table).delete().eq("id", item.id);
     if (error) toast.error("Falha ao excluir (talvez existam itens filhos vinculados).");
     else {
       toast.success("Item excluído.");
@@ -228,7 +228,7 @@ function CatalogManager({ kind }: { kind: CatalogKind }) {
     setBusy(true);
     try {
       await renameInQuestions(kind, merging.nome, target.nome);
-      const { error } = await supabase.from(table).delete().eq("id", merging.id);
+      const { error } = await db.from(table).delete().eq("id", merging.id);
       if (error) throw error;
       toast.success(`"${merging.nome}" mesclado em "${target.nome}".`);
       setMerging(null);
