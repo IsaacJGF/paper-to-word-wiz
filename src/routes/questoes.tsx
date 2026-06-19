@@ -142,7 +142,7 @@ function Page() {
     setItems((current) =>
       current.map((item) =>
         item.id === editingContent.id
-          ? { ...item, conteudo, question_contents: conteudo ? [{ contents: { nome: conteudo } }] : [] }
+          ? { ...item, conteudo }
           : item,
       ),
     );
