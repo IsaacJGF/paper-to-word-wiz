@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Save, Trash2, Plus, GripVertical, AlertTriangle, ImagePlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,9 +18,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AppLayout } from "@/components/AppLayout";
 import { ImageCropDialog } from "@/components/ImageCropDialog";
+import { CatalogSelect, CatalogMultiSelect } from "@/components/CatalogSelect";
 import { loadDraft, clearDraft, LETRAS, reletter, DraftDigitization, DraftQuestion } from "@/lib/draft-store";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+
+type CatalogItem = { id: string; nome: string; ativo: boolean; area_id?: string; conteudo_id?: string };
 
 const PEDAGOGICAL_TREE: Record<string, Record<string, string[]>> = {
   Física: {
