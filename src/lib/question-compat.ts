@@ -49,7 +49,7 @@ const OPTIONAL_INSERT_COLUMNS = [
   "tags",
 ] as const;
 
-const DOCUMENT_FULL_SELECT = [
+const DOCUMENT_SELECT_COLUMNS = [
   "id",
   "numero",
   "enunciado",
@@ -66,30 +66,16 @@ const DOCUMENT_FULL_SELECT = [
   "enunciado_imagem",
   "enunciado_imagem_pos",
   "enunciado_imagem_layout",
-].join(", ");
+] as const;
 
-const DOCUMENT_LEGACY_SELECT = [
+const REQUIRED_DOCUMENT_COLUMNS = [
   "id",
   "numero",
   "enunciado",
   "alternativas",
   "resposta",
   "fonte",
-  "referencia_texto",
-  "referencia_fonte",
-  "grupo_id",
-  "enunciado_imagem",
-  "enunciado_imagem_pos",
-].join(", ");
-
-const DOCUMENT_BASE_SELECT = [
-  "id",
-  "numero",
-  "enunciado",
-  "alternativas",
-  "resposta",
-  "fonte",
-].join(", ");
+] as const;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
@@ -115,28 +101,33 @@ export async function insertQuestionsWithCompatibility(rows: QuestionInsertRow[]
 }
 
 export async function fetchDocumentQuestions(ids: string[]): Promise<DocumentQuestion[]> {
-  const { data, error } = await db
-    .from("questions")
-    .select(DOCUMENT_FULL_SELECT)
-    .in("id", ids);
+  let columns = [...DOCUMENT_SELECT_COLUMNS];
+  const removedColumns = new Set<string>();
+  let lastError: unknown = null;
 
-  if (!error) return normalizeDocumentRows(data ?? []);
-  if (!isMissingColumnError(error)) throw error;
+  for (let attempt = 0; attempt <= DOCUMENT_SELECT_COLUMNS.length; attempt++) {
+    const { data, error } = await db
+      .from("questions")
+      .select(columns.join(", "))
+      .in("id", ids);
 
-  const { data: legacyData, error: legacyError } = await db
-    .from("questions")
-    .select(DOCUMENT_LEGACY_SELECT)
-    .in("id", ids);
-  if (!legacyError) return normalizeDocumentRows(legacyData ?? []);
-  if (!isMissingColumnError(legacyError)) throw legacyError;
+    if (!error) return normalizeDocumentRows(data ?? []);
+    lastError = error;
 
-  const { data: baseData, error: baseError } = await db
-    .from("questions")
-    .select(DOCUMENT_BASE_SELECT)
-    .in("id", ids);
-  if (baseError) throw baseError;
+    const missingColumn = findMissingColumn(error, columnRecord(columns));
+    if (
+      !missingColumn ||
+      isRequiredDocumentColumn(missingColumn) ||
+      removedColumns.has(missingColumn)
+    ) {
+      break;
+    }
 
-  return normalizeDocumentRows(baseData ?? []);
+    removedColumns.add(missingColumn);
+    columns = columns.filter((column) => column !== missingColumn);
+  }
+
+  throw lastError;
 }
 
 function normalizeDocumentRows(rows: unknown[]): DocumentQuestion[] {
@@ -144,7 +135,7 @@ function normalizeDocumentRows(rows: unknown[]): DocumentQuestion[] {
     id: String(row.id),
     numero: row.numero ?? null,
     enunciado: row.enunciado ?? "",
-    alternativas: Array.isArray(row.alternativas) ? row.alternativas : [],
+    alternativas: Array.isArray(row.alternativas) ? normalizeAlternatives(row.alternativas) : [],
     resposta: row.resposta ?? null,
     fonte: row.fonte ?? null,
     referencia_texto: row.referencia_texto ?? null,
@@ -158,6 +149,17 @@ function normalizeDocumentRows(rows: unknown[]): DocumentQuestion[] {
     enunciado_imagem_pos: row.enunciado_imagem_pos ?? null,
     enunciado_imagem_layout: row.enunciado_imagem_layout ?? null,
   }));
+}
+
+function normalizeAlternatives(value: unknown[]) {
+  return value.map((item) => {
+    const alt = item as { letra?: unknown; texto?: unknown; imagem?: unknown };
+    return {
+      letra: typeof alt.letra === "string" ? alt.letra : "",
+      texto: typeof alt.texto === "string" ? alt.texto : "",
+      imagem: typeof alt.imagem === "string" ? alt.imagem : null,
+    };
+  });
 }
 
 function omitColumn(row: QuestionInsertRow, column: string): QuestionInsertRow {
@@ -177,8 +179,12 @@ function findMissingColumn(error: unknown, sampleRow?: QuestionInsertRow) {
   return null;
 }
 
-function isMissingColumnError(error: unknown) {
-  return Boolean(findMissingColumn(error));
+function columnRecord(columns: readonly string[]) {
+  return Object.fromEntries(columns.map((column) => [column, true]));
+}
+
+function isRequiredDocumentColumn(column: string) {
+  return (REQUIRED_DOCUMENT_COLUMNS as readonly string[]).includes(column);
 }
 
 function errorText(error: unknown) {
