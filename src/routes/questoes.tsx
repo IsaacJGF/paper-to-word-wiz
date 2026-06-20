@@ -395,3 +395,89 @@ function formatTipo(tipo: string) {
   };
   return labels[tipo] ?? tipo;
 }
+
+function QuestionDetailsDialog({ question, onClose }: { question: Q | null; onClose: () => void }) {
+  const it = question;
+  if (!it) return null;
+  const conteudos = getConteudos(it);
+  const source = [it.prova, it.instituicao, it.ano].filter(Boolean).join(" • ");
+  return (
+    <Dialog open={!!question} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
+            <span className="font-mono text-xs text-muted-foreground">#{it.id.slice(0, 6)}</span>
+            {it.numero && <Badge variant="outline">Q{it.numero}</Badge>}
+            <span>{source || "Questão"}</span>
+          </DialogTitle>
+          <DialogDescription>
+            {formatTipo(it.tipo)} · {new Date(it.created_at).toLocaleDateString("pt-BR")}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {(it.disciplina || conteudos.length > 0 || (it.tags_livres && it.tags_livres.length > 0)) && (
+            <div className="flex flex-wrap gap-1">
+              {it.disciplina && <Badge variant="secondary">{it.disciplina}</Badge>}
+              {conteudos.map((c) => <Badge key={c} variant="secondary">{c}</Badge>)}
+              {(it.tags_livres ?? []).map((t) => <Badge key={t} variant="outline">{t}</Badge>)}
+            </div>
+          )}
+
+          {it.referencia_imagem && (
+            <img src={it.referencia_imagem} alt="Referência" className="max-w-full rounded-md border" />
+          )}
+          {it.referencia_texto && (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap">{it.referencia_texto}</div>
+          )}
+
+          {it.enunciado_imagem && (it.enunciado_imagem_pos === "antes") && (
+            <img src={it.enunciado_imagem} alt="Enunciado" className="max-w-full rounded-md border" />
+          )}
+          <div className="text-sm whitespace-pre-wrap leading-relaxed">{it.enunciado}</div>
+          {it.enunciado_imagem && it.enunciado_imagem_pos !== "antes" && (
+            <img src={it.enunciado_imagem} alt="Enunciado" className="max-w-full rounded-md border" />
+          )}
+
+          {Array.isArray(it.alternativas) && it.alternativas.length > 0 && (
+            <div className="space-y-2">
+              {it.alternativas.map((a) => (
+                <div key={a.letra} className={`flex gap-2 rounded-md border p-2 text-sm ${it.resposta === a.letra ? "border-primary bg-primary/5" : ""}`}>
+                  <span className="font-semibold">{a.letra})</span>
+                  <div className="flex-1">
+                    <div>{a.texto}</div>
+                    {a.imagem && <img src={a.imagem} alt={`Alternativa ${a.letra}`} className="mt-2 max-w-full rounded border" />}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {it.resposta && (
+            <div className="text-sm"><span className="font-medium">Gabarito: </span><Badge>{it.resposta}</Badge></div>
+          )}
+          {it.observacoes && (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap">
+              <p className="font-medium mb-1">Observações / Resolução</p>
+              {it.observacoes}
+            </div>
+          )}
+
+          <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 border-t pt-3">
+            {it.area_geral && <span>Área: {it.area_geral}</span>}
+            {it.conteudo_principal && <span>Conteúdo principal: {it.conteudo_principal}</span>}
+            {it.subconteudo_principal && <span>Subconteúdo: {it.subconteudo_principal}</span>}
+            {it.fonte && <span>Fonte: {it.fonte}</span>}
+            {it.prova && <span>Prova: {it.prova}</span>}
+            {it.instituicao && <span>Instituição: {it.instituicao}</span>}
+            {it.ano && <span>Ano: {it.ano}</span>}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Recolher</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
