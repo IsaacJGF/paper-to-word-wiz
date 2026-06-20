@@ -9,16 +9,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { AppLayout } from "@/components/AppLayout";
 import { generateDocx } from "@/lib/docx.functions";
 import { fetchDocumentQuestions, type DocumentQuestion } from "@/lib/question-compat";
+import { loadSelectedQuestionIds, saveSelectedQuestionIds } from "@/lib/selection-store";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/documento")({
   head: () => ({ meta: [{ title: "Criar documento" }] }),
   component: Page,
 });
-
-const SEL_KEY = "digitalizador.selecionadas";
-function loadSel(): string[] { try { return JSON.parse(localStorage.getItem(SEL_KEY) ?? "[]"); } catch { return []; } }
-function saveSel(ids: string[]) { localStorage.setItem(SEL_KEY, JSON.stringify(ids)); }
 
 function Page() {
   const [questions, setQuestions] = useState<DocumentQuestion[]>([]);
@@ -40,13 +37,15 @@ function Page() {
 
   useEffect(() => {
     (async () => {
-      const ids = loadSel();
+      const ids = loadSelectedQuestionIds();
       if (ids.length === 0) { setLoading(false); return; }
       try {
         const data = await fetchDocumentQuestions(ids);
         // preserve order from saved selection
         const map = new Map(data.map((d) => [d.id, d]));
-        setQuestions(ids.map((i) => map.get(i)).filter((x): x is DocumentQuestion => !!x));
+        const ordered = ids.map((i) => map.get(i)).filter((x): x is DocumentQuestion => !!x);
+        setQuestions(ordered);
+        saveSelectedQuestionIds(ordered.map((x) => x.id));
       } catch (e) {
         console.error(e);
         toast.error("Falha ao carregar as questões selecionadas.");
@@ -62,12 +61,12 @@ function Page() {
     const next = [...questions];
     [next[i], next[j]] = [next[j], next[i]];
     setQuestions(next);
-    saveSel(next.map((x) => x.id));
+    saveSelectedQuestionIds(next.map((x) => x.id));
   };
   const remove = (id: string) => {
     const next = questions.filter((q) => q.id !== id);
     setQuestions(next);
-    saveSel(next.map((x) => x.id));
+    saveSelectedQuestionIds(next.map((x) => x.id));
   };
 
   const onGenerate = async () => {

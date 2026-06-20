@@ -16,6 +16,7 @@ import {
 import { AppLayout } from "@/components/AppLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { insertQuestionsWithCompatibility } from "@/lib/question-compat";
+import { loadSelectedQuestionIds, saveSelectedQuestionIds } from "@/lib/selection-store";
 import type { ImagePlacementLayout } from "@/lib/image-layout";
 import { toast } from "sonner";
 
@@ -41,10 +42,7 @@ type Q = {
   created_at: string;
 };
 
-const SEL_KEY = "digitalizador.selecionadas";
 const NO_CONTENT_FILTER = "__sem_conteudo__";
-function loadSel(): string[] { try { return JSON.parse(localStorage.getItem(SEL_KEY) ?? "[]"); } catch { return []; } }
-function saveSel(ids: string[]) { localStorage.setItem(SEL_KEY, JSON.stringify(ids)); }
 
 function Page() {
   const navigate = useNavigate();
@@ -53,19 +51,30 @@ function Page() {
   const [q, setQ] = useState("");
   const [filtroDisc, setFiltroDisc] = useState("");
   const [filtroConteudo, setFiltroConteudo] = useState("");
-  const [sel, setSel] = useState<Set<string>>(new Set(loadSel()));
+  const [sel, setSel] = useState<Set<string>>(new Set());
   const [editingContent, setEditingContent] = useState<Q | null>(null);
   const [editingContentValue, setEditingContentValue] = useState("");
+
+  const commitSelection = (next: Set<string>) => {
+    setSel(next);
+    saveSelectedQuestionIds([...next]);
+  };
 
   const load = async () => {
     setLoading(true);
     const { data, error } = await supabase.from("questions").select("*").order("created_at", { ascending: false });
-    if (error) toast.error("Falha ao carregar"); else setItems((data ?? []) as unknown as Q[]);
+    if (error) {
+      toast.error("Falha ao carregar");
+    } else {
+      const loaded = (data ?? []) as unknown as Q[];
+      setItems(loaded);
+      const validIds = new Set(loaded.map((item) => item.id));
+      const storedIds = loadSelectedQuestionIds().filter((id) => validIds.has(id));
+      commitSelection(new Set(storedIds));
+    }
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
-
-  useEffect(() => { saveSel([...sel]); }, [sel]);
 
   const disciplinas = useMemo(() => {
     const s = new Set<string>();
@@ -93,14 +102,26 @@ function Page() {
   const toggle = (id: string) => {
     const next = new Set(sel);
     if (next.has(id)) next.delete(id); else next.add(id);
-    setSel(next);
+    commitSelection(next);
+  };
+
+  const openDocument = () => {
+    const ids = [...sel];
+    saveSelectedQuestionIds(ids);
+    navigate({ to: "/documento" });
   };
 
   const onDelete = async (id: string) => {
     if (!confirm("Excluir esta questão? Esta ação não pode ser desfeita.")) return;
     const { error } = await supabase.from("questions").delete().eq("id", id);
     if (error) toast.error("Falha ao excluir");
-    else { toast.success("Questão excluída"); setItems(items.filter((x) => x.id !== id)); const ns = new Set(sel); ns.delete(id); setSel(ns); }
+    else {
+      toast.success("Questão excluída");
+      setItems(items.filter((x) => x.id !== id));
+      const ns = new Set(sel);
+      ns.delete(id);
+      commitSelection(ns);
+    }
   };
 
   const onDuplicate = async (q: Q) => {
@@ -275,10 +296,10 @@ function Page() {
         {sel.size > 0 && (
           <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-primary text-primary-foreground rounded-full px-5 py-3 shadow-lg flex items-center gap-4">
             <span className="font-medium text-sm">{sel.size} questão{sel.size > 1 ? "s" : ""} selecionada{sel.size > 1 ? "s" : ""}</span>
-            <Button size="sm" variant="secondary" onClick={() => navigate({ to: "/documento" })} className="gap-2">
+            <Button size="sm" variant="secondary" onClick={openDocument} className="gap-2">
               <FileText className="size-4" /> Criar documento
             </Button>
-            <Button size="sm" variant="ghost" className="text-primary-foreground hover:bg-primary/80" onClick={() => setSel(new Set())}>Limpar</Button>
+            <Button size="sm" variant="ghost" className="text-primary-foreground hover:bg-primary/80" onClick={() => commitSelection(new Set())}>Limpar</Button>
           </div>
         )}
 
