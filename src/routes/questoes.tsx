@@ -54,6 +54,7 @@ function Page() {
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [editingContent, setEditingContent] = useState<Q | null>(null);
   const [editingContentValue, setEditingContentValue] = useState("");
+  const [expanded, setExpanded] = useState<Q | null>(null);
 
   const commitSelection = (next: Set<string>) => {
     setSel(next);
