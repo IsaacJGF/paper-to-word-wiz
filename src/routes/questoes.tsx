@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Search, Trash2, Copy, FileText, Image as ImageIcon, Sigma, Loader2, ScanLine, Pencil, AlertTriangle, ChevronDown, ListChecks, Table as TableIcon, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,10 +48,25 @@ type ReferenceLike = Pick<Q,
   "referencia_texto_apos" |
   "referencia_fonte" |
   "referencia_imagem" |
+  "referencia_imagem_pos" |
   "referencia_imagem_layout"
 >;
 
+type PedagogicalEntry = { label: string; value: string };
+type MathSegment = { type: "text"; value: string } | { type: "math"; value: string; display: boolean };
+
 const NO_CONTENT_FILTER = "__sem_conteudo__";
+
+const MATH_SYMBOLS: Record<string, string> = {
+  alpha: "α", beta: "β", gamma: "γ", delta: "δ", Delta: "Δ", epsilon: "ε", varepsilon: "ε",
+  theta: "θ", lambda: "λ", mu: "μ", pi: "π", rho: "ρ", sigma: "σ", phi: "φ", varphi: "φ",
+  omega: "ω", Omega: "Ω", nabla: "∇", times: "×", cdot: "·", pm: "±", mp: "∓",
+  le: "≤", leq: "≤", ge: "≥", geq: "≥", neq: "≠", approx: "≈", sim: "∼", propto: "∝",
+  infty: "∞", rightarrow: "→", to: "→", leftarrow: "←", leftrightarrow: "↔", degree: "°", circ: "°",
+  ohm: "Ω", partial: "∂", sum: "Σ", int: "∫", div: "÷",
+};
+
+const MATH_WORDS = new Set(["sin", "cos", "tan", "sen", "log", "ln", "lim", "min", "max"]);
 
 function Page() {
   const navigate = useNavigate();
@@ -332,12 +347,12 @@ function Page() {
             {filtered.map((it) => {
               const isSel = sel.has(it.id);
               const itemConteudos = getConteudos(it);
-              const source = [it.prova, it.instituicao, it.ano].filter(Boolean).join(" • ");
+              const source = formatQuestionSource(it);
               const hasAlternativas = Array.isArray(it.alternativas) && it.alternativas.length > 0;
               const hasImagem = !!(it.tem_imagem || it.enunciado_imagem || it.referencia_imagem);
-              const tags = [it.disciplina, ...itemConteudos].filter(Boolean) as string[];
-              const tagsShown = tags.slice(0, 3);
-              const tagsExtra = tags.length - tagsShown.length;
+              const chips = getCardChips(it);
+              const chipsShown = chips.slice(0, 3);
+              const chipsExtra = chips.length - chipsShown.length;
               const referenceKey = getReferenceKey(it);
               const referenceItems = referenceKey ? referenceGroups.get(referenceKey) ?? [] : [];
               const hasReferenceGroup = referenceItems.length > 1;
@@ -353,7 +368,7 @@ function Page() {
                         <span className="font-mono">#{it.id.slice(0, 6)}</span>
                         {it.numero && <span>· Q{it.numero}</span>}
                       </div>
-                      {source && <p className="mt-0.5 text-xs font-medium text-foreground/80 truncate">{source}</p>}
+                      {source && <p className="mt-0.5 truncate text-xs font-semibold text-foreground">{source}</p>}
                     </div>
                     <div className="flex shrink-0 -mr-1 -mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openContentEditor(it)} title="Alterar conteúdo"><Pencil className="size-3.5" /></Button>
@@ -362,15 +377,15 @@ function Page() {
                     </div>
                   </div>
 
-                  {(tagsShown.length > 0 || hasReferenceGroup) && (
+                  {(chipsShown.length > 0 || hasReferenceGroup) && (
                     <div className="mt-2 flex flex-wrap gap-1">
-                      {tagsShown.map((t) => <Badge key={t} variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">{t}</Badge>)}
-                      {tagsExtra > 0 && <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">+{tagsExtra}</Badge>}
+                      {chipsShown.map((t) => <Badge key={t} variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">{t}</Badge>)}
+                      {chipsExtra > 0 && <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">+{chipsExtra}</Badge>}
                       {hasReferenceGroup && <Badge variant="outline" className="gap-1 text-[10px] px-1.5 py-0 font-normal"><Layers className="size-3" /> {referenceItems.length} itens na mesma referência</Badge>}
                     </div>
                   )}
 
-                  <p className="mt-2 text-sm text-foreground/90 line-clamp-3 min-h-[3.75rem]">{it.enunciado}</p>
+                  <MathText text={it.enunciado} className="mt-2 line-clamp-3 min-h-[3.75rem] text-sm text-foreground/90" />
 
                   <div className="mt-2 flex flex-wrap gap-1">
                     {hasImagem && <span title="Possui imagem" className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"><ImageIcon className="size-3" />Imagem</span>}
@@ -481,7 +496,13 @@ function matchesSearch(question: Q, conteudos: string[], term: string) {
   return [
     question.enunciado,
     question.referencia_texto ?? "",
+    question.referencia_texto_apos ?? "",
     question.conteudo ?? "",
+    question.area_geral ?? "",
+    question.conteudo_principal ?? "",
+    question.subconteudo_principal ?? "",
+    ...(question.conteudos_relacionados ?? []),
+    ...(question.tags_livres ?? []),
     ...conteudos,
   ].some((value) => value.toLowerCase().includes(needle));
 }
@@ -494,6 +515,68 @@ function formatTipo(tipo: string) {
     discursiva: "Discursiva",
   };
   return labels[tipo] ?? tipo;
+}
+
+function formatQuestionSource(question: Pick<Q, "prova" | "instituicao" | "ano">) {
+  return [question.prova, question.instituicao, question.ano]
+    .map((item) => item?.trim())
+    .filter(Boolean)
+    .join(" - ");
+}
+
+function getCardChips(question: Q) {
+  const entries = getPedagogicalEntries(question);
+  if (entries.length === 0) return getConteudos(question).slice(0, 3);
+  return entries.map((entry) => entry.value);
+}
+
+function getPedagogicalEntries(question: Q): PedagogicalEntry[] {
+  const entries: PedagogicalEntry[] = [];
+  if (question.area_geral?.trim()) entries.push({ label: "Área", value: question.area_geral.trim() });
+  if (question.conteudo_principal?.trim()) entries.push({ label: "Conteúdo", value: question.conteudo_principal.trim() });
+  if (question.subconteudo_principal?.trim()) entries.push({ label: "Subconteúdo", value: question.subconteudo_principal.trim() });
+  for (const value of question.conteudos_relacionados ?? []) {
+    if (value?.trim()) entries.push({ label: "Relacionado", value: value.trim() });
+  }
+  for (const value of question.tags_livres ?? question.tags ?? []) {
+    if (value?.trim()) entries.push({ label: "Tag", value: value.trim() });
+  }
+  if (entries.length === 0) {
+    for (const value of splitConteudos(question.conteudo)) entries.push({ label: "Conteúdo", value });
+  }
+  return entries;
+}
+
+function metadataTooltip(question: Q) {
+  const parts = getPedagogicalEntries(question).map((entry) => `${entry.label}: ${entry.value}`);
+  if (question.resposta?.trim()) parts.push(`Gabarito: ${question.resposta.trim()}`);
+  if (question.prova?.trim()) parts.push(`Prova: ${question.prova.trim()}`);
+  if (question.instituicao?.trim()) parts.push(`Instituição: ${question.instituicao.trim()}`);
+  if (question.ano?.trim()) parts.push(`Ano: ${question.ano.trim()}`);
+  return parts.join("\n");
+}
+
+function CompactPedagogicalInfo({ question }: { question: Q }) {
+  const entries = getPedagogicalEntries(question);
+  const shown = entries.slice(0, 2);
+  const hidden = entries.length - shown.length;
+  const title = metadataTooltip(question);
+
+  if (entries.length === 0 && !question.resposta) {
+    return <Badge variant="destructive" className="text-[10px] px-1.5 py-0 font-normal">Sem conteúdo vinculado</Badge>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1" title={title || undefined}>
+      {shown.map((entry) => (
+        <Badge key={`${entry.label}-${entry.value}`} variant="secondary" className="max-w-44 truncate text-[10px] px-1.5 py-0 font-normal">
+          {entry.value}
+        </Badge>
+      ))}
+      {hidden > 0 && <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">+{hidden}</Badge>}
+      {question.resposta && <Badge className="text-[10px] px-1.5 py-0 font-normal">Gabarito: {question.resposta}</Badge>}
+    </div>
+  );
 }
 
 function hasReference(question: ReferenceLike) {
@@ -542,8 +625,7 @@ function readItemNumber(value: string | null) {
 function QuestionDetailsDialog({ question, onClose }: { question: Q | null; onClose: () => void }) {
   const it = question;
   if (!it) return null;
-  const conteudos = getConteudos(it);
-  const source = [it.prova, it.instituicao, it.ano].filter(Boolean).join(" • ");
+  const source = formatQuestionSource(it);
   return (
     <Dialog open={!!question} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
@@ -551,7 +633,7 @@ function QuestionDetailsDialog({ question, onClose }: { question: Q | null; onCl
           <DialogTitle className="flex items-center gap-2 flex-wrap">
             <span className="font-mono text-xs text-muted-foreground">#{it.id.slice(0, 6)}</span>
             {it.numero && <Badge variant="outline">Q{it.numero}</Badge>}
-            <span>{source || "Questão"}</span>
+            {source && <span>{source}</span>}
           </DialogTitle>
           <DialogDescription>
             {formatTipo(it.tipo)} · {new Date(it.created_at).toLocaleDateString("pt-BR")}
@@ -559,53 +641,19 @@ function QuestionDetailsDialog({ question, onClose }: { question: Q | null; onCl
         </DialogHeader>
 
         <div className="space-y-4">
-          {(it.disciplina || conteudos.length > 0 || (it.tags_livres && it.tags_livres.length > 0)) && (
-            <div className="flex flex-wrap gap-1">
-              {it.disciplina && <Badge variant="secondary">{it.disciplina}</Badge>}
-              {conteudos.map((c) => <Badge key={c} variant="secondary">{c}</Badge>)}
-              {(it.tags_livres ?? []).map((t) => <Badge key={t} variant="outline">{t}</Badge>)}
-            </div>
-          )}
+          <CompactPedagogicalInfo question={it} />
 
-          {it.referencia_imagem && (
-            <img src={it.referencia_imagem} alt="Referência" className="max-w-full rounded-md border" />
-          )}
-          {it.referencia_texto && (
-            <div className="rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap">{it.referencia_texto}</div>
-          )}
-          {it.referencia_texto_apos && (
-            <div className="rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap">{it.referencia_texto_apos}</div>
-          )}
-
-          {it.enunciado_imagem && (it.enunciado_imagem_pos === "antes") && (
-            <img src={it.enunciado_imagem} alt="Enunciado" className="max-w-full rounded-md border" />
-          )}
-          <div className="text-sm whitespace-pre-wrap leading-relaxed">{it.enunciado}</div>
-          {it.enunciado_imagem && it.enunciado_imagem_pos !== "antes" && (
-            <img src={it.enunciado_imagem} alt="Enunciado" className="max-w-full rounded-md border" />
-          )}
-
-          {Array.isArray(it.alternativas) && it.alternativas.length > 0 && (
-            <div className="space-y-2">
-              {it.alternativas.map((a) => (
-                <div key={a.letra} className={`flex gap-2 rounded-md border p-2 text-sm ${it.resposta === a.letra ? "border-primary bg-primary/5" : ""}`}>
-                  <span className="font-semibold">{a.letra})</span>
-                  <div className="flex-1">
-                    <div>{a.texto}</div>
-                    {a.imagem && <img src={a.imagem} alt={`Alternativa ${a.letra}`} className="mt-2 max-w-full rounded border" />}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          <ReferenceBlock question={it} />
+          <QuestionStatement question={it} />
+          <AlternativesList question={it} />
 
           {it.resposta && (
             <div className="text-sm"><span className="font-medium">Gabarito: </span><Badge>{it.resposta}</Badge></div>
           )}
           {it.observacoes && (
-            <div className="rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap">
+            <div className="rounded-md border bg-muted/40 p-3 text-sm">
               <p className="font-medium mb-1">Observações / Resolução</p>
-              {it.observacoes}
+              <MathText text={it.observacoes} className="whitespace-pre-wrap" />
             </div>
           )}
 
@@ -613,6 +661,8 @@ function QuestionDetailsDialog({ question, onClose }: { question: Q | null; onCl
             {it.area_geral && <span>Área: {it.area_geral}</span>}
             {it.conteudo_principal && <span>Conteúdo principal: {it.conteudo_principal}</span>}
             {it.subconteudo_principal && <span>Subconteúdo: {it.subconteudo_principal}</span>}
+            {(it.conteudos_relacionados ?? []).length > 0 && <span>Relacionados: {(it.conteudos_relacionados ?? []).join(", ")}</span>}
+            {(it.tags_livres ?? []).length > 0 && <span>Tags: {(it.tags_livres ?? []).join(", ")}</span>}
             {it.fonte && <span>Fonte: {it.fonte}</span>}
             {it.prova && <span>Prova: {it.prova}</span>}
             {it.instituicao && <span>Instituição: {it.instituicao}</span>}
@@ -672,22 +722,7 @@ function ReferenceGroupDialog({
                 </div>
                 <Badge variant="outline">{group.length} itens vinculados</Badge>
               </div>
-              {(reference.referencia_imagem_pos === "antes" || reference.referencia_imagem_pos === "livre") && reference.referencia_imagem && (
-                <img src={reference.referencia_imagem} alt="Referência" className="max-w-full rounded-md border bg-background" />
-              )}
-              {reference.referencia_texto && (
-                <div className="rounded-md border bg-background p-3 text-sm whitespace-pre-wrap leading-relaxed">{reference.referencia_texto}</div>
-              )}
-              {reference.referencia_imagem_pos === "entre" && reference.referencia_imagem && (
-                <img src={reference.referencia_imagem} alt="Referência" className="max-w-full rounded-md border bg-background" />
-              )}
-              {reference.referencia_texto_apos && (
-                <div className="rounded-md border bg-background p-3 text-sm whitespace-pre-wrap leading-relaxed">{reference.referencia_texto_apos}</div>
-              )}
-              {reference.referencia_imagem && !["antes", "entre", "livre"].includes(reference.referencia_imagem_pos ?? "") && (
-                <img src={reference.referencia_imagem} alt="Referência" className="max-w-full rounded-md border bg-background" />
-              )}
-              {reference.referencia_fonte && <p className="text-xs text-right text-muted-foreground">{reference.referencia_fonte}</p>}
+              <ReferenceBlock question={reference} compact />
             </div>
 
             <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -699,30 +734,38 @@ function ReferenceGroupDialog({
               </div>
             </div>
 
-            <div className="space-y-2">
-              {group.map((item, index) => (
-                <div key={item.id} className={`rounded-lg border p-3 ${selectedIds.has(item.id) ? "border-primary bg-primary/5" : "bg-background"}`}>
-                  <div className="flex items-start gap-3">
-                    <Checkbox
-                      checked={selectedIds.has(item.id)}
-                      onCheckedChange={(checked) => onToggle(item.id, checked === true)}
-                      className="mt-1"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <span className="font-semibold text-sm">{item.numero ? `Item ${item.numero}` : `Item ${index + 1}`}</span>
-                        {assessmentIds.has(item.id) && <Badge variant="secondary">Já na avaliação</Badge>}
-                        {item.tem_equacao && <Sigma className="size-3.5 text-muted-foreground" />}
-                        {(item.tem_imagem || item.enunciado_imagem) && <ImageIcon className="size-3.5 text-muted-foreground" />}
+            <div className="space-y-3">
+              {group.map((item, index) => {
+                const source = formatQuestionSource(item);
+                return (
+                  <div key={item.id} className={`rounded-lg border p-3 ${selectedIds.has(item.id) ? "border-primary bg-primary/5" : "bg-background"}`}>
+                    <div className="flex items-start gap-3">
+                      <Checkbox
+                        checked={selectedIds.has(item.id)}
+                        onCheckedChange={(checked) => onToggle(item.id, checked === true)}
+                        className="mt-1"
+                      />
+                      <div className="min-w-0 flex-1 space-y-3">
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-sm">{item.numero ? `Item ${item.numero}` : `Item ${index + 1}`}</span>
+                              {assessmentIds.has(item.id) && <Badge variant="secondary">Já na avaliação</Badge>}
+                              {item.tem_equacao && <Sigma className="size-3.5 text-muted-foreground" />}
+                              {(item.tem_imagem || item.enunciado_imagem) && <ImageIcon className="size-3.5 text-muted-foreground" />}
+                            </div>
+                            {source && <p className="text-xs font-medium text-muted-foreground">{source}</p>}
+                          </div>
+                          <CompactPedagogicalInfo question={item} />
+                        </div>
+
+                        <QuestionStatement question={item} />
+                        <AlternativesList question={item} />
                       </div>
-                      <p className="text-sm text-foreground/90 whitespace-pre-wrap line-clamp-3">{item.enunciado}</p>
-                      {Array.isArray(item.alternativas) && item.alternativas.length > 0 && (
-                        <p className="mt-1 text-xs text-muted-foreground">{item.alternativas.length} alternativa{item.alternativas.length === 1 ? "" : "s"}</p>
-                      )}
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -734,4 +777,316 @@ function ReferenceGroupDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function ReferenceBlock({ question, compact = false }: { question: Q; compact?: boolean }) {
+  if (!hasReference(question)) return null;
+  const image = question.referencia_imagem;
+  const pos = question.referencia_imagem_pos ?? "depois";
+  const imageClass = compact ? "max-h-72 max-w-full rounded-md border bg-background object-contain" : "max-w-full rounded-md border bg-background";
+  return (
+    <div className={compact ? "space-y-3" : "rounded-md border bg-muted/40 p-3 space-y-3"}>
+      {(pos === "antes" || pos === "livre") && image && <img src={image} alt="Referência" className={imageClass} />}
+      {question.referencia_texto && <MathText text={question.referencia_texto} className="text-sm whitespace-pre-wrap leading-relaxed" />}
+      {pos === "entre" && image && <img src={image} alt="Referência" className={imageClass} />}
+      {question.referencia_texto_apos && <MathText text={question.referencia_texto_apos} className="text-sm whitespace-pre-wrap leading-relaxed" />}
+      {image && !["antes", "entre", "livre"].includes(pos) && <img src={image} alt="Referência" className={imageClass} />}
+      {question.referencia_fonte && <p className="text-xs text-right text-muted-foreground">{question.referencia_fonte}</p>}
+    </div>
+  );
+}
+
+function QuestionStatement({ question }: { question: Q }) {
+  return (
+    <div className="space-y-2">
+      {question.enunciado_imagem && question.enunciado_imagem_pos === "antes" && (
+        <img src={question.enunciado_imagem} alt="Enunciado" className="max-w-full rounded-md border" />
+      )}
+      <MathText text={question.enunciado} className="text-sm whitespace-pre-wrap leading-relaxed" />
+      {question.enunciado_imagem && question.enunciado_imagem_pos !== "antes" && (
+        <img src={question.enunciado_imagem} alt="Enunciado" className="max-w-full rounded-md border" />
+      )}
+    </div>
+  );
+}
+
+function AlternativesList({ question }: { question: Q }) {
+  if (!Array.isArray(question.alternativas) || question.alternativas.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      {question.alternativas.map((a) => (
+        <div key={a.letra} className={`flex gap-2 rounded-md border p-2 text-sm ${question.resposta === a.letra ? "border-primary bg-primary/5" : ""}`}>
+          <span className="font-semibold">{a.letra})</span>
+          <div className="min-w-0 flex-1 space-y-2">
+            <MathText text={a.texto} className="whitespace-pre-wrap leading-relaxed" />
+            {a.imagem && <img src={a.imagem} alt={`Alternativa ${a.letra}`} className="max-w-full rounded border" />}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MathText({ text, className = "" }: { text: string | null | undefined; className?: string }) {
+  const segments = splitMathSegments(text ?? "");
+  return (
+    <div className={className}>
+      {segments.map((segment, index) => segment.type === "text"
+        ? <PlainText key={index} text={segment.value} />
+        : <MathExpression key={index} latex={segment.value} display={segment.display} />)}
+    </div>
+  );
+}
+
+function PlainText({ text }: { text: string }) {
+  const parts = text.split("\n");
+  return <>{parts.map((part, index) => <span key={index}>{index > 0 && <br />}{part}</span>)}</>;
+}
+
+function MathExpression({ latex, display }: { latex: string; display: boolean }) {
+  const content = renderLatexNodes(latex.trim(), "m");
+  if (display) {
+    return (
+      <span className="my-2 flex max-w-full justify-center overflow-x-auto rounded-md bg-muted/40 px-2 py-1 font-serif text-base">
+        <span className="inline-flex items-center gap-0.5 whitespace-nowrap">{content}</span>
+      </span>
+    );
+  }
+  return <span className="inline-flex items-center gap-0.5 whitespace-nowrap align-middle font-serif">{content}</span>;
+}
+
+function splitMathSegments(text: string): MathSegment[] {
+  const segments: MathSegment[] = [];
+  let i = 0;
+  let plain = "";
+  const flush = () => {
+    if (plain) {
+      segments.push({ type: "text", value: plain });
+      plain = "";
+    }
+  };
+
+  while (i < text.length) {
+    if (text.startsWith("$$", i)) {
+      const end = text.indexOf("$$", i + 2);
+      if (end !== -1) {
+        flush();
+        segments.push({ type: "math", value: text.slice(i + 2, end), display: true });
+        i = end + 2;
+        continue;
+      }
+    }
+    if (text.startsWith("\\[", i)) {
+      const end = text.indexOf("\\]", i + 2);
+      if (end !== -1) {
+        flush();
+        segments.push({ type: "math", value: text.slice(i + 2, end), display: true });
+        i = end + 2;
+        continue;
+      }
+    }
+    if (text.startsWith("\\(", i)) {
+      const end = text.indexOf("\\)", i + 2);
+      if (end !== -1) {
+        flush();
+        segments.push({ type: "math", value: text.slice(i + 2, end), display: false });
+        i = end + 2;
+        continue;
+      }
+    }
+    if (text[i] === "$") {
+      const end = text.indexOf("$", i + 1);
+      if (end !== -1) {
+        flush();
+        segments.push({ type: "math", value: text.slice(i + 1, end), display: false });
+        i = end + 1;
+        continue;
+      }
+    }
+    plain += text[i];
+    i++;
+  }
+
+  flush();
+  return segments;
+}
+
+function renderLatexNodes(input: string, prefix: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let text = "";
+  const pushText = () => {
+    if (text) {
+      nodes.push(<span key={`${prefix}-t-${nodes.length}`}>{text}</span>);
+      text = "";
+    }
+  };
+
+  for (let i = 0; i < input.length;) {
+    const char = input[i];
+
+    if (char === "\\") {
+      if (input[i + 1] === "\\") {
+        text += " ";
+        i += 2;
+        continue;
+      }
+
+      const commandMatch = input.slice(i + 1).match(/^[A-Za-z]+/);
+      const command = commandMatch?.[0] ?? input[i + 1] ?? "";
+      const commandEnd = i + 1 + command.length;
+
+      if (command === "frac" || command === "dfrac" || command === "tfrac") {
+        const numerator = readLatexGroup(input, commandEnd);
+        const denominator = numerator ? readLatexGroup(input, numerator.end) : null;
+        if (numerator && denominator) {
+          pushText();
+          nodes.push(
+            <span key={`${prefix}-f-${nodes.length}`} className="mx-0.5 inline-flex flex-col items-center align-middle text-[0.95em] leading-tight">
+              <span className="border-b border-current px-0.5">{renderLatexNodes(numerator.value, `${prefix}-fn-${nodes.length}`)}</span>
+              <span className="px-0.5">{renderLatexNodes(denominator.value, `${prefix}-fd-${nodes.length}`)}</span>
+            </span>,
+          );
+          i = denominator.end;
+          continue;
+        }
+      }
+
+      if (command === "sqrt") {
+        const radicand = readLatexGroup(input, commandEnd);
+        if (radicand) {
+          pushText();
+          nodes.push(
+            <span key={`${prefix}-sqrt-${nodes.length}`} className="inline-flex items-start align-middle">
+              <span className="pr-0.5 text-[1.15em] leading-none">√</span>
+              <span className="border-t border-current px-0.5">{renderLatexNodes(radicand.value, `${prefix}-sqrtc-${nodes.length}`)}</span>
+            </span>,
+          );
+          i = radicand.end;
+          continue;
+        }
+      }
+
+      if (command === "text" || command === "mathrm") {
+        const group = readLatexGroup(input, commandEnd);
+        if (group) {
+          pushText();
+          nodes.push(<span key={`${prefix}-text-${nodes.length}`} className="font-sans">{group.value}</span>);
+          i = group.end;
+          continue;
+        }
+      }
+
+      if (command === "vec") {
+        const group = readLatexGroup(input, commandEnd);
+        if (group) {
+          pushText();
+          nodes.push(
+            <span key={`${prefix}-vec-${nodes.length}`} className="inline-flex flex-col items-center align-middle leading-none">
+              <span className="text-[0.65em] leading-none">→</span>
+              <span>{renderLatexNodes(group.value, `${prefix}-vecc-${nodes.length}`)}</span>
+            </span>,
+          );
+          i = group.end;
+          continue;
+        }
+      }
+
+      if (command === "bar" || command === "overline") {
+        const group = readLatexGroup(input, commandEnd);
+        if (group) {
+          pushText();
+          nodes.push(<span key={`${prefix}-bar-${nodes.length}`} className="decoration-solid" style={{ textDecoration: "overline" }}>{renderLatexNodes(group.value, `${prefix}-barc-${nodes.length}`)}</span>);
+          i = group.end;
+          continue;
+        }
+      }
+
+      if (command === "hat") {
+        const group = readLatexGroup(input, commandEnd);
+        if (group) {
+          pushText();
+          nodes.push(
+            <span key={`${prefix}-hat-${nodes.length}`} className="inline-flex flex-col items-center align-middle leading-none">
+              <span className="text-[0.75em] leading-none">^</span>
+              <span>{renderLatexNodes(group.value, `${prefix}-hatc-${nodes.length}`)}</span>
+            </span>,
+          );
+          i = group.end;
+          continue;
+        }
+      }
+
+      if (command === "left" || command === "right" || command === "begin" || command === "end") {
+        i = commandEnd;
+        if (input[i] === "{") {
+          const group = readLatexGroup(input, i);
+          i = group?.end ?? i;
+        }
+        continue;
+      }
+
+      if (command === "," || command === ";" || command === "quad" || command === "qquad") {
+        text += " ";
+        i = commandEnd;
+        continue;
+      }
+
+      const symbol = MATH_SYMBOLS[command];
+      const word = MATH_WORDS.has(command) ? command : null;
+      text += symbol ?? word ?? command;
+      i = commandEnd;
+      continue;
+    }
+
+    if ((char === "^" || char === "_") && i + 1 < input.length) {
+      pushText();
+      const script = readLatexScript(input, i + 1);
+      nodes.push(char === "^"
+        ? <sup key={`${prefix}-sup-${nodes.length}`} className="text-[0.7em] leading-none">{renderLatexNodes(script.value, `${prefix}-supc-${nodes.length}`)}</sup>
+        : <sub key={`${prefix}-sub-${nodes.length}`} className="text-[0.7em] leading-none">{renderLatexNodes(script.value, `${prefix}-subc-${nodes.length}`)}</sub>);
+      i = script.end;
+      continue;
+    }
+
+    if (char === "{" || char === "}") {
+      i++;
+      continue;
+    }
+
+    if (char === "&") {
+      text += " ";
+      i++;
+      continue;
+    }
+
+    text += char === "~" ? " " : char;
+    i++;
+  }
+
+  pushText();
+  return nodes.length > 0 ? nodes : [input];
+}
+
+function readLatexGroup(input: string, start: number): { value: string; end: number } | null {
+  let i = start;
+  while (input[i] === " ") i++;
+  if (input[i] !== "{") return null;
+  let depth = 1;
+  let cursor = i + 1;
+  while (cursor < input.length && depth > 0) {
+    if (input[cursor] === "{") depth++;
+    else if (input[cursor] === "}") depth--;
+    cursor++;
+  }
+  return { value: input.slice(i + 1, Math.max(i + 1, cursor - 1)), end: cursor };
+}
+
+function readLatexScript(input: string, start: number): { value: string; end: number } {
+  const group = readLatexGroup(input, start);
+  if (group) return group;
+  if (input[start] === "\\") {
+    const command = input.slice(start + 1).match(/^[A-Za-z]+/)?.[0];
+    if (command) return { value: `\\${command}`, end: start + command.length + 1 };
+  }
+  return { value: input[start] ?? "", end: start + 1 };
 }
