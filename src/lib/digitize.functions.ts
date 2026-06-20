@@ -25,6 +25,7 @@ export type DigitalizacaoExtraida = {
 };
 export type DigitizeErrorCode =
   | "missing_api_key"
+  | "invalid_api_key"
   | "rate_limit"
   | "credits"
   | "invalid_response"
@@ -148,6 +149,9 @@ function digitizeFailureFromError(error: unknown): DigitizeResult {
   const text = errorMessage(error);
   const lower = text.toLowerCase();
 
+  if (lower.includes("401") || lower.includes("403")) {
+    return digitizeFailure("invalid_api_key", "A chave de IA está inválida ou sem permissão. Verifique a LOVABLE_API_KEY e tente novamente.");
+  }
   if (lower.includes("429")) {
     return digitizeFailure("rate_limit", "Limite de IA atingido. Aguarde alguns instantes e tente novamente.");
   }
