@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   AlignCenter,
   AlignLeft,
@@ -36,6 +36,7 @@ import {
 import { AppLayout } from "@/components/AppLayout";
 import { ImageCropDialog, type ImageCropSource } from "@/components/ImageCropDialog";
 import { ImageLayoutEditor } from "@/components/ImageLayoutEditor";
+import { RichText } from "@/components/RichText";
 import { CatalogSelect, CatalogMultiSelect } from "@/components/CatalogSelect";
 import { loadDraft, clearDraft, LETRAS, reletter, DraftDigitization, DraftQuestion } from "@/lib/draft-store";
 import {
@@ -500,6 +501,7 @@ function Page() {
                 rows={8}
                 className="font-mono text-sm"
               />
+              <RichPreview text={active.enunciado} />
               <p className="text-xs text-muted-foreground mt-1">Equações em LaTeX: <code>$x^2$</code>, <code>$\\frac{`{a}`}{`{b}`}$</code></p>
             </div>
 
@@ -522,6 +524,7 @@ function Page() {
                           value={a.texto}
                           onChange={(e) => updateAlt(i, "texto", e.target.value)}
                         />
+                        <RichPreview text={a.texto} />
                         {a.imagem ? (
                           <div className="flex items-center gap-2 rounded-md border p-1.5 bg-muted/30">
                             <img src={a.imagem} alt={`Imagem ${a.letra}`} className="h-16 object-contain rounded" />
@@ -632,7 +635,11 @@ function Page() {
                   </div>
                 </div>
 
-                <div><Label>Observações</Label><Textarea rows={2} value={active.observacoes ?? ""} onChange={(e) => update("observacoes", e.target.value)} /></div>
+                <div>
+                  <Label>Observações</Label>
+                  <Textarea rows={2} value={active.observacoes ?? ""} onChange={(e) => update("observacoes", e.target.value)} />
+                  <RichPreview text={active.observacoes} />
+                </div>
               </div>
             </details>
           </div>
@@ -683,6 +690,16 @@ function Page() {
   );
 }
 
+function RichPreview({ text }: { text: string | null | undefined }) {
+  if (!text?.trim()) return null;
+  return (
+    <div className="mt-2 rounded-md border bg-muted/30 p-2 text-sm">
+      <p className="mb-1 text-xs font-medium text-muted-foreground">Prévia formatada</p>
+      <RichText text={text} className="leading-relaxed" />
+    </div>
+  );
+}
+
 function ReferenceEditor({
   draft,
   onTextChange,
@@ -720,7 +737,7 @@ function ReferenceEditor({
     onCursorChange({ part, start: target.selectionStart ?? 0, end: target.selectionEnd ?? target.selectionStart ?? 0 });
   };
 
-  const alignButton = (align: ImagePlacementAlign, icon: React.ReactNode, title: string) => (
+  const alignButton = (align: ImagePlacementAlign, icon: ReactNode, title: string) => (
     <Button
       type="button"
       size="icon"
@@ -754,6 +771,7 @@ function ReferenceEditor({
           placeholder="Texto, tabela ou comando geral que vale para todos os itens."
           className="text-sm"
         />
+        <RichPreview text={hasImage ? draft.referencia_texto : joinReferenceTextParts(draft.referencia_texto, draft.referencia_texto_apos ?? "")} />
 
         {!hasImage && (
           <div className="flex justify-end">
@@ -822,16 +840,19 @@ function ReferenceEditor({
         )}
 
         {hasImage && (
-          <Textarea
-            value={draft.referencia_texto_apos ?? ""}
-            onChange={(e) => onTextChange("after", e.target.value)}
-            onSelect={(e) => rememberCursor("after", e.currentTarget)}
-            onClick={(e) => rememberCursor("after", e.currentTarget)}
-            onKeyUp={(e) => rememberCursor("after", e.currentTarget)}
-            rows={4}
-            placeholder="Texto depois da imagem."
-            className="text-sm"
-          />
+          <>
+            <Textarea
+              value={draft.referencia_texto_apos ?? ""}
+              onChange={(e) => onTextChange("after", e.target.value)}
+              onSelect={(e) => rememberCursor("after", e.currentTarget)}
+              onClick={(e) => rememberCursor("after", e.currentTarget)}
+              onKeyUp={(e) => rememberCursor("after", e.currentTarget)}
+              rows={4}
+              placeholder="Texto depois da imagem."
+              className="text-sm"
+            />
+            <RichPreview text={draft.referencia_texto_apos} />
+          </>
         )}
       </div>
     </div>
