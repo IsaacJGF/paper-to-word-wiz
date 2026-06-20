@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { ArrowLeft, FileText, Loader2, GripVertical, X, Download } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, FileText, Loader2, GripVertical, X, Download, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,6 +16,53 @@ export const Route = createFileRoute("/documento")({
   head: () => ({ meta: [{ title: "Criar documento" }] }),
   component: Page,
 });
+
+const REFERENCE_GROUP_COLORS = [
+  {
+    bar: "bg-sky-500",
+    border: "border-sky-300",
+    banner: "border-sky-300 bg-sky-50 text-sky-800",
+    badge: "bg-sky-100 text-sky-800",
+  },
+  {
+    bar: "bg-emerald-500",
+    border: "border-emerald-300",
+    banner: "border-emerald-300 bg-emerald-50 text-emerald-800",
+    badge: "bg-emerald-100 text-emerald-800",
+  },
+  {
+    bar: "bg-amber-500",
+    border: "border-amber-300",
+    banner: "border-amber-300 bg-amber-50 text-amber-800",
+    badge: "bg-amber-100 text-amber-800",
+  },
+  {
+    bar: "bg-rose-500",
+    border: "border-rose-300",
+    banner: "border-rose-300 bg-rose-50 text-rose-800",
+    badge: "bg-rose-100 text-rose-800",
+  },
+  {
+    bar: "bg-violet-500",
+    border: "border-violet-300",
+    banner: "border-violet-300 bg-violet-50 text-violet-800",
+    badge: "bg-violet-100 text-violet-800",
+  },
+  {
+    bar: "bg-cyan-500",
+    border: "border-cyan-300",
+    banner: "border-cyan-300 bg-cyan-50 text-cyan-800",
+    badge: "bg-cyan-100 text-cyan-800",
+  },
+] as const;
+
+type ReferenceGroupColor = typeof REFERENCE_GROUP_COLORS[number];
+type ReferenceGroupVisual = {
+  label: string;
+  color: ReferenceGroupColor;
+  totalItems: number;
+  blockCount: number;
+};
 
 function Page() {
   const [questions, setQuestions] = useState<DocumentQuestion[]>([]);
@@ -54,6 +101,8 @@ function Page() {
       }
     })();
   }, []);
+
+  const referenceGroupVisuals = useMemo(() => buildReferenceGroupVisuals(questions), [questions]);
 
   const move = (i: number, dir: -1 | 1) => {
     const j = i + dir;
@@ -126,17 +175,39 @@ function Page() {
                 {questions.map((q, i) => {
                   const referenceKey = getDocumentReferenceKey(q);
                   const previousReferenceKey = i > 0 ? getDocumentReferenceKey(questions[i - 1]) : null;
+                  const nextReferenceKey = i + 1 < questions.length ? getDocumentReferenceKey(questions[i + 1]) : null;
                   const startsReferenceBlock = Boolean(referenceKey && referenceKey !== previousReferenceKey);
+                  const endsReferenceBlock = Boolean(referenceKey && referenceKey !== nextReferenceKey);
                   const referenceBlockSize = referenceKey ? countReferenceBlockSize(questions, i) : 0;
+                  const groupVisual = referenceKey ? referenceGroupVisuals.get(referenceKey) : undefined;
+                  const showGroupVisual = Boolean(groupVisual && groupVisual.totalItems > 1);
+                  const splitGroup = Boolean(groupVisual && groupVisual.blockCount > 1);
+                  const groupTitle = groupVisual
+                    ? `${groupVisual.label}: este item pertence à mesma referência de ${groupVisual.totalItems} itens.${splitGroup ? " A referência aparece em blocos separados nesta ordem." : " Itens juntos usarão a referência uma única vez no Word."}`
+                    : undefined;
                   return (
                     <div key={q.id} className="space-y-2">
-                      {startsReferenceBlock && referenceBlockSize > 1 && (
-                        <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary">
-                          Referência compartilhada: {referenceBlockSize} itens juntos
+                      {startsReferenceBlock && groupVisual && (
+                        <div className={`rounded-lg border px-3 py-2 text-xs font-medium ${showGroupVisual ? groupVisual.color.banner : "border-primary/30 bg-primary/5 text-primary"}`}>
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="inline-flex items-center gap-2">
+                              {showGroupVisual && <span className={`size-2.5 rounded-full ${groupVisual.color.bar}`} />}
+                              {showGroupVisual ? groupVisual.label : "Referência"}: {referenceBlockSize} item{referenceBlockSize === 1 ? "" : "s"} neste bloco
+                            </span>
+                            {splitGroup && <span className="inline-flex items-center gap-1"><Link2 className="size-3" /> também aparece em outro bloco</span>}
+                          </div>
                         </div>
                       )}
-                      <div className={`flex gap-2 items-start p-3 rounded-lg border bg-background ${referenceKey ? "border-primary/30" : ""}`}>
-                        <div className="flex flex-col">
+                      <div
+                        className={`relative flex gap-2 items-start overflow-hidden rounded-lg border bg-background p-3 ${showGroupVisual && groupVisual ? groupVisual.color.border : referenceKey ? "border-primary/30" : ""}`}
+                        title={groupTitle}
+                      >
+                        {showGroupVisual && groupVisual && (
+                          <div className="absolute inset-y-0 left-0 flex w-4 justify-center">
+                            <div className={`w-1.5 ${groupVisual.color.bar} ${startsReferenceBlock ? "rounded-t-full" : ""} ${endsReferenceBlock ? "rounded-b-full" : ""}`} />
+                          </div>
+                        )}
+                        <div className={`flex flex-col ${showGroupVisual ? "ml-3" : ""}`}>
                           <button onClick={() => move(i, -1)} disabled={i === 0} className="text-xs px-1 disabled:opacity-30">▲</button>
                           <GripVertical className="size-4 text-muted-foreground" />
                           <button onClick={() => move(i, 1)} disabled={i === questions.length - 1} className="text-xs px-1 disabled:opacity-30">▼</button>
@@ -145,9 +216,18 @@ function Page() {
                           <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <span className="font-bold text-sm">Questão {i + 1}.</span>
                             {q.fonte && <span className="text-xs text-muted-foreground italic">({q.fonte})</span>}
+                            {showGroupVisual && groupVisual ? (
+                              <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium ${groupVisual.color.badge}`}>
+                                <Link2 className="size-3" /> {groupVisual.label}{splitGroup ? " separado" : ""}
+                              </span>
+                            ) : referenceKey ? (
+                              <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                                com referência
+                              </span>
+                            ) : null}
                             {referenceKey && (
                               <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                                {referenceBlockSize > 1 ? `grupo de ${referenceBlockSize} itens` : "com referência"}
+                                {referenceBlockSize > 1 ? `bloco de ${referenceBlockSize}` : "bloco único"}
                               </span>
                             )}
                           </div>
@@ -260,4 +340,45 @@ function countReferenceBlockSize(questions: DocumentQuestion[], index: number) {
   let end = index;
   while (end + 1 < questions.length && getDocumentReferenceKey(questions[end + 1]) === key) end++;
   return end - start + 1;
+}
+
+function buildReferenceGroupVisuals(questions: DocumentQuestion[]) {
+  const map = new Map<string, ReferenceGroupVisual>();
+  let previousKey: string | null = null;
+
+  questions.forEach((question) => {
+    const key = getDocumentReferenceKey(question);
+    if (!key) {
+      previousKey = null;
+      return;
+    }
+
+    let visual = map.get(key);
+    if (!visual) {
+      const index = map.size;
+      visual = {
+        label: `Ref ${referenceLabel(index)}`,
+        color: REFERENCE_GROUP_COLORS[index % REFERENCE_GROUP_COLORS.length],
+        totalItems: 0,
+        blockCount: 0,
+      };
+      map.set(key, visual);
+    }
+
+    visual.totalItems += 1;
+    if (key !== previousKey) visual.blockCount += 1;
+    previousKey = key;
+  });
+
+  return map;
+}
+
+function referenceLabel(index: number) {
+  let n = index;
+  let label = "";
+  do {
+    label = String.fromCharCode(65 + (n % 26)) + label;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return label;
 }
