@@ -252,47 +252,71 @@ function Page() {
             <p className="text-sm text-muted-foreground">{items.length > 0 ? "Ajuste a pesquisa ou filtros." : "Comece digitalizando sua primeira questão."}</p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {filtered.map((it) => {
               const isSel = sel.has(it.id);
               const itemConteudos = getConteudos(it);
+              const source = [it.prova, it.instituicao, it.ano].filter(Boolean).join(" • ");
+              const hasAlternativas = Array.isArray(it.alternativas) && it.alternativas.length > 0;
+              const hasImagem = !!(it.tem_imagem || it.enunciado_imagem || it.referencia_imagem);
+              const tags = [it.disciplina, ...itemConteudos].filter(Boolean) as string[];
+              const tagsShown = tags.slice(0, 3);
+              const tagsExtra = tags.length - tagsShown.length;
               return (
-                <div key={it.id} className={`rounded-xl border bg-card p-4 transition-colors ${isSel ? "ring-2 ring-primary" : ""}`}>
-                  <div className="flex gap-3">
-                    <Checkbox checked={isSel} onCheckedChange={() => toggle(it.id)} className="mt-1" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <span className="text-xs font-mono text-muted-foreground">#{it.id.slice(0, 6)}</span>
-                        {it.numero && <Badge variant="outline">Q{it.numero}</Badge>}
-                        {it.disciplina && <Badge variant="secondary">{it.disciplina}</Badge>}
-                        {itemConteudos.length > 0
-                          ? itemConteudos.map((c) => <Badge key={c} variant="secondary">{c}</Badge>)
-                          : <Badge variant="destructive">Sem conteúdo vinculado</Badge>}
-                        {it.referencia_texto && <Badge variant="outline">referência</Badge>}
-                        {it.fonte && <span className="text-xs text-muted-foreground">{it.fonte}</span>}
-                        {it.tem_equacao && <Sigma className="size-3.5 text-muted-foreground" />}
-                        {it.tem_imagem && <ImageIcon className="size-3.5 text-muted-foreground" />}
+                <div
+                  key={it.id}
+                  className={`group relative flex flex-col rounded-xl border bg-card p-3 transition-all hover:shadow-md ${isSel ? "ring-2 ring-primary" : ""}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <Checkbox checked={isSel} onCheckedChange={() => toggle(it.id)} className="mt-0.5 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <span className="font-mono">#{it.id.slice(0, 6)}</span>
+                        {it.numero && <span>· Q{it.numero}</span>}
                       </div>
-                      <p className="text-sm line-clamp-2">{it.enunciado}</p>
-                      <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-3">
-                        <span>Conteúdo: {itemConteudos.length > 0 ? itemConteudos.join(", ") : "não vinculado"}</span>
-                        <span>Tipo: {formatTipo(it.tipo)}</span>
-                        <span>Data de criação: {new Date(it.created_at).toLocaleDateString("pt-BR")}</span>
-                      </div>
+                      {source && <p className="mt-0.5 text-xs font-medium text-foreground/80 truncate">{source}</p>}
                     </div>
-                    <div className="flex flex-col sm:flex-row gap-1">
-                      <Button size="sm" variant="outline" onClick={() => openContentEditor(it)} className="gap-1">
-                        <Pencil className="size-3.5" /> Alterar conteúdo
-                      </Button>
-                      <Button size="icon" variant="ghost" onClick={() => onDuplicate(it)} title="Duplicar"><Copy className="size-4" /></Button>
-                      <Button size="icon" variant="ghost" onClick={() => onDelete(it.id)} title="Excluir"><Trash2 className="size-4" /></Button>
+                    <div className="flex shrink-0 -mr-1 -mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openContentEditor(it)} title="Alterar conteúdo"><Pencil className="size-3.5" /></Button>
+                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onDuplicate(it)} title="Duplicar"><Copy className="size-3.5" /></Button>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => onDelete(it.id)} title="Excluir"><Trash2 className="size-3.5" /></Button>
                     </div>
+                  </div>
+
+                  {tagsShown.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {tagsShown.map((t) => <Badge key={t} variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">{t}</Badge>)}
+                      {tagsExtra > 0 && <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">+{tagsExtra}</Badge>}
+                    </div>
+                  )}
+
+                  <p className="mt-2 text-sm text-foreground/90 line-clamp-3 min-h-[3.75rem]">{it.enunciado}</p>
+
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {hasImagem && <span title="Possui imagem" className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"><ImageIcon className="size-3" />Imagem</span>}
+                    {it.tem_equacao && <span title="Possui fórmula" className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"><Sigma className="size-3" />Fórmula</span>}
+                    {hasAlternativas && <span title="Possui alternativas" className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"><ListChecks className="size-3" />Alternativas</span>}
+                    {it.referencia_texto && <span title="Possui texto de referência" className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"><TableIcon className="size-3" />Referência</span>}
+                  </div>
+
+                  <div className="mt-auto pt-3 flex items-center justify-between text-[11px] text-muted-foreground border-t mt-3">
+                    <span>{formatTipo(it.tipo)} · {new Date(it.created_at).toLocaleDateString("pt-BR")}</span>
+                    <button
+                      type="button"
+                      onClick={() => setExpanded(it)}
+                      className="inline-flex items-center gap-1 text-primary hover:underline font-medium"
+                    >
+                      Detalhes <ChevronDown className="size-3" />
+                    </button>
                   </div>
                 </div>
               );
             })}
           </div>
         )}
+
+        <QuestionDetailsDialog question={expanded} onClose={() => setExpanded(null)} />
+
 
         {sel.size > 0 && (
           <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-primary text-primary-foreground rounded-full px-5 py-3 shadow-lg flex items-center gap-4">
