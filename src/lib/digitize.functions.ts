@@ -23,6 +23,16 @@ export type DigitalizacaoExtraida = {
   referencia_fonte: string;
   questoes: QuestaoExtraida[];
 };
+export type DigitizeErrorCode =
+  | "missing_api_key"
+  | "rate_limit"
+  | "credits"
+  | "invalid_response"
+  | "truncated_response"
+  | "gateway_error";
+export type DigitizeResult =
+  | { ok: true; data: DigitalizacaoExtraida }
+  | { ok: false; errorCode: DigitizeErrorCode; message: string };
 
 const SYSTEM = `Você é um OCR especializado em digitalização de questões de prova em português brasileiro.
 
@@ -68,26 +78,35 @@ REGRAS CRÍTICAS:
 
 export const digitizeQuestion = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => Input.parse(d))
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<DigitizeResult> => {
     const apiKey = process.env.LOVABLE_API_KEY;
-    if (!apiKey) throw new Error("LOVABLE_API_KEY não configurada");
-
-    const raw = await callGeminiVision({
-      apiKey,
-      model: "google/gemini-2.5-flash",
-      systemPrompt: SYSTEM,
-      userText: "Digitalize esta questão seguindo as regras do sistema. Se a imagem tiver partes sequenciais, leia de cima para baixo e una o conteúdo na ordem correta.",
-      imageDataUrl: data.imageDataUrl,
-    });
-
-    let parsed: DigitalizacaoExtraida | QuestaoExtraida;
-    try {
-      parsed = extractJSON(raw) as DigitalizacaoExtraida | QuestaoExtraida;
-    } catch (e) {
-      console.error("Falha ao parsear resposta da IA:", raw);
-      throw new Error("A IA retornou um formato inválido. Tente novamente.");
+    if (!apiKey) {
+      return digitizeFailure(
+        "missing_api_key",
+        "Digitalização por IA não configurada. Configure a chave LOVABLE_API_KEY no ambiente do projeto e tente novamente.",
+      );
     }
-    return normalizeDigitization(parsed);
+
+    try {
+      const raw = await callGeminiVision({
+        apiKey,
+        model: "google/gemini-2.5-flash",
+        systemPrompt: SYSTEM,
+        userText: "Digitalize esta questão seguindo as regras do sistema. Se a imagem tiver partes sequenciais, leia de cima para baixo e una o conteúdo na ordem correta.",
+        imageDataUrl: data.imageDataUrl,
+      });
+
+      try {
+        const parsed = extractJSON(raw) as DigitalizacaoExtraida | QuestaoExtraida;
+        return { ok: true, data: normalizeDigitization(parsed) };
+      } catch (e) {
+        console.error("Falha ao parsear resposta da IA:", raw, e);
+        return digitizeFailure("invalid_response", "A IA retornou um formato inválido. Tente novamente com uma imagem mais nítida.");
+      }
+    } catch (error) {
+      console.error("Falha ao digitalizar questão:", error);
+      return digitizeFailureFromError(error);
+    }
   });
 
 function normalizeQuestion(q: Partial<QuestaoExtraida>): QuestaoExtraida {
@@ -119,6 +138,32 @@ function normalizeDigitization(parsed: DigitalizacaoExtraida | QuestaoExtraida):
     referencia_fonte: "",
     questoes: [normalizeQuestion(parsed as Partial<QuestaoExtraida>)],
   };
+}
+
+function digitizeFailure(errorCode: DigitizeErrorCode, message: string): DigitizeResult {
+  return { ok: false, errorCode, message };
+}
+
+function digitizeFailureFromError(error: unknown): DigitizeResult {
+  const text = errorMessage(error);
+  const lower = text.toLowerCase();
+
+  if (lower.includes("429")) {
+    return digitizeFailure("rate_limit", "Limite de IA atingido. Aguarde alguns instantes e tente novamente.");
+  }
+  if (lower.includes("402")) {
+    return digitizeFailure("credits", "Créditos de IA esgotados. Adicione créditos no workspace e tente novamente.");
+  }
+  if (lower.includes("truncada") || lower.includes("truncated")) {
+    return digitizeFailure("truncated_response", "A resposta da IA foi muito longa. Tente uma imagem com menos conteúdo ou divida em partes menores.");
+  }
+
+  return digitizeFailure("gateway_error", "Falha ao digitalizar. Verifique a imagem e tente novamente.");
+}
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }
 
 function extractJSON(raw: string): unknown {
