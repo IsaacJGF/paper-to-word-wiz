@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Search, Trash2, Copy, FileText, Image as ImageIcon, Sigma, Loader2, ScanLine, Pencil, AlertTriangle, ChevronDown, ListChecks, Table as TableIcon, Layers } from "lucide-react";
+import { Search, Trash2, Copy, FileText, Image as ImageIcon, Sigma, Loader2, ScanLine, Pencil, AlertTriangle, ChevronDown, ListChecks, Table as TableIcon, Layers, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { AppLayout } from "@/components/AppLayout";
+import { CatalogMultiSelect } from "@/components/CatalogSelect";
 import { supabase } from "@/integrations/supabase/client";
 import { insertQuestionsWithCompatibility } from "@/lib/question-compat";
 import { loadSelectedQuestionIds, saveSelectedQuestionIds } from "@/lib/selection-store";
@@ -52,10 +53,28 @@ type ReferenceLike = Pick<Q,
   "referencia_imagem_layout"
 >;
 
+type CatalogItem = { id: string; nome: string; ativo: boolean; area_id?: string | null; conteudo_id?: string | null };
 type PedagogicalEntry = { label: string; value: string };
 type MathSegment = { type: "text"; value: string } | { type: "math"; value: string; display: boolean };
+type AdvancedFilters = {
+  area_geral: string;
+  conteudo_principal: string;
+  subconteudo_principal: string;
+  conteudos_relacionados: string[];
+  prova: string;
+  instituicao: string;
+  ano: string;
+};
 
-const NO_CONTENT_FILTER = "__sem_conteudo__";
+const EMPTY_ADVANCED_FILTERS: AdvancedFilters = {
+  area_geral: "",
+  conteudo_principal: "",
+  subconteudo_principal: "",
+  conteudos_relacionados: [],
+  prova: "",
+  instituicao: "",
+  ano: "",
+};
 
 const MATH_SYMBOLS: Record<string, string> = {
   alpha: "α", beta: "β", gamma: "γ", delta: "δ", Delta: "Δ", epsilon: "ε", varepsilon: "ε",
@@ -73,13 +92,20 @@ function Page() {
   const [items, setItems] = useState<Q[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
-  const [filtroDisc, setFiltroDisc] = useState("");
-  const [filtroConteudo, setFiltroConteudo] = useState("");
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [editingContent, setEditingContent] = useState<Q | null>(null);
   const [editingContentValue, setEditingContentValue] = useState("");
   const [expanded, setExpanded] = useState<Q | null>(null);
   const [referenceGroup, setReferenceGroup] = useState<{ key: string; selected: Set<string> } | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilters>(EMPTY_ADVANCED_FILTERS);
+  const [draftFilters, setDraftFilters] = useState<AdvancedFilters>(EMPTY_ADVANCED_FILTERS);
+  const [areas, setAreas] = useState<CatalogItem[]>([]);
+  const [catalogConteudos, setCatalogConteudos] = useState<CatalogItem[]>([]);
+  const [subconteudos, setSubconteudos] = useState<CatalogItem[]>([]);
+  const [relacionados, setRelacionados] = useState<CatalogItem[]>([]);
+  const [provas, setProvas] = useState<CatalogItem[]>([]);
+  const [instituicoes, setInstituicoes] = useState<CatalogItem[]>([]);
 
   const commitSelection = (next: Set<string>) => {
     setSel(next);
@@ -102,6 +128,25 @@ function Page() {
   };
   useEffect(() => { load(); }, []);
 
+  useEffect(() => {
+    (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db = supabase as any;
+      const tables = [
+        ["catalog_areas", setAreas],
+        ["catalog_conteudos", setCatalogConteudos],
+        ["catalog_subconteudos", setSubconteudos],
+        ["catalog_relacionados", setRelacionados],
+        ["catalog_provas", setProvas],
+        ["catalog_instituicoes", setInstituicoes],
+      ] as const;
+      for (const [table, setter] of tables) {
+        const { data, error } = await db.from(table).select("*").order("nome");
+        if (!error) setter((data ?? []) as CatalogItem[]);
+      }
+    })();
+  }, []);
+
   const disciplinas = useMemo(() => {
     const s = new Set<string>();
     items.forEach((i) => { if (i.disciplina) s.add(i.disciplina); });
@@ -114,16 +159,19 @@ function Page() {
     return [...s].sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [items]);
 
-  const semConteudoCount = useMemo(() => items.filter((i) => getConteudos(i).length === 0).length, [items]);
+  const anos = useMemo(() => {
+    const s = new Set<string>();
+    items.forEach((item) => { if (item.ano?.trim()) s.add(item.ano.trim()); });
+    return [...s].sort((a, b) => b.localeCompare(a, "pt-BR", { numeric: true }));
+  }, [items]);
+
+  const activeFilterCount = useMemo(() => countActiveFilters(advancedFilters), [advancedFilters]);
 
   const filtered = useMemo(() => items.filter((i) => {
-    const itemConteudos = getConteudos(i);
-    if (q && !matchesSearch(i, itemConteudos, q)) return false;
-    if (filtroDisc && i.disciplina !== filtroDisc) return false;
-    if (filtroConteudo === NO_CONTENT_FILTER && itemConteudos.length > 0) return false;
-    if (filtroConteudo && filtroConteudo !== NO_CONTENT_FILTER && !itemConteudos.includes(filtroConteudo)) return false;
+    if (q.trim() && !matchesSearch(i, q)) return false;
+    if (!matchesAdvancedFilters(i, advancedFilters)) return false;
     return true;
-  }), [items, q, filtroDisc, filtroConteudo]);
+  }), [items, q, advancedFilters]);
 
   const referenceGroups = useMemo(() => {
     const groups = new Map<string, Q[]>();
@@ -201,6 +249,21 @@ function Page() {
     const ids = [...sel];
     saveSelectedQuestionIds(ids);
     navigate({ to: "/documento" });
+  };
+
+  const openAdvancedFilters = () => {
+    setDraftFilters(cloneAdvancedFilters(advancedFilters));
+    setAdvancedOpen(true);
+  };
+
+  const applyAdvancedFilters = () => {
+    setAdvancedFilters(cloneAdvancedFilters(draftFilters));
+    setAdvancedOpen(false);
+  };
+
+  const clearAdvancedFilters = () => {
+    setDraftFilters(cloneAdvancedFilters(EMPTY_ADVANCED_FILTERS));
+    setAdvancedFilters(cloneAdvancedFilters(EMPTY_ADVANCED_FILTERS));
   };
 
   const onDelete = async (id: string) => {
@@ -303,35 +366,15 @@ function Page() {
           <Button asChild className="gap-2"><Link to="/"><ScanLine className="size-4" /> Nova questão</Link></Button>
         </div>
 
-        {semConteudoCount > 0 && (
-          <button
-            type="button"
-            onClick={() => setFiltroConteudo(NO_CONTENT_FILTER)}
-            className="mb-4 w-full rounded-lg border border-accent bg-accent/30 px-3 py-2 text-left text-sm flex items-center gap-2"
-          >
-            <AlertTriangle className="size-4 shrink-0" />
-            <span>Existem {semConteudoCount} questão{semConteudoCount > 1 ? "ões" : ""} sem conteúdo vinculado. Clique aqui para visualizá-la{semConteudoCount > 1 ? "s" : ""}.</span>
-          </button>
-        )}
-
         <div className="flex flex-col sm:flex-row gap-2 mb-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <Input className="pl-9" placeholder="Pesquisar no enunciado…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <Input className="pl-9" placeholder="Pesquisar por palavra ou trecho da questão..." value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
-          {disciplinas.length > 0 && (
-            <select className="rounded-md border bg-card px-3 text-sm" value={filtroDisc} onChange={(e) => setFiltroDisc(e.target.value)}>
-              <option value="">Todas as disciplinas</option>
-              {disciplinas.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-          )}
-          {conteudos.length > 0 && (
-            <select className="rounded-md border bg-card px-3 text-sm" value={filtroConteudo} onChange={(e) => setFiltroConteudo(e.target.value)}>
-              <option value="">Todos os conteúdos</option>
-              <option value={NO_CONTENT_FILTER}>Sem conteúdo vinculado</option>
-              {conteudos.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          )}
+          <Button type="button" variant={activeFilterCount > 0 ? "default" : "outline"} onClick={openAdvancedFilters} className="gap-2 sm:w-auto">
+            <Filter className="size-4" />
+            {activeFilterCount > 0 ? `Filtro avançado • ${activeFilterCount} ativo${activeFilterCount > 1 ? "s" : ""}` : "Filtro avançado"}
+          </Button>
         </div>
 
         {loading ? (
@@ -346,7 +389,6 @@ function Page() {
           <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {filtered.map((it) => {
               const isSel = sel.has(it.id);
-              const itemConteudos = getConteudos(it);
               const source = formatQuestionSource(it);
               const hasAlternativas = Array.isArray(it.alternativas) && it.alternativas.length > 0;
               const hasImagem = !!(it.tem_imagem || it.enunciado_imagem || it.referencia_imagem);
@@ -421,6 +463,22 @@ function Page() {
           </div>
         )}
 
+        <AdvancedFiltersDialog
+          open={advancedOpen}
+          onOpenChange={setAdvancedOpen}
+          filters={draftFilters}
+          onFiltersChange={setDraftFilters}
+          activeCount={activeFilterCount}
+          areas={areas}
+          conteudos={catalogConteudos}
+          subconteudos={subconteudos}
+          relacionados={relacionados}
+          provas={provas}
+          instituicoes={instituicoes}
+          anos={anos}
+          onApply={applyAdvancedFilters}
+          onClear={clearAdvancedFilters}
+        />
         <QuestionDetailsDialog question={expanded} onClose={() => setExpanded(null)} />
         <ReferenceGroupDialog
           group={referenceGroup ? referenceGroups.get(referenceGroup.key) ?? [] : []}
@@ -475,6 +533,199 @@ function Page() {
   );
 }
 
+function AdvancedFiltersDialog({
+  open,
+  onOpenChange,
+  filters,
+  onFiltersChange,
+  activeCount,
+  areas,
+  conteudos,
+  subconteudos,
+  relacionados,
+  provas,
+  instituicoes,
+  anos,
+  onApply,
+  onClear,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  filters: AdvancedFilters;
+  onFiltersChange: (filters: AdvancedFilters) => void;
+  activeCount: number;
+  areas: CatalogItem[];
+  conteudos: CatalogItem[];
+  subconteudos: CatalogItem[];
+  relacionados: CatalogItem[];
+  provas: CatalogItem[];
+  instituicoes: CatalogItem[];
+  anos: string[];
+  onApply: () => void;
+  onClear: () => void;
+}) {
+  const area = areas.find((item) => item.nome === filters.area_geral);
+  const conteudoOptions = area ? conteudos.filter((item) => item.area_id === area.id) : [];
+  const conteudo = conteudoOptions.find((item) => item.nome === filters.conteudo_principal);
+  const subconteudoOptions = conteudo ? subconteudos.filter((item) => item.conteudo_id === conteudo.id) : [];
+
+  const update = (patch: Partial<AdvancedFilters>) => onFiltersChange({ ...filters, ...patch });
+  const updateArea = (value: string) => update({ area_geral: value, conteudo_principal: "", subconteudo_principal: "" });
+  const updateConteudo = (value: string) => update({ conteudo_principal: value, subconteudo_principal: "" });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="left-auto right-0 top-0 h-screen max-h-screen w-full max-w-md translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none p-0 sm:rounded-none">
+        <DialogHeader className="border-b p-4 pr-12">
+          <DialogTitle>Filtro avançado</DialogTitle>
+          <DialogDescription>
+            {activeCount > 0 ? `${activeCount} filtro${activeCount > 1 ? "s" : ""} ativo${activeCount > 1 ? "s" : ""}.` : "Combine filtros do catálogo com a busca principal."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 overflow-y-auto p-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="filtro-area">Área geral</label>
+            <FilterSelect
+              id="filtro-area"
+              value={filters.area_geral}
+              onChange={updateArea}
+              options={areas}
+              placeholder="Todas as áreas"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="filtro-conteudo">Conteúdo principal</label>
+            <FilterSelect
+              id="filtro-conteudo"
+              value={filters.conteudo_principal}
+              onChange={updateConteudo}
+              options={conteudoOptions}
+              placeholder={filters.area_geral ? "Todos os conteúdos" : "Selecione uma área primeiro"}
+              disabled={!filters.area_geral}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="filtro-subconteudo">Subconteúdo principal</label>
+            <FilterSelect
+              id="filtro-subconteudo"
+              value={filters.subconteudo_principal}
+              onChange={(value) => update({ subconteudo_principal: value })}
+              options={subconteudoOptions}
+              placeholder={filters.conteudo_principal ? "Todos os subconteúdos" : "Selecione um conteúdo primeiro"}
+              disabled={!filters.conteudo_principal}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Conteúdos relacionados</label>
+            <CatalogMultiSelect
+              values={filters.conteudos_relacionados}
+              onChange={(values) => update({ conteudos_relacionados: values })}
+              options={relacionados}
+              placeholder="Buscar e adicionar conteúdos"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="filtro-prova">Prova</label>
+            <FilterSelect
+              id="filtro-prova"
+              value={filters.prova}
+              onChange={(value) => update({ prova: value })}
+              options={provas}
+              placeholder="Todas as provas"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="filtro-instituicao">Instituição</label>
+            <FilterSelect
+              id="filtro-instituicao"
+              value={filters.instituicao}
+              onChange={(value) => update({ instituicao: value })}
+              options={instituicoes}
+              placeholder="Todas as instituições"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="filtro-ano">Ano</label>
+            <Input
+              id="filtro-ano"
+              list="anos-questoes"
+              value={filters.ano}
+              onChange={(event) => update({ ano: event.target.value })}
+              placeholder="Digite ou selecione o ano"
+            />
+            <datalist id="anos-questoes">
+              {anos.map((ano) => <option key={ano} value={ano} />)}
+            </datalist>
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2 border-t p-4 sm:justify-between sm:space-x-0">
+          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Fechar</Button>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={onClear}>Limpar filtros</Button>
+            <Button type="button" onClick={onApply}>Aplicar filtros</Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function FilterSelect({
+  id,
+  value,
+  onChange,
+  options,
+  placeholder,
+  disabled,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: CatalogItem[];
+  placeholder: string;
+  disabled?: boolean;
+}) {
+  const visibleOptions = options.filter((item) => item.ativo || item.nome === value);
+  return (
+    <select
+      id={id}
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value)}
+      className="h-10 w-full rounded-md border bg-card px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      <option value="">{placeholder}</option>
+      {visibleOptions.map((item) => (
+        <option key={item.id} value={item.nome}>{item.nome}{item.ativo ? "" : " (inativo)"}</option>
+      ))}
+    </select>
+  );
+}
+
+function cloneAdvancedFilters(filters: AdvancedFilters): AdvancedFilters {
+  return { ...filters, conteudos_relacionados: [...filters.conteudos_relacionados] };
+}
+
+function countActiveFilters(filters: AdvancedFilters) {
+  return [
+    filters.area_geral,
+    filters.conteudo_principal,
+    filters.subconteudo_principal,
+    filters.conteudos_relacionados.length > 0 ? "relacionados" : "",
+    filters.prova,
+    filters.instituicao,
+    filters.ano,
+  ].filter(Boolean).length;
+}
+
 function getConteudos(question: Q) {
   const principal = (question.conteudo_principal ?? "").trim();
   const sub = (question.subconteudo_principal ?? "").trim();
@@ -491,20 +742,43 @@ function splitConteudos(value: string | null) {
     .filter(Boolean);
 }
 
-function matchesSearch(question: Q, conteudos: string[], term: string) {
-  const needle = term.toLowerCase();
+function matchesSearch(question: Q, term: string) {
+  const needle = normalizeFilterText(term);
+  if (!needle) return true;
   return [
     question.enunciado,
     question.referencia_texto ?? "",
     question.referencia_texto_apos ?? "",
-    question.conteudo ?? "",
-    question.area_geral ?? "",
-    question.conteudo_principal ?? "",
-    question.subconteudo_principal ?? "",
-    ...(question.conteudos_relacionados ?? []),
-    ...(question.tags_livres ?? []),
-    ...conteudos,
-  ].some((value) => value.toLowerCase().includes(needle));
+    question.observacoes ?? "",
+    ...((question.alternativas ?? []).map((alt) => alt.texto ?? "")),
+  ].some((value) => normalizeFilterText(value).includes(needle));
+}
+
+function matchesAdvancedFilters(question: Q, filters: AdvancedFilters) {
+  if (filters.area_geral && !sameFilterValue(question.area_geral, filters.area_geral)) return false;
+  if (filters.conteudo_principal && !matchesAnyFilterValue([question.conteudo_principal, question.conteudo], filters.conteudo_principal)) return false;
+  if (filters.subconteudo_principal && !sameFilterValue(question.subconteudo_principal, filters.subconteudo_principal)) return false;
+  if (filters.conteudos_relacionados.length > 0) {
+    const related = [...(question.conteudos_relacionados ?? []), ...splitConteudos(question.conteudo)];
+    const hasRelated = filters.conteudos_relacionados.some((filter) => matchesAnyFilterValue(related, filter));
+    if (!hasRelated) return false;
+  }
+  if (filters.prova && !sameFilterValue(question.prova, filters.prova)) return false;
+  if (filters.instituicao && !sameFilterValue(question.instituicao, filters.instituicao)) return false;
+  if (filters.ano && !sameFilterValue(question.ano, filters.ano)) return false;
+  return true;
+}
+
+function matchesAnyFilterValue(values: Array<string | null | undefined>, expected: string) {
+  return values.some((value) => sameFilterValue(value, expected));
+}
+
+function sameFilterValue(value: string | null | undefined, expected: string) {
+  return normalizeFilterText(value ?? "") === normalizeFilterText(expected);
+}
+
+function normalizeFilterText(value: string) {
+  return value.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 function formatTipo(tipo: string) {
