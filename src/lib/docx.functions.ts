@@ -293,6 +293,20 @@ function imageParagraph(dataUrl: string, maxWidthPx: number, align: typeof Align
   if (!img) return null;
 
   const placement = readPlacement(placementInput);
+  if (placement?.mode === "block") {
+    const width = Math.max(40, Math.min(maxWidthPx, (maxWidthPx * placement.width) / 100));
+    const height = Math.max(30, width * (img.height / img.width));
+    return new Paragraph({
+      alignment: alignmentFromImageAlign(placement.align),
+      spacing: { after: 120 },
+      children: [new ImageRun({
+        type: img.type,
+        data: img.buffer,
+        transformation: { width: Math.round(width), height: Math.round(height), rotation: placement.rotation },
+      })],
+    });
+  }
+
   if (placement) {
     const width = Math.max(40, Math.min(maxWidthPx, (maxWidthPx * placement.width) / 100));
     const height = Math.max(30, (PLACEMENT_SURFACE_HEIGHT_PX * placement.height) / 100);
@@ -341,6 +355,12 @@ function imageParagraph(dataUrl: string, maxWidthPx: number, align: typeof Align
 function readPlacement(value: unknown): ImagePlacementLayout | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return normalizeImagePlacementLayout(value as Partial<ImagePlacementLayout>);
+}
+
+function alignmentFromImageAlign(align: ImagePlacementLayout["align"]) {
+  if (align === "left") return AlignmentType.LEFT;
+  if (align === "right") return AlignmentType.RIGHT;
+  return AlignmentType.CENTER;
 }
 
 function pxToEmu(value: number) {
@@ -407,23 +427,20 @@ export const generateDocx = createServerFn({ method: "POST" })
       const referenceKey = q.grupo_id || [q.referencia_texto, q.referencia_texto_apos, q.referencia_imagem, JSON.stringify(q.referencia_imagem_layout ?? null)].filter(Boolean).join("|");
       const shouldRenderReference = hasReference && referenceKey !== previousReferenceKey;
       if (shouldRenderReference) {
-        const freeReferenceImage = q.referencia_imagem && q.referencia_imagem_layout
+        const referenceImage = q.referencia_imagem
           ? imageParagraph(q.referencia_imagem, CONTENT_WIDTH_PX, AlignmentType.CENTER, undefined, q.referencia_imagem_layout)
           : null;
-        const referenceImage = q.referencia_imagem && !q.referencia_imagem_layout
-          ? imageParagraph(q.referencia_imagem, CONTENT_WIDTH_PX, AlignmentType.CENTER)
-          : null;
         const imagePos = q.referencia_imagem_pos ?? "depois";
-        if (freeReferenceImage) children.push(freeReferenceImage);
-        if (referenceImage && imagePos === "antes") children.push(referenceImage);
+        const imageIsFloating = Boolean(q.referencia_imagem_layout && normalizeImagePlacementLayout(q.referencia_imagem_layout as Partial<ImagePlacementLayout>).mode !== "block");
+        if (referenceImage && (imageIsFloating || imagePos === "antes")) children.push(referenceImage);
         if (q.referencia_texto) {
           children.push(paragraphFromText(q.referencia_texto, { size, align: AlignmentType.JUSTIFIED, spacingAfter: 100 }));
         }
-        if (referenceImage && imagePos === "entre") children.push(referenceImage);
+        if (referenceImage && !imageIsFloating && imagePos === "entre") children.push(referenceImage);
         if (q.referencia_texto_apos) {
           children.push(paragraphFromText(q.referencia_texto_apos, { size, align: AlignmentType.JUSTIFIED, spacingAfter: 100 }));
         }
-        if (referenceImage && imagePos !== "antes" && imagePos !== "entre") children.push(referenceImage);
+        if (referenceImage && !imageIsFloating && imagePos !== "antes" && imagePos !== "entre") children.push(referenceImage);
         if (q.referencia_fonte) {
           children.push(paragraphFromText(q.referencia_fonte, { size: size - 2, align: AlignmentType.RIGHT, spacingAfter: 180 }));
         }

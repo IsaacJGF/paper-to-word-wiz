@@ -1,6 +1,23 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Save, Trash2, Plus, GripVertical, AlertTriangle, ImagePlus, X, Sparkles, RotateCcw, RotateCw } from "lucide-react";
+import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  ArrowDown,
+  ArrowLeft,
+  ArrowUp,
+  Save,
+  Trash2,
+  Plus,
+  GripVertical,
+  AlertTriangle,
+  ImagePlus,
+  X,
+  Sparkles,
+  RotateCcw,
+  RotateCw,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,13 +38,22 @@ import { ImageCropDialog } from "@/components/ImageCropDialog";
 import { ImageLayoutEditor } from "@/components/ImageLayoutEditor";
 import { CatalogSelect, CatalogMultiSelect } from "@/components/CatalogSelect";
 import { loadDraft, clearDraft, LETRAS, reletter, DraftDigitization, DraftQuestion } from "@/lib/draft-store";
-import { DEFAULT_IMAGE_PLACEMENT_LAYOUT, normalizeImagePlacementLayout, type ImagePlacementLayout } from "@/lib/image-layout";
+import {
+  DEFAULT_IMAGE_PLACEMENT_LAYOUT,
+  DEFAULT_REFERENCE_IMAGE_BLOCK_LAYOUT,
+  normalizeImagePlacementLayout,
+  type ImagePlacementAlign,
+  type ImagePlacementLayout,
+} from "@/lib/image-layout";
 import { formatMetadataSuggestion, hasMetadataSuggestion, suggestQuestionMetadata } from "@/lib/metadata-suggestions";
 import { insertQuestionsWithCompatibility } from "@/lib/question-compat";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 type CatalogItem = { id: string; nome: string; ativo: boolean; area_id?: string; conteudo_id?: string };
+type ReferenceTextPart = "before" | "after";
+type ReferenceCursor = { part: ReferenceTextPart; start: number; end: number };
+type SharedMetadataKey = "ano" | "prova" | "instituicao";
 
 export const Route = createFileRoute("/revisar")({
   head: () => ({ meta: [{ title: "Revisar questão" }] }),
@@ -40,14 +66,14 @@ function Page() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [saving, setSaving] = useState(false);
   const [classificationDialogOpen, setClassificationDialogOpen] = useState(false);
+  const [referenceCursor, setReferenceCursor] = useState<ReferenceCursor>({ part: "before", start: 0, end: 0 });
   const [cropTarget, setCropTarget] = useState<
-    | { kind: "referencia" }
+    | { kind: "referencia"; cursor?: ReferenceCursor; replace?: boolean }
     | { kind: "enunciado" }
     | { kind: "alt"; index: number }
     | null
   >(null);
 
-  // Catálogos
   const [areas, setAreas] = useState<CatalogItem[]>([]);
   const [conteudos, setConteudos] = useState<CatalogItem[]>([]);
   const [subconteudos, setSubconteudos] = useState<CatalogItem[]>([]);
@@ -87,7 +113,6 @@ function Page() {
   if (!draft) return null;
   const active = draft.questoes[Math.min(activeIndex, draft.questoes.length - 1)];
 
-  // Filtros hierárquicos por NOME (não por id) — as colunas em questions guardam o nome
   const areaItem = areas.find((a) => a.nome === active.area_geral);
   const conteudoOptions = areaItem
     ? conteudos.filter((c) => c.area_id === areaItem.id)
@@ -99,15 +124,83 @@ function Page() {
 
   const relatedSelection = active.conteudos_relacionados ?? [];
   const tagSelection = active.tags_livres ?? [];
-  const referencePreviewText = [draft.referencia_texto, draft.referencia_texto_apos ?? ""].filter((part) => part.trim()).join("\n\n");
 
-  const updateDraft = <K extends keyof DraftDigitization>(k: K, v: DraftDigitization[K]) => setDraft({ ...draft, [k]: v });
   const updateQuestion = (idx: number, updater: (q: DraftQuestion) => DraftQuestion) => {
     const questoes = draft.questoes.map((q, i) => i === idx ? updater(q) : q);
     setDraft({ ...draft, questoes });
   };
   const update = <K extends keyof DraftQuestion>(k: K, v: DraftQuestion[K]) => {
     updateQuestion(activeIndex, (q) => ({ ...q, [k]: v }));
+  };
+
+  const updateReferenceText = (part: ReferenceTextPart, value: string) => {
+    setDraft((current) => {
+      if (!current) return current;
+      const next = part === "before"
+        ? { ...current, referencia_texto: value }
+        : { ...current, referencia_texto_apos: value };
+      return current.referencia_imagem ? withAutoReferenceImagePosition(next) : next;
+    });
+  };
+
+  const updateReferenceImageLayout = (partial: Partial<ImagePlacementLayout>) => {
+    setDraft((current) => {
+      if (!current) return current;
+      return withReferenceBlockImageLayout({
+        ...current,
+        referencia_imagem_layout: normalizeImagePlacementLayout({
+          ...DEFAULT_REFERENCE_IMAGE_BLOCK_LAYOUT,
+          ...(current.referencia_imagem_layout ?? {}),
+          ...partial,
+          mode: "block",
+        }),
+      });
+    });
+  };
+
+  const rotateReferenceImage = (delta: number) => {
+    updateReferenceImageLayout({ rotation: (draft.referencia_imagem_layout?.rotation ?? 0) + delta });
+  };
+
+  const moveReferenceImage = (position: "antes" | "entre" | "depois") => {
+    setDraft((current) => {
+      if (!current?.referencia_imagem) return current;
+      let next: DraftDigitization = current;
+      if (position === "antes") {
+        next = {
+          ...current,
+          referencia_texto: "",
+          referencia_texto_apos: joinReferenceTextParts(current.referencia_texto, current.referencia_texto_apos ?? ""),
+        };
+      } else if (position === "depois") {
+        next = {
+          ...current,
+          referencia_texto: joinReferenceTextParts(current.referencia_texto, current.referencia_texto_apos ?? ""),
+          referencia_texto_apos: "",
+        };
+      }
+      return withReferenceBlockImageLayout({ ...next, referencia_imagem_pos: position });
+    });
+  };
+
+  const removeReferenceImage = () => {
+    setDraft((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        referencia_texto: joinReferenceTextParts(current.referencia_texto, current.referencia_texto_apos ?? ""),
+        referencia_texto_apos: "",
+        referencia_imagem: undefined,
+        referencia_imagem_pos: undefined,
+        referencia_imagem_layout: undefined,
+      };
+    });
+  };
+
+  const updateSharedMetadata = <K extends SharedMetadataKey>(key: K, value: DraftQuestion[K]) => {
+    setDraft((current) => current
+      ? { ...current, questoes: current.questoes.map((q) => ({ ...q, [key]: value })) }
+      : current);
   };
 
   const updateArea = (area: string) => {
@@ -128,15 +221,6 @@ function Page() {
     }));
   };
 
-  const setReferenceImageLayout = (layout: ImagePlacementLayout) => {
-    setDraft({ ...draft, referencia_imagem_layout: layout, referencia_imagem_pos: "livre" });
-  };
-  const rotateReferenceImage = (delta: number) => {
-    setReferenceImageLayout(normalizeImagePlacementLayout({
-      ...draft.referencia_imagem_layout,
-      rotation: (draft.referencia_imagem_layout?.rotation ?? 0) + delta,
-    }));
-  };
   const setQuestionImageLayout = (layout: ImagePlacementLayout) => updateQuestion(activeIndex, (q) => ({ ...q, enunciado_imagem_layout: layout, enunciado_imagem_pos: "livre" }));
   const rotateQuestionImage = (delta: number) => {
     setQuestionImageLayout(normalizeImagePlacementLayout({
@@ -224,6 +308,18 @@ function Page() {
     try {
       const hasReference = !!draft.referencia_texto.trim() || !!draft.referencia_texto_apos?.trim() || !!draft.referencia_imagem;
       const grupoId = hasReference || draft.questoes.length > 1 ? crypto.randomUUID() : null;
+      const referenceImageLayout = draft.referencia_imagem
+        ? normalizeImagePlacementLayout({
+          ...DEFAULT_REFERENCE_IMAGE_BLOCK_LAYOUT,
+          ...(draft.referencia_imagem_layout ?? {}),
+          mode: "block",
+        })
+        : null;
+      const referenceImagePos = draft.referencia_imagem
+        ? draft.referencia_imagem_pos && draft.referencia_imagem_pos !== "livre"
+          ? draft.referencia_imagem_pos
+          : getReferenceImagePosition(draft.referencia_texto, draft.referencia_texto_apos ?? "")
+        : null;
       const rows = draft.questoes.map((q) => ({
         numero: q.numero || null,
         enunciado: q.enunciado,
@@ -247,8 +343,8 @@ function Page() {
         referencia_texto: draft.referencia_texto || null,
         referencia_fonte: draft.referencia_fonte || null,
         referencia_imagem: draft.referencia_imagem ?? null,
-        referencia_imagem_pos: draft.referencia_imagem ? "livre" : draft.referencia_imagem_pos ?? null,
-        referencia_imagem_layout: draft.referencia_imagem ? normalizeImagePlacementLayout(draft.referencia_imagem_layout) : null,
+        referencia_imagem_pos: referenceImagePos,
+        referencia_imagem_layout: referenceImageLayout,
         referencia_texto_apos: draft.referencia_texto_apos || null,
         grupo_id: grupoId,
         tem_equacao: q.tem_equacao,
@@ -325,57 +421,17 @@ function Page() {
           </div>
 
           <div className="rounded-xl border bg-card p-4 space-y-4">
-            <div className="rounded-lg border p-3 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <Label>Referência / texto-base comum</Label>
-                <span className="text-xs text-muted-foreground">{draft.questoes.length} item{draft.questoes.length > 1 ? "s" : ""}</span>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {!draft.referencia_imagem ? (
-                  <Button type="button" size="sm" variant="outline" className="gap-1 h-7" onClick={() => setCropTarget({ kind: "referencia" })}>
-                    <ImagePlus className="size-3" /> Adicionar imagem
-                  </Button>
-                ) : (
-                  <>
-                    <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setCropTarget({ kind: "referencia" })}>Recortar de novo</Button>
-                    <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => rotateReferenceImage(-15)} aria-label="Girar imagem para a esquerda"><RotateCcw className="size-3" /></Button>
-                    <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => rotateReferenceImage(15)} aria-label="Girar imagem para a direita"><RotateCw className="size-3" /></Button>
-                    <Button type="button" size="sm" variant="ghost" className="h-7 text-destructive gap-1" onClick={() => setDraft({ ...draft, referencia_imagem: undefined, referencia_imagem_pos: undefined, referencia_imagem_layout: undefined })}>
-                      <X className="size-3" /> Remover
-                    </Button>
-                  </>
-                )}
-              </div>
-              {draft.referencia_imagem && (
-                <ImageLayoutEditor
-                  imageUrl={draft.referencia_imagem}
-                  layout={draft.referencia_imagem_layout}
-                  text={referencePreviewText}
-                  placeholder="Referência"
-                  onLayoutChange={setReferenceImageLayout}
-                />
-              )}
-              <Textarea
-                value={draft.referencia_texto}
-                onChange={(e) => updateDraft("referencia_texto", e.target.value)}
-                rows={5}
-                placeholder="Texto, imagem descrita, tabela ou comando geral que vale para todos os itens."
-                className="text-sm"
-              />
-              {(draft.referencia_imagem || !!draft.referencia_texto_apos?.trim()) && (
-                <Textarea
-                  value={draft.referencia_texto_apos ?? ""}
-                  onChange={(e) => updateDraft("referencia_texto_apos", e.target.value)}
-                  rows={3}
-                  placeholder="Complemento da referência, se necessário."
-                  className="text-sm"
-                />
-              )}
-              <div>
-                <Label>Fonte da referência</Label>
-                <Input value={draft.referencia_fonte} onChange={(e) => updateDraft("referencia_fonte", e.target.value)} placeholder="Internet, banca, prova, ano..." />
-              </div>
-            </div>
+            <ReferenceEditor
+              draft={draft}
+              onTextChange={updateReferenceText}
+              onCursorChange={setReferenceCursor}
+              onInsertImage={() => setCropTarget({ kind: "referencia", cursor: referenceCursor })}
+              onReplaceImage={() => setCropTarget({ kind: "referencia", replace: true })}
+              onRemoveImage={removeReferenceImage}
+              onMoveImage={moveReferenceImage}
+              onRotateImage={rotateReferenceImage}
+              onImageLayoutChange={updateReferenceImageLayout}
+            />
 
             {draft.questoes.length > 1 && (
               <div className="flex gap-2 overflow-x-auto pb-1">
@@ -393,23 +449,17 @@ function Page() {
               </div>
             )}
 
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <Label>Número</Label>
-                <Input value={active.numero ?? ""} onChange={(e) => update("numero", e.target.value)} placeholder="1" />
-              </div>
-              <div className="col-span-2">
-                <Label>Tipo</Label>
-                <Select value={active.tipo} onValueChange={(v) => update("tipo", v as DraftQuestion["tipo"])}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="multipla_escolha">Múltipla escolha</SelectItem>
-                    <SelectItem value="certo_errado">Certo ou errado</SelectItem>
-                    <SelectItem value="numerica">Numérica</SelectItem>
-                    <SelectItem value="discursiva">Discursiva</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            <div>
+              <Label>Tipo</Label>
+              <Select value={active.tipo} onValueChange={(v) => update("tipo", v as DraftQuestion["tipo"])}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="multipla_escolha">Múltipla escolha</SelectItem>
+                  <SelectItem value="certo_errado">Certo ou errado</SelectItem>
+                  <SelectItem value="numerica">Numérica</SelectItem>
+                  <SelectItem value="discursiva">Discursiva</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div>
@@ -497,15 +547,9 @@ function Page() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label>Resposta / Gabarito</Label>
-                <Input value={active.resposta ?? ""} onChange={(e) => update("resposta", e.target.value)} placeholder="A" />
-              </div>
-              <div>
-                <Label>Fonte</Label>
-                <Input value={active.fonte ?? ""} onChange={(e) => update("fonte", e.target.value)} placeholder="ENEM 2023" />
-              </div>
+            <div>
+              <Label>Resposta / Gabarito</Label>
+              <Input value={active.resposta ?? ""} onChange={(e) => update("resposta", e.target.value)} placeholder="A" />
             </div>
 
             <details className="rounded-lg border p-3" open>
@@ -568,13 +612,13 @@ function Page() {
                 <div className="grid sm:grid-cols-3 gap-2">
                   <div>
                     <Label>Ano</Label>
-                    <Input value={active.ano ?? ""} onChange={(e) => update("ano", e.target.value)} placeholder="2023" />
+                    <Input value={active.ano ?? ""} onChange={(e) => updateSharedMetadata("ano", e.target.value)} placeholder="2023" />
                   </div>
                   <div>
                     <Label>Prova</Label>
                     <CatalogSelect
                       value={active.prova ?? ""}
-                      onChange={(v) => update("prova", v)}
+                      onChange={(v) => updateSharedMetadata("prova", v)}
                       options={provas}
                     />
                   </div>
@@ -582,7 +626,7 @@ function Page() {
                     <Label>Instituição</Label>
                     <CatalogSelect
                       value={active.instituicao ?? ""}
-                      onChange={(v) => update("instituicao", v)}
+                      onChange={(v) => updateSharedMetadata("instituicao", v)}
                       options={instituicoes}
                     />
                   </div>
@@ -616,12 +660,9 @@ function Page() {
         onConfirm={(dataUrl) => {
           if (!cropTarget) return;
           if (cropTarget.kind === "referencia") {
-            setDraft({
-              ...draft,
-              referencia_imagem: dataUrl,
-              referencia_imagem_pos: "livre",
-              referencia_imagem_layout: draft.referencia_imagem_layout ?? DEFAULT_IMAGE_PLACEMENT_LAYOUT,
-            });
+            setDraft((current) => current
+              ? applyReferenceImageToDraft(current, dataUrl, cropTarget.cursor ?? referenceCursor, cropTarget.replace)
+              : current);
           } else if (cropTarget.kind === "enunciado") {
             updateQuestion(activeIndex, (q) => ({
               ...q,
@@ -639,6 +680,240 @@ function Page() {
       />
     </AppLayout>
   );
+}
+
+function ReferenceEditor({
+  draft,
+  onTextChange,
+  onCursorChange,
+  onInsertImage,
+  onReplaceImage,
+  onRemoveImage,
+  onMoveImage,
+  onRotateImage,
+  onImageLayoutChange,
+}: {
+  draft: DraftDigitization;
+  onTextChange: (part: ReferenceTextPart, value: string) => void;
+  onCursorChange: (cursor: ReferenceCursor) => void;
+  onInsertImage: () => void;
+  onReplaceImage: () => void;
+  onRemoveImage: () => void;
+  onMoveImage: (position: "antes" | "entre" | "depois") => void;
+  onRotateImage: (delta: number) => void;
+  onImageLayoutChange: (layout: Partial<ImagePlacementLayout>) => void;
+}) {
+  const hasImage = Boolean(draft.referencia_imagem);
+  const layout = normalizeImagePlacementLayout({
+    ...DEFAULT_REFERENCE_IMAGE_BLOCK_LAYOUT,
+    ...(draft.referencia_imagem_layout ?? {}),
+    mode: "block",
+  });
+  const imageAlignClass = layout.align === "left"
+    ? "justify-start"
+    : layout.align === "right"
+      ? "justify-end"
+      : "justify-center";
+
+  const rememberCursor = (part: ReferenceTextPart, target: HTMLTextAreaElement) => {
+    onCursorChange({ part, start: target.selectionStart ?? 0, end: target.selectionEnd ?? target.selectionStart ?? 0 });
+  };
+
+  const alignButton = (align: ImagePlacementAlign, icon: React.ReactNode, title: string) => (
+    <Button
+      type="button"
+      size="icon"
+      variant={layout.align === align ? "secondary" : "ghost"}
+      className="size-8"
+      title={title}
+      onClick={() => onImageLayoutChange({ align })}
+    >
+      {icon}
+    </Button>
+  );
+
+  return (
+    <div className="rounded-lg border p-3 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <Label>Referência / texto-base comum</Label>
+        <span className="text-xs text-muted-foreground">{draft.questoes.length} item{draft.questoes.length > 1 ? "s" : ""}</span>
+      </div>
+
+      <div className="rounded-lg border bg-background p-3 space-y-3">
+        <Textarea
+          value={hasImage ? draft.referencia_texto : joinReferenceTextParts(draft.referencia_texto, draft.referencia_texto_apos ?? "")}
+          onChange={(e) => {
+            onTextChange("before", e.target.value);
+            if (!hasImage && draft.referencia_texto_apos) onTextChange("after", "");
+          }}
+          onSelect={(e) => rememberCursor("before", e.currentTarget)}
+          onClick={(e) => rememberCursor("before", e.currentTarget)}
+          onKeyUp={(e) => rememberCursor("before", e.currentTarget)}
+          rows={hasImage ? 4 : 7}
+          placeholder="Texto, tabela ou comando geral que vale para todos os itens."
+          className="text-sm"
+        />
+
+        {!hasImage && (
+          <div className="flex justify-end">
+            <Button type="button" size="sm" variant="outline" className="gap-1" onClick={onInsertImage}>
+              <ImagePlus className="size-3.5" /> Inserir imagem
+            </Button>
+          </div>
+        )}
+
+        {hasImage && draft.referencia_imagem && (
+          <div className="space-y-2 rounded-lg border bg-muted/20 p-2">
+            <div className="flex flex-wrap items-center gap-1">
+              <Button type="button" size="sm" variant="outline" className="h-8 gap-1" onClick={onReplaceImage}>
+                <ImagePlus className="size-3.5" /> Substituir
+              </Button>
+              <Button type="button" size="icon" variant="outline" className="size-8" title="Girar para a esquerda" onClick={() => onRotateImage(-15)}>
+                <RotateCcw className="size-3.5" />
+              </Button>
+              <Button type="button" size="icon" variant="outline" className="size-8" title="Girar para a direita" onClick={() => onRotateImage(15)}>
+                <RotateCw className="size-3.5" />
+              </Button>
+              <Button type="button" size="icon" variant={draft.referencia_imagem_pos === "antes" ? "secondary" : "outline"} className="size-8" title="Mover acima do texto" onClick={() => onMoveImage("antes")}>
+                <ArrowUp className="size-3.5" />
+              </Button>
+              <Button type="button" size="sm" variant={draft.referencia_imagem_pos === "entre" ? "secondary" : "outline"} className="h-8" onClick={() => onMoveImage("entre")}>
+                Entre
+              </Button>
+              <Button type="button" size="icon" variant={draft.referencia_imagem_pos === "depois" ? "secondary" : "outline"} className="size-8" title="Mover abaixo do texto" onClick={() => onMoveImage("depois")}>
+                <ArrowDown className="size-3.5" />
+              </Button>
+              <div className="ml-auto flex items-center gap-1">
+                {alignButton("left", <AlignLeft className="size-3.5" />, "Alinhar à esquerda")}
+                {alignButton("center", <AlignCenter className="size-3.5" />, "Centralizar")}
+                {alignButton("right", <AlignRight className="size-3.5" />, "Alinhar à direita")}
+                <Button type="button" size="sm" variant="ghost" className="h-8 text-destructive gap-1" onClick={onRemoveImage}>
+                  <X className="size-3.5" /> Remover
+                </Button>
+              </div>
+            </div>
+
+            <div className={`flex ${imageAlignClass} rounded-md bg-background p-2`}>
+              <div className="rounded-md border bg-card p-2 shadow-sm" style={{ width: `${layout.width}%`, minWidth: 120, maxWidth: "100%" }}>
+                <img
+                  src={draft.referencia_imagem}
+                  alt="Imagem da referência"
+                  className="max-h-80 w-full rounded object-contain"
+                  style={{ transform: `rotate(${layout.rotation}deg)` }}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 px-1">
+              <Label className="text-xs text-muted-foreground">Tamanho</Label>
+              <input
+                type="range"
+                min={25}
+                max={95}
+                step={1}
+                value={layout.width}
+                onChange={(e) => onImageLayoutChange({ width: Number(e.target.value) })}
+                className="h-2 flex-1 accent-primary"
+              />
+              <span className="w-10 text-right text-xs text-muted-foreground">{Math.round(layout.width)}%</span>
+            </div>
+          </div>
+        )}
+
+        {hasImage && (
+          <Textarea
+            value={draft.referencia_texto_apos ?? ""}
+            onChange={(e) => onTextChange("after", e.target.value)}
+            onSelect={(e) => rememberCursor("after", e.currentTarget)}
+            onClick={(e) => rememberCursor("after", e.currentTarget)}
+            onKeyUp={(e) => rememberCursor("after", e.currentTarget)}
+            rows={4}
+            placeholder="Texto depois da imagem."
+            className="text-sm"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function applyReferenceImageToDraft(current: DraftDigitization, dataUrl: string, cursor?: ReferenceCursor, replace?: boolean): DraftDigitization {
+  const layout = normalizeImagePlacementLayout({
+    ...DEFAULT_REFERENCE_IMAGE_BLOCK_LAYOUT,
+    ...(current.referencia_imagem_layout ?? {}),
+    mode: "block",
+  });
+
+  if (replace || current.referencia_imagem) {
+    return withReferenceBlockImageLayout({
+      ...current,
+      referencia_imagem: dataUrl,
+      referencia_imagem_layout: layout,
+      referencia_imagem_pos: current.referencia_imagem_pos ?? getReferenceImagePosition(current.referencia_texto, current.referencia_texto_apos ?? ""),
+    });
+  }
+
+  const fallbackCursor: ReferenceCursor = {
+    part: "before",
+    start: current.referencia_texto.length,
+    end: current.referencia_texto.length,
+  };
+  const target = cursor ?? fallbackCursor;
+  const key = target.part === "before" ? "referencia_texto" : "referencia_texto_apos";
+  const source = key === "referencia_texto" ? current.referencia_texto : current.referencia_texto_apos ?? "";
+  const start = Math.max(0, Math.min(target.start, source.length));
+  const end = Math.max(start, Math.min(target.end, source.length));
+  const beforeFragment = source.slice(0, start).trimEnd();
+  const afterFragment = source.slice(end).trimStart();
+
+  const next = target.part === "before"
+    ? {
+      ...current,
+      referencia_imagem: dataUrl,
+      referencia_imagem_layout: layout,
+      referencia_texto: beforeFragment,
+      referencia_texto_apos: joinReferenceTextParts(afterFragment, current.referencia_texto_apos ?? ""),
+    }
+    : {
+      ...current,
+      referencia_imagem: dataUrl,
+      referencia_imagem_layout: layout,
+      referencia_texto: joinReferenceTextParts(current.referencia_texto, beforeFragment),
+      referencia_texto_apos: afterFragment,
+    };
+
+  return withAutoReferenceImagePosition(next);
+}
+
+function withAutoReferenceImagePosition(draft: DraftDigitization): DraftDigitization {
+  return withReferenceBlockImageLayout({
+    ...draft,
+    referencia_imagem_pos: getReferenceImagePosition(draft.referencia_texto, draft.referencia_texto_apos ?? ""),
+  });
+}
+
+function withReferenceBlockImageLayout(draft: DraftDigitization): DraftDigitization {
+  if (!draft.referencia_imagem) return draft;
+  return {
+    ...draft,
+    referencia_imagem_layout: normalizeImagePlacementLayout({
+      ...DEFAULT_REFERENCE_IMAGE_BLOCK_LAYOUT,
+      ...(draft.referencia_imagem_layout ?? {}),
+      mode: "block",
+    }),
+  };
+}
+
+function getReferenceImagePosition(before: string, after: string): "antes" | "entre" | "depois" {
+  const hasBefore = Boolean(before.trim());
+  const hasAfter = Boolean(after.trim());
+  if (!hasBefore && hasAfter) return "antes";
+  if (hasBefore && hasAfter) return "entre";
+  return "depois";
+}
+
+function joinReferenceTextParts(...parts: string[]) {
+  return parts.map((part) => part.trim()).filter(Boolean).join("\n\n");
 }
 
 function mergeUnique(current: string[], next: string[]) {
