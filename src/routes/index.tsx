@@ -170,13 +170,18 @@ function Page() {
         ? await fileToDataURL(images[0].file, rotation)
         : await filesToSequentialDataURL(images, rotation);
       const result = await digitizeQuestion({ data: { imageDataUrl: dataUrl } });
-      saveDraft({ ...result, imageDataUrl: dataUrl });
+      if (!result.ok) {
+        toast.error(result.message);
+        return;
+      }
+      saveDraft({ ...result.data, imageDataUrl: dataUrl });
       toast.success("Questão digitalizada!");
       navigate({ to: "/revisar" });
     } catch (e) {
       console.error(e);
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes("429")) toast.error("Limite de IA atingido. Aguarde alguns instantes.");
+      if (msg.includes("LOVABLE_API_KEY")) toast.error("Digitalização por IA não configurada. Configure a chave LOVABLE_API_KEY no ambiente do projeto.");
+      else if (msg.includes("429")) toast.error("Limite de IA atingido. Aguarde alguns instantes.");
       else if (msg.includes("402")) toast.error("Créditos de IA esgotados. Adicione créditos no workspace.");
       else toast.error("Falha ao digitalizar. Tente novamente.");
     } finally {
