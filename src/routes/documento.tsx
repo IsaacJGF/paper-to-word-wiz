@@ -121,29 +121,46 @@ function Page() {
           <div className="space-y-3">
             <div className="rounded-xl border bg-card p-4">
               <h2 className="font-semibold mb-2">Questões ({questions.length})</h2>
-              <p className="text-xs text-muted-foreground mb-3">Use as setas para reorganizar a ordem.</p>
+              <p className="text-xs text-muted-foreground mb-3">Use as setas para reorganizar a ordem. Itens consecutivos da mesma referência serão agrupados no Word.</p>
               <div className="space-y-2">
-                {questions.map((q, i) => (
-                  <div key={q.id} className="flex gap-2 items-start p-3 rounded-lg border bg-background">
-                    <div className="flex flex-col">
-                      <button onClick={() => move(i, -1)} disabled={i === 0} className="text-xs px-1 disabled:opacity-30">▲</button>
-                      <GripVertical className="size-4 text-muted-foreground" />
-                      <button onClick={() => move(i, 1)} disabled={i === questions.length - 1} className="text-xs px-1 disabled:opacity-30">▼</button>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-bold text-sm">Questão {i + 1}.</span>
-                        {q.fonte && <span className="text-xs text-muted-foreground italic">({q.fonte})</span>}
-                        {(q.referencia_texto || q.referencia_imagem) && <span className="text-xs text-muted-foreground">com referência</span>}
-                      </div>
-                      <p className="text-sm line-clamp-2">{q.enunciado}</p>
-                      {q.alternativas.length > 0 && (
-                        <p className="text-xs text-muted-foreground mt-1">{q.alternativas.length} alternativas{q.resposta ? ` · gabarito: ${q.resposta}` : ""}</p>
+                {questions.map((q, i) => {
+                  const referenceKey = getDocumentReferenceKey(q);
+                  const previousReferenceKey = i > 0 ? getDocumentReferenceKey(questions[i - 1]) : null;
+                  const startsReferenceBlock = Boolean(referenceKey && referenceKey !== previousReferenceKey);
+                  const referenceBlockSize = referenceKey ? countReferenceBlockSize(questions, i) : 0;
+                  return (
+                    <div key={q.id} className="space-y-2">
+                      {startsReferenceBlock && referenceBlockSize > 1 && (
+                        <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary">
+                          Referência compartilhada: {referenceBlockSize} itens juntos
+                        </div>
                       )}
+                      <div className={`flex gap-2 items-start p-3 rounded-lg border bg-background ${referenceKey ? "border-primary/30" : ""}`}>
+                        <div className="flex flex-col">
+                          <button onClick={() => move(i, -1)} disabled={i === 0} className="text-xs px-1 disabled:opacity-30">▲</button>
+                          <GripVertical className="size-4 text-muted-foreground" />
+                          <button onClick={() => move(i, 1)} disabled={i === questions.length - 1} className="text-xs px-1 disabled:opacity-30">▼</button>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="font-bold text-sm">Questão {i + 1}.</span>
+                            {q.fonte && <span className="text-xs text-muted-foreground italic">({q.fonte})</span>}
+                            {referenceKey && (
+                              <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                                {referenceBlockSize > 1 ? `grupo de ${referenceBlockSize} itens` : "com referência"}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm line-clamp-2">{q.enunciado}</p>
+                          {q.alternativas.length > 0 && (
+                            <p className="text-xs text-muted-foreground mt-1">{q.alternativas.length} alternativas{q.resposta ? ` · gabarito: ${q.resposta}` : ""}</p>
+                          )}
+                        </div>
+                        <Button size="icon" variant="ghost" onClick={() => remove(q.id)}><X className="size-4" /></Button>
+                      </div>
                     </div>
-                    <Button size="icon" variant="ghost" onClick={() => remove(q.id)}><X className="size-4" /></Button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -197,4 +214,50 @@ function downloadDocx(base64: string, filename: string) {
   const a = document.createElement("a");
   a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
+}
+
+type DocumentReferenceLike = Pick<DocumentQuestion,
+  "grupo_id" |
+  "referencia_texto" |
+  "referencia_texto_apos" |
+  "referencia_fonte" |
+  "referencia_imagem" |
+  "referencia_imagem_layout"
+>;
+
+function hasDocumentReference(question: DocumentReferenceLike) {
+  return Boolean(
+    question.referencia_texto?.trim() ||
+    question.referencia_texto_apos?.trim() ||
+    question.referencia_imagem,
+  );
+}
+
+function getDocumentReferenceKey(question: DocumentReferenceLike) {
+  if (!hasDocumentReference(question)) return null;
+  const groupId = question.grupo_id?.trim();
+  if (groupId) return `grupo:${groupId}`;
+  return `ref:${documentReferenceFingerprint(question)}`;
+}
+
+function documentReferenceFingerprint(question: DocumentReferenceLike) {
+  const image = question.referencia_imagem
+    ? `${question.referencia_imagem.length}:${question.referencia_imagem.slice(0, 64)}:${question.referencia_imagem.slice(-64)}`
+    : "";
+  return [
+    question.referencia_texto?.trim() ?? "",
+    question.referencia_texto_apos?.trim() ?? "",
+    question.referencia_fonte?.trim() ?? "",
+    image,
+  ].join("|");
+}
+
+function countReferenceBlockSize(questions: DocumentQuestion[], index: number) {
+  const key = getDocumentReferenceKey(questions[index]);
+  if (!key) return 0;
+  let start = index;
+  while (start > 0 && getDocumentReferenceKey(questions[start - 1]) === key) start--;
+  let end = index;
+  while (end + 1 < questions.length && getDocumentReferenceKey(questions[end + 1]) === key) end++;
+  return end - start + 1;
 }

@@ -398,15 +398,15 @@ export const generateDocx = createServerFn({ method: "POST" })
       children.push(paragraphFromText(config.instrucoes, { size, spacingAfter: 240 }));
     }
 
-    const renderedReferences = new Set<string>();
+    let previousReferenceKey: string | null = null;
 
     // Questions
     questions.forEach((q, idx) => {
       const n = idx + 1;
       const hasReference = Boolean(q.referencia_texto || q.referencia_texto_apos || q.referencia_imagem);
       const referenceKey = q.grupo_id || [q.referencia_texto, q.referencia_texto_apos, q.referencia_imagem, JSON.stringify(q.referencia_imagem_layout ?? null)].filter(Boolean).join("|");
-      if (hasReference && !renderedReferences.has(referenceKey)) {
-        renderedReferences.add(referenceKey);
+      const shouldRenderReference = hasReference && referenceKey !== previousReferenceKey;
+      if (shouldRenderReference) {
         const freeReferenceImage = q.referencia_imagem && q.referencia_imagem_layout
           ? imageParagraph(q.referencia_imagem, CONTENT_WIDTH_PX, AlignmentType.CENTER, undefined, q.referencia_imagem_layout)
           : null;
@@ -428,6 +428,7 @@ export const generateDocx = createServerFn({ method: "POST" })
           children.push(paragraphFromText(q.referencia_fonte, { size: size - 2, align: AlignmentType.RIGHT, spacingAfter: 180 }));
         }
       }
+      previousReferenceKey = hasReference ? referenceKey : null;
       children.push(new Paragraph({
         spacing: { before: config.espacamentoQuestoes, after: 100 },
         keepNext: true,
