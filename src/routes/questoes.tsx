@@ -362,7 +362,7 @@ function Page() {
                     </div>
                   </div>
 
-                  {tagsShown.length > 0 && (
+                  {(tagsShown.length > 0 || hasReferenceGroup) && (
                     <div className="mt-2 flex flex-wrap gap-1">
                       {tagsShown.map((t) => <Badge key={t} variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">{t}</Badge>)}
                       {tagsExtra > 0 && <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">+{tagsExtra}</Badge>}
