@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Search, Trash2, Copy, FileText, Image as ImageIcon, Sigma, Loader2, ScanLine, Pencil, AlertTriangle, ChevronDown, ListChecks, Table as TableIcon } from "lucide-react";
+import { Search, Trash2, Copy, FileText, Image as ImageIcon, Sigma, Loader2, ScanLine, Pencil, AlertTriangle, ChevronDown, ListChecks, Table as TableIcon, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -42,6 +42,15 @@ type Q = {
   created_at: string;
 };
 
+type ReferenceLike = Pick<Q,
+  "grupo_id" |
+  "referencia_texto" |
+  "referencia_texto_apos" |
+  "referencia_fonte" |
+  "referencia_imagem" |
+  "referencia_imagem_layout"
+>;
+
 const NO_CONTENT_FILTER = "__sem_conteudo__";
 
 function Page() {
@@ -55,6 +64,7 @@ function Page() {
   const [editingContent, setEditingContent] = useState<Q | null>(null);
   const [editingContentValue, setEditingContentValue] = useState("");
   const [expanded, setExpanded] = useState<Q | null>(null);
+  const [referenceGroup, setReferenceGroup] = useState<{ key: string; selected: Set<string> } | null>(null);
 
   const commitSelection = (next: Set<string>) => {
     setSel(next);
@@ -100,10 +110,76 @@ function Page() {
     return true;
   }), [items, q, filtroDisc, filtroConteudo]);
 
+  const referenceGroups = useMemo(() => {
+    const groups = new Map<string, Q[]>();
+    for (const item of items) {
+      const key = getReferenceKey(item);
+      if (!key) continue;
+      const group = groups.get(key) ?? [];
+      group.push(item);
+      groups.set(key, group);
+    }
+    for (const group of groups.values()) group.sort(compareReferenceItems);
+    return groups;
+  }, [items]);
+
   const toggle = (id: string) => {
     const next = new Set(sel);
     if (next.has(id)) next.delete(id); else next.add(id);
     commitSelection(next);
+  };
+
+  const openReferenceGroup = (question: Q) => {
+    const key = getReferenceKey(question);
+    if (!key) return;
+    const group = referenceGroups.get(key) ?? [question];
+    const selectedIds = group.filter((item) => sel.has(item.id)).map((item) => item.id);
+    setReferenceGroup({ key, selected: new Set(selectedIds.length > 0 ? selectedIds : [question.id]) });
+  };
+
+  const toggleReferenceGroupItem = (id: string, checked: boolean) => {
+    setReferenceGroup((current) => {
+      if (!current) return current;
+      const selected = new Set(current.selected);
+      if (checked) selected.add(id); else selected.delete(id);
+      return { ...current, selected };
+    });
+  };
+
+  const selectAllReferenceGroupItems = () => {
+    setReferenceGroup((current) => {
+      if (!current) return current;
+      const group = referenceGroups.get(current.key) ?? [];
+      return { ...current, selected: new Set(group.map((item) => item.id)) };
+    });
+  };
+
+  const clearReferenceGroupItems = () => {
+    setReferenceGroup((current) => current ? { ...current, selected: new Set() } : current);
+  };
+
+  const addReferenceGroupSelection = () => {
+    if (!referenceGroup) return;
+    if (referenceGroup.selected.size === 0) {
+      toast.info("Selecione ao menos um item da referência.");
+      return;
+    }
+    const next = new Set(sel);
+    referenceGroup.selected.forEach((id) => next.add(id));
+    commitSelection(next);
+    toast.success("Itens selecionados adicionados à avaliação.");
+    setReferenceGroup(null);
+  };
+
+  const selectWholeReferenceGroup = (question: Q) => {
+    const key = getReferenceKey(question);
+    if (!key) return;
+    const group = referenceGroups.get(key) ?? [];
+    if (group.length === 0) return;
+    const next = new Set(sel);
+    group.forEach((item) => next.add(item.id));
+    commitSelection(next);
+    toast.success(`${group.length} itens da mesma referência selecionados.`);
   };
 
   const openDocument = () => {
@@ -262,10 +338,13 @@ function Page() {
               const tags = [it.disciplina, ...itemConteudos].filter(Boolean) as string[];
               const tagsShown = tags.slice(0, 3);
               const tagsExtra = tags.length - tagsShown.length;
+              const referenceKey = getReferenceKey(it);
+              const referenceItems = referenceKey ? referenceGroups.get(referenceKey) ?? [] : [];
+              const hasReferenceGroup = referenceItems.length > 1;
               return (
                 <div
                   key={it.id}
-                  className={`group relative flex flex-col rounded-xl border bg-card p-3 transition-all hover:shadow-md ${isSel ? "ring-2 ring-primary" : ""}`}
+                  className={`group relative flex flex-col rounded-xl border bg-card p-3 transition-all hover:shadow-md ${isSel ? "ring-2 ring-primary" : ""} ${hasReferenceGroup ? "border-primary/30" : ""}`}
                 >
                   <div className="flex items-start gap-2">
                     <Checkbox checked={isSel} onCheckedChange={() => toggle(it.id)} className="mt-0.5 shrink-0" />
@@ -287,6 +366,7 @@ function Page() {
                     <div className="mt-2 flex flex-wrap gap-1">
                       {tagsShown.map((t) => <Badge key={t} variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">{t}</Badge>)}
                       {tagsExtra > 0 && <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">+{tagsExtra}</Badge>}
+                      {hasReferenceGroup && <Badge variant="outline" className="gap-1 text-[10px] px-1.5 py-0 font-normal"><Layers className="size-3" /> {referenceItems.length} itens na mesma referência</Badge>}
                     </div>
                   )}
 
@@ -298,6 +378,17 @@ function Page() {
                     {hasAlternativas && <span title="Possui alternativas" className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"><ListChecks className="size-3" />Alternativas</span>}
                     {it.referencia_texto && <span title="Possui texto de referência" className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"><TableIcon className="size-3" />Referência</span>}
                   </div>
+
+                  {hasReferenceGroup && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button type="button" size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={() => openReferenceGroup(it)}>
+                        <Layers className="size-3.5" /> Ver itens da mesma referência
+                      </Button>
+                      <Button type="button" size="sm" variant="ghost" className="h-8 text-xs" onClick={() => selectWholeReferenceGroup(it)}>
+                        Selecionar grupo
+                      </Button>
+                    </div>
+                  )}
 
                   <div className="mt-auto pt-3 flex items-center justify-between text-[11px] text-muted-foreground border-t mt-3">
                     <span>{formatTipo(it.tipo)} · {new Date(it.created_at).toLocaleDateString("pt-BR")}</span>
@@ -316,7 +407,16 @@ function Page() {
         )}
 
         <QuestionDetailsDialog question={expanded} onClose={() => setExpanded(null)} />
-
+        <ReferenceGroupDialog
+          group={referenceGroup ? referenceGroups.get(referenceGroup.key) ?? [] : []}
+          selectedIds={referenceGroup?.selected ?? new Set()}
+          assessmentIds={sel}
+          onToggle={toggleReferenceGroupItem}
+          onSelectAll={selectAllReferenceGroupItems}
+          onClear={clearReferenceGroupItems}
+          onAdd={addReferenceGroupSelection}
+          onClose={() => setReferenceGroup(null)}
+        />
 
         {sel.size > 0 && (
           <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-primary text-primary-foreground rounded-full px-5 py-3 shadow-lg flex items-center gap-4">
@@ -396,6 +496,49 @@ function formatTipo(tipo: string) {
   return labels[tipo] ?? tipo;
 }
 
+function hasReference(question: ReferenceLike) {
+  return Boolean(
+    question.referencia_texto?.trim() ||
+    question.referencia_texto_apos?.trim() ||
+    question.referencia_imagem,
+  );
+}
+
+function getReferenceKey(question: ReferenceLike) {
+  if (!hasReference(question)) return null;
+  const groupId = question.grupo_id?.trim();
+  if (groupId) return `grupo:${groupId}`;
+  return `ref:${referenceFingerprint(question)}`;
+}
+
+function referenceFingerprint(question: ReferenceLike) {
+  const image = question.referencia_imagem
+    ? `${question.referencia_imagem.length}:${question.referencia_imagem.slice(0, 64)}:${question.referencia_imagem.slice(-64)}`
+    : "";
+  return [
+    question.referencia_texto?.trim() ?? "",
+    question.referencia_texto_apos?.trim() ?? "",
+    question.referencia_fonte?.trim() ?? "",
+    image,
+  ].join("|");
+}
+
+function compareReferenceItems(a: Q, b: Q) {
+  const aNumber = readItemNumber(a.numero);
+  const bNumber = readItemNumber(b.numero);
+  if (aNumber !== null && bNumber !== null && aNumber !== bNumber) return aNumber - bNumber;
+  if (aNumber !== null && bNumber === null) return -1;
+  if (aNumber === null && bNumber !== null) return 1;
+  return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+}
+
+function readItemNumber(value: string | null) {
+  const raw = value?.match(/\d+/)?.[0];
+  if (!raw) return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function QuestionDetailsDialog({ question, onClose }: { question: Q | null; onClose: () => void }) {
   const it = question;
   if (!it) return null;
@@ -429,6 +572,9 @@ function QuestionDetailsDialog({ question, onClose }: { question: Q | null; onCl
           )}
           {it.referencia_texto && (
             <div className="rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap">{it.referencia_texto}</div>
+          )}
+          {it.referencia_texto_apos && (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap">{it.referencia_texto_apos}</div>
           )}
 
           {it.enunciado_imagem && (it.enunciado_imagem_pos === "antes") && (
@@ -476,6 +622,114 @@ function QuestionDetailsDialog({ question, onClose }: { question: Q | null; onCl
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Recolher</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReferenceGroupDialog({
+  group,
+  selectedIds,
+  assessmentIds,
+  onToggle,
+  onSelectAll,
+  onClear,
+  onAdd,
+  onClose,
+}: {
+  group: Q[];
+  selectedIds: Set<string>;
+  assessmentIds: Set<string>;
+  onToggle: (id: string, checked: boolean) => void;
+  onSelectAll: () => void;
+  onClear: () => void;
+  onAdd: () => void;
+  onClose: () => void;
+}) {
+  const reference = group[0];
+  const open = group.length > 0;
+  const selectedCount = group.filter((item) => selectedIds.has(item.id)).length;
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Layers className="size-5" /> Itens da mesma referência
+          </DialogTitle>
+          <DialogDescription>
+            Veja a referência comum uma única vez e escolha quais itens entram na avaliação.
+          </DialogDescription>
+        </DialogHeader>
+
+        {reference && (
+          <div className="space-y-4">
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="inline-flex items-center gap-2 text-sm font-medium">
+                  <TableIcon className="size-4" /> Referência comum
+                </div>
+                <Badge variant="outline">{group.length} itens vinculados</Badge>
+              </div>
+              {(reference.referencia_imagem_pos === "antes" || reference.referencia_imagem_pos === "livre") && reference.referencia_imagem && (
+                <img src={reference.referencia_imagem} alt="Referência" className="max-w-full rounded-md border bg-background" />
+              )}
+              {reference.referencia_texto && (
+                <div className="rounded-md border bg-background p-3 text-sm whitespace-pre-wrap leading-relaxed">{reference.referencia_texto}</div>
+              )}
+              {reference.referencia_imagem_pos === "entre" && reference.referencia_imagem && (
+                <img src={reference.referencia_imagem} alt="Referência" className="max-w-full rounded-md border bg-background" />
+              )}
+              {reference.referencia_texto_apos && (
+                <div className="rounded-md border bg-background p-3 text-sm whitespace-pre-wrap leading-relaxed">{reference.referencia_texto_apos}</div>
+              )}
+              {reference.referencia_imagem && !["antes", "entre", "livre"].includes(reference.referencia_imagem_pos ?? "") && (
+                <img src={reference.referencia_imagem} alt="Referência" className="max-w-full rounded-md border bg-background" />
+              )}
+              {reference.referencia_fonte && <p className="text-xs text-right text-muted-foreground">{reference.referencia_fonte}</p>}
+            </div>
+
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="text-sm font-medium">Itens da referência</div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-muted-foreground">{selectedCount} de {group.length} selecionado{selectedCount === 1 ? "" : "s"}</span>
+                <Button type="button" size="sm" variant="outline" onClick={onSelectAll}>Selecionar todos</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={onClear}>Limpar</Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {group.map((item, index) => (
+                <div key={item.id} className={`rounded-lg border p-3 ${selectedIds.has(item.id) ? "border-primary bg-primary/5" : "bg-background"}`}>
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      checked={selectedIds.has(item.id)}
+                      onCheckedChange={(checked) => onToggle(item.id, checked === true)}
+                      className="mt-1"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="font-semibold text-sm">{item.numero ? `Item ${item.numero}` : `Item ${index + 1}`}</span>
+                        {assessmentIds.has(item.id) && <Badge variant="secondary">Já na avaliação</Badge>}
+                        {item.tem_equacao && <Sigma className="size-3.5 text-muted-foreground" />}
+                        {(item.tem_imagem || item.enunciado_imagem) && <ImageIcon className="size-3.5 text-muted-foreground" />}
+                      </div>
+                      <p className="text-sm text-foreground/90 whitespace-pre-wrap line-clamp-3">{item.enunciado}</p>
+                      {Array.isArray(item.alternativas) && item.alternativas.length > 0 && (
+                        <p className="mt-1 text-xs text-muted-foreground">{item.alternativas.length} alternativa{item.alternativas.length === 1 ? "" : "s"}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={onAdd} disabled={selectedCount === 0}>Adicionar itens selecionados à avaliação</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
