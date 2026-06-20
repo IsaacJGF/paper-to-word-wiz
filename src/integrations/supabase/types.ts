@@ -217,6 +217,7 @@ export type Database = {
           disciplina: string | null
           enunciado: string
           enunciado_imagem: string | null
+          enunciado_imagem_layout: Json | null
           enunciado_imagem_pos: string | null
           fonte: string | null
           grupo_id: string | null
@@ -228,6 +229,7 @@ export type Database = {
           prova: string | null
           referencia_fonte: string | null
           referencia_imagem: string | null
+          referencia_imagem_layout: Json | null
           referencia_imagem_pos: string | null
           referencia_texto: string | null
           referencia_texto_apos: string | null
@@ -252,6 +254,7 @@ export type Database = {
           disciplina?: string | null
           enunciado?: string
           enunciado_imagem?: string | null
+          enunciado_imagem_layout?: Json | null
           enunciado_imagem_pos?: string | null
           fonte?: string | null
           grupo_id?: string | null
@@ -263,6 +266,7 @@ export type Database = {
           prova?: string | null
           referencia_fonte?: string | null
           referencia_imagem?: string | null
+          referencia_imagem_layout?: Json | null
           referencia_imagem_pos?: string | null
           referencia_texto?: string | null
           referencia_texto_apos?: string | null
@@ -287,6 +291,7 @@ export type Database = {
           disciplina?: string | null
           enunciado?: string
           enunciado_imagem?: string | null
+          enunciado_imagem_layout?: Json | null
           enunciado_imagem_pos?: string | null
           fonte?: string | null
           grupo_id?: string | null
@@ -298,6 +303,7 @@ export type Database = {
           prova?: string | null
           referencia_fonte?: string | null
           referencia_imagem?: string | null
+          referencia_imagem_layout?: Json | null
           referencia_imagem_pos?: string | null
           referencia_texto?: string | null
           referencia_texto_apos?: string | null
