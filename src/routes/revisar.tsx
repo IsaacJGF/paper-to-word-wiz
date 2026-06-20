@@ -34,7 +34,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { AppLayout } from "@/components/AppLayout";
-import { ImageCropDialog } from "@/components/ImageCropDialog";
+import { ImageCropDialog, type ImageCropSource } from "@/components/ImageCropDialog";
 import { ImageLayoutEditor } from "@/components/ImageLayoutEditor";
 import { CatalogSelect, CatalogMultiSelect } from "@/components/CatalogSelect";
 import { loadDraft, clearDraft, LETRAS, reletter, DraftDigitization, DraftQuestion } from "@/lib/draft-store";
@@ -54,6 +54,10 @@ type CatalogItem = { id: string; nome: string; ativo: boolean; area_id?: string;
 type ReferenceTextPart = "before" | "after";
 type ReferenceCursor = { part: ReferenceTextPart; start: number; end: number };
 type SharedMetadataKey = "ano" | "prova" | "instituicao";
+type CropTarget =
+  | { kind: "referencia"; cursor?: ReferenceCursor; replace?: boolean; currentImage?: string }
+  | { kind: "enunciado"; currentImage?: string }
+  | { kind: "alt"; index: number; currentImage?: string };
 
 export const Route = createFileRoute("/revisar")({
   head: () => ({ meta: [{ title: "Revisar questão" }] }),
@@ -67,12 +71,7 @@ function Page() {
   const [saving, setSaving] = useState(false);
   const [classificationDialogOpen, setClassificationDialogOpen] = useState(false);
   const [referenceCursor, setReferenceCursor] = useState<ReferenceCursor>({ part: "before", start: 0, end: 0 });
-  const [cropTarget, setCropTarget] = useState<
-    | { kind: "referencia"; cursor?: ReferenceCursor; replace?: boolean }
-    | { kind: "enunciado" }
-    | { kind: "alt"; index: number }
-    | null
-  >(null);
+  const [cropTarget, setCropTarget] = useState<CropTarget | null>(null);
 
   const [areas, setAreas] = useState<CatalogItem[]>([]);
   const [conteudos, setConteudos] = useState<CatalogItem[]>([]);
@@ -112,6 +111,7 @@ function Page() {
 
   if (!draft) return null;
   const active = draft.questoes[Math.min(activeIndex, draft.questoes.length - 1)];
+  const cropImageSources = cropTarget ? getCropImageSources(draft, active, cropTarget) : [];
 
   const areaItem = areas.find((a) => a.nome === active.area_geral);
   const conteudoOptions = areaItem
@@ -426,7 +426,7 @@ function Page() {
               onTextChange={updateReferenceText}
               onCursorChange={setReferenceCursor}
               onInsertImage={() => setCropTarget({ kind: "referencia", cursor: referenceCursor })}
-              onReplaceImage={() => setCropTarget({ kind: "referencia", replace: true })}
+              onReplaceImage={() => setCropTarget({ kind: "referencia", replace: true, currentImage: draft.referencia_imagem })}
               onRemoveImage={removeReferenceImage}
               onMoveImage={moveReferenceImage}
               onRotateImage={rotateReferenceImage}
@@ -472,7 +472,7 @@ function Page() {
                     </Button>
                   ) : (
                     <>
-                      <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setCropTarget({ kind: "enunciado" })}>Recortar de novo</Button>
+                      <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setCropTarget({ kind: "enunciado", currentImage: active.enunciado_imagem })}>Recortar de novo</Button>
                       <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => rotateQuestionImage(-15)} aria-label="Girar imagem para a esquerda"><RotateCcw className="size-3" /></Button>
                       <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => rotateQuestionImage(15)} aria-label="Girar imagem para a direita"><RotateCw className="size-3" /></Button>
                       <Button type="button" size="sm" variant="ghost" className="h-7 text-destructive gap-1"
@@ -526,7 +526,7 @@ function Page() {
                           <div className="flex items-center gap-2 rounded-md border p-1.5 bg-muted/30">
                             <img src={a.imagem} alt={`Imagem ${a.letra}`} className="h-16 object-contain rounded" />
                             <div className="flex gap-1 ml-auto">
-                              <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setCropTarget({ kind: "alt", index: i })}>Recortar de novo</Button>
+                              <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => setCropTarget({ kind: "alt", index: i, currentImage: a.imagem })}>Recortar de novo</Button>
                               <Button type="button" size="sm" variant="ghost" className="h-7 text-destructive gap-1" onClick={() => {
                                 const copy = [...active.alternativas];
                                 copy[i] = { ...copy[i], imagem: undefined };
@@ -654,8 +654,9 @@ function Page() {
       </AlertDialog>
       <ImageCropDialog
         open={!!cropTarget}
-        imageUrl={draft.imageDataUrl}
-        title={cropTarget?.kind === "referencia" ? "Recortar imagem da referência" : cropTarget?.kind === "alt" ? `Recortar imagem da alternativa ${active.alternativas[cropTarget.index]?.letra ?? ""}` : "Recortar imagem do enunciado"}
+        imageUrl={cropImageSources[0]?.url ?? draft.imageDataUrl}
+        imageSources={cropImageSources}
+        title={cropTarget?.kind === "referencia" ? "Inserir imagem na referência" : cropTarget?.kind === "alt" ? `Inserir imagem na alternativa ${active.alternativas[cropTarget.index]?.letra ?? ""}` : "Inserir imagem no enunciado"}
         onCancel={() => setCropTarget(null)}
         onConfirm={(dataUrl) => {
           if (!cropTarget) return;
@@ -835,6 +836,27 @@ function ReferenceEditor({
       </div>
     </div>
   );
+}
+
+function getCropImageSources(draft: DraftDigitization, active: DraftQuestion, target: CropTarget): ImageCropSource[] {
+  const sources: ImageCropSource[] = [];
+  const add = (id: string, label: string, url: string | null | undefined) => {
+    if (!url) return;
+    if (sources.some((source) => source.url === url || source.id === id)) return;
+    sources.push({ id, label, url });
+  };
+
+  add("current", "Imagem atual deste campo", target.currentImage);
+  (draft.imageDataUrls ?? []).forEach((url, index) => {
+    add(`scan-part-${index}`, `Parte ${index + 1} da digitalização`, url);
+  });
+  add("scan-full", "Imagem completa da digitalização", draft.imageDataUrl);
+  add("reference-current", "Imagem atual da referência", draft.referencia_imagem);
+  add("statement-current", "Imagem atual do enunciado", active.enunciado_imagem);
+  active.alternativas.forEach((alt, index) => {
+    add(`alternative-${index}`, `Imagem da alternativa ${alt.letra || index + 1}`, alt.imagem);
+  });
+  return sources;
 }
 
 function applyReferenceImageToDraft(current: DraftDigitization, dataUrl: string, cursor?: ReferenceCursor, replace?: boolean): DraftDigitization {
