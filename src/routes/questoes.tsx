@@ -203,7 +203,7 @@ function Page() {
 
   return (
     <AppLayout>
-      <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
           <div>
             <h1 className="text-2xl font-bold">Questões salvas</h1>
