@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Search, Trash2, Copy, FileText, Image as ImageIcon, Sigma, Loader2, ScanLine, Pencil, AlertTriangle, ChevronDown, ListChecks, Table as TableIcon, Layers, Filter } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Search, Trash2, Copy, FileText, Image as ImageIcon, Sigma, Loader2, ScanLine, Pencil, ChevronDown, ListChecks, Table as TableIcon, Layers, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { AppLayout } from "@/components/AppLayout";
+import { RichText } from "@/components/RichText";
 import { CatalogMultiSelect } from "@/components/CatalogSelect";
 import { supabase } from "@/integrations/supabase/client";
 import { insertQuestionsWithCompatibility } from "@/lib/question-compat";
@@ -55,7 +56,6 @@ type ReferenceLike = Pick<Q,
 
 type CatalogItem = { id: string; nome: string; ativo: boolean; area_id?: string | null; conteudo_id?: string | null };
 type PedagogicalEntry = { label: string; value: string };
-type MathSegment = { type: "text"; value: string } | { type: "math"; value: string; display: boolean };
 type AdvancedFilters = {
   area_geral: string;
   conteudo_principal: string;
@@ -75,17 +75,6 @@ const EMPTY_ADVANCED_FILTERS: AdvancedFilters = {
   instituicao: "",
   ano: "",
 };
-
-const MATH_SYMBOLS: Record<string, string> = {
-  alpha: "α", beta: "β", gamma: "γ", delta: "δ", Delta: "Δ", epsilon: "ε", varepsilon: "ε",
-  theta: "θ", lambda: "λ", mu: "μ", pi: "π", rho: "ρ", sigma: "σ", phi: "φ", varphi: "φ",
-  omega: "ω", Omega: "Ω", nabla: "∇", times: "×", cdot: "·", pm: "±", mp: "∓",
-  le: "≤", leq: "≤", ge: "≥", geq: "≥", neq: "≠", approx: "≈", sim: "∼", propto: "∝",
-  infty: "∞", rightarrow: "→", to: "→", leftarrow: "←", leftrightarrow: "↔", degree: "°", circ: "°",
-  ohm: "Ω", partial: "∂", sum: "Σ", int: "∫", div: "÷",
-};
-
-const MATH_WORDS = new Set(["sin", "cos", "tan", "sen", "log", "ln", "lim", "min", "max"]);
 
 function Page() {
   const navigate = useNavigate();
@@ -1102,265 +1091,5 @@ function AlternativesList({ question }: { question: Q }) {
 }
 
 function MathText({ text, className = "" }: { text: string | null | undefined; className?: string }) {
-  const segments = splitMathSegments(text ?? "");
-  return (
-    <div className={className}>
-      {segments.map((segment, index) => segment.type === "text"
-        ? <PlainText key={index} text={segment.value} />
-        : <MathExpression key={index} latex={segment.value} display={segment.display} />)}
-    </div>
-  );
-}
-
-function PlainText({ text }: { text: string }) {
-  const parts = text.split("\n");
-  return <>{parts.map((part, index) => <span key={index}>{index > 0 && <br />}{part}</span>)}</>;
-}
-
-function MathExpression({ latex, display }: { latex: string; display: boolean }) {
-  const content = renderLatexNodes(latex.trim(), "m");
-  if (display) {
-    return (
-      <span className="my-2 flex max-w-full justify-center overflow-x-auto rounded-md bg-muted/40 px-2 py-1 font-serif text-base">
-        <span className="inline-flex items-center gap-0.5 whitespace-nowrap">{content}</span>
-      </span>
-    );
-  }
-  return <span className="inline-flex items-center gap-0.5 whitespace-nowrap align-middle font-serif">{content}</span>;
-}
-
-function splitMathSegments(text: string): MathSegment[] {
-  const segments: MathSegment[] = [];
-  let i = 0;
-  let plain = "";
-  const flush = () => {
-    if (plain) {
-      segments.push({ type: "text", value: plain });
-      plain = "";
-    }
-  };
-
-  while (i < text.length) {
-    if (text.startsWith("$$", i)) {
-      const end = text.indexOf("$$", i + 2);
-      if (end !== -1) {
-        flush();
-        segments.push({ type: "math", value: text.slice(i + 2, end), display: true });
-        i = end + 2;
-        continue;
-      }
-    }
-    if (text.startsWith("\\[", i)) {
-      const end = text.indexOf("\\]", i + 2);
-      if (end !== -1) {
-        flush();
-        segments.push({ type: "math", value: text.slice(i + 2, end), display: true });
-        i = end + 2;
-        continue;
-      }
-    }
-    if (text.startsWith("\\(", i)) {
-      const end = text.indexOf("\\)", i + 2);
-      if (end !== -1) {
-        flush();
-        segments.push({ type: "math", value: text.slice(i + 2, end), display: false });
-        i = end + 2;
-        continue;
-      }
-    }
-    if (text[i] === "$") {
-      const end = text.indexOf("$", i + 1);
-      if (end !== -1) {
-        flush();
-        segments.push({ type: "math", value: text.slice(i + 1, end), display: false });
-        i = end + 1;
-        continue;
-      }
-    }
-    plain += text[i];
-    i++;
-  }
-
-  flush();
-  return segments;
-}
-
-function renderLatexNodes(input: string, prefix: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  let text = "";
-  const pushText = () => {
-    if (text) {
-      nodes.push(<span key={`${prefix}-t-${nodes.length}`}>{text}</span>);
-      text = "";
-    }
-  };
-
-  for (let i = 0; i < input.length;) {
-    const char = input[i];
-
-    if (char === "\\") {
-      if (input[i + 1] === "\\") {
-        text += " ";
-        i += 2;
-        continue;
-      }
-
-      const commandMatch = input.slice(i + 1).match(/^[A-Za-z]+/);
-      const command = commandMatch?.[0] ?? input[i + 1] ?? "";
-      const commandEnd = i + 1 + command.length;
-
-      if (command === "frac" || command === "dfrac" || command === "tfrac") {
-        const numerator = readLatexGroup(input, commandEnd);
-        const denominator = numerator ? readLatexGroup(input, numerator.end) : null;
-        if (numerator && denominator) {
-          pushText();
-          nodes.push(
-            <span key={`${prefix}-f-${nodes.length}`} className="mx-0.5 inline-flex flex-col items-center align-middle text-[0.95em] leading-tight">
-              <span className="border-b border-current px-0.5">{renderLatexNodes(numerator.value, `${prefix}-fn-${nodes.length}`)}</span>
-              <span className="px-0.5">{renderLatexNodes(denominator.value, `${prefix}-fd-${nodes.length}`)}</span>
-            </span>,
-          );
-          i = denominator.end;
-          continue;
-        }
-      }
-
-      if (command === "sqrt") {
-        const radicand = readLatexGroup(input, commandEnd);
-        if (radicand) {
-          pushText();
-          nodes.push(
-            <span key={`${prefix}-sqrt-${nodes.length}`} className="inline-flex items-start align-middle">
-              <span className="pr-0.5 text-[1.15em] leading-none">√</span>
-              <span className="border-t border-current px-0.5">{renderLatexNodes(radicand.value, `${prefix}-sqrtc-${nodes.length}`)}</span>
-            </span>,
-          );
-          i = radicand.end;
-          continue;
-        }
-      }
-
-      if (command === "text" || command === "mathrm") {
-        const group = readLatexGroup(input, commandEnd);
-        if (group) {
-          pushText();
-          nodes.push(<span key={`${prefix}-text-${nodes.length}`} className="font-sans">{group.value}</span>);
-          i = group.end;
-          continue;
-        }
-      }
-
-      if (command === "vec") {
-        const group = readLatexGroup(input, commandEnd);
-        if (group) {
-          pushText();
-          nodes.push(
-            <span key={`${prefix}-vec-${nodes.length}`} className="inline-flex flex-col items-center align-middle leading-none">
-              <span className="text-[0.65em] leading-none">→</span>
-              <span>{renderLatexNodes(group.value, `${prefix}-vecc-${nodes.length}`)}</span>
-            </span>,
-          );
-          i = group.end;
-          continue;
-        }
-      }
-
-      if (command === "bar" || command === "overline") {
-        const group = readLatexGroup(input, commandEnd);
-        if (group) {
-          pushText();
-          nodes.push(<span key={`${prefix}-bar-${nodes.length}`} className="decoration-solid" style={{ textDecoration: "overline" }}>{renderLatexNodes(group.value, `${prefix}-barc-${nodes.length}`)}</span>);
-          i = group.end;
-          continue;
-        }
-      }
-
-      if (command === "hat") {
-        const group = readLatexGroup(input, commandEnd);
-        if (group) {
-          pushText();
-          nodes.push(
-            <span key={`${prefix}-hat-${nodes.length}`} className="inline-flex flex-col items-center align-middle leading-none">
-              <span className="text-[0.75em] leading-none">^</span>
-              <span>{renderLatexNodes(group.value, `${prefix}-hatc-${nodes.length}`)}</span>
-            </span>,
-          );
-          i = group.end;
-          continue;
-        }
-      }
-
-      if (command === "left" || command === "right" || command === "begin" || command === "end") {
-        i = commandEnd;
-        if (input[i] === "{") {
-          const group = readLatexGroup(input, i);
-          i = group?.end ?? i;
-        }
-        continue;
-      }
-
-      if (command === "," || command === ";" || command === "quad" || command === "qquad") {
-        text += " ";
-        i = commandEnd;
-        continue;
-      }
-
-      const symbol = MATH_SYMBOLS[command];
-      const word = MATH_WORDS.has(command) ? command : null;
-      text += symbol ?? word ?? command;
-      i = commandEnd;
-      continue;
-    }
-
-    if ((char === "^" || char === "_") && i + 1 < input.length) {
-      pushText();
-      const script = readLatexScript(input, i + 1);
-      nodes.push(char === "^"
-        ? <sup key={`${prefix}-sup-${nodes.length}`} className="text-[0.7em] leading-none">{renderLatexNodes(script.value, `${prefix}-supc-${nodes.length}`)}</sup>
-        : <sub key={`${prefix}-sub-${nodes.length}`} className="text-[0.7em] leading-none">{renderLatexNodes(script.value, `${prefix}-subc-${nodes.length}`)}</sub>);
-      i = script.end;
-      continue;
-    }
-
-    if (char === "{" || char === "}") {
-      i++;
-      continue;
-    }
-
-    if (char === "&") {
-      text += " ";
-      i++;
-      continue;
-    }
-
-    text += char === "~" ? " " : char;
-    i++;
-  }
-
-  pushText();
-  return nodes.length > 0 ? nodes : [input];
-}
-
-function readLatexGroup(input: string, start: number): { value: string; end: number } | null {
-  let i = start;
-  while (input[i] === " ") i++;
-  if (input[i] !== "{") return null;
-  let depth = 1;
-  let cursor = i + 1;
-  while (cursor < input.length && depth > 0) {
-    if (input[cursor] === "{") depth++;
-    else if (input[cursor] === "}") depth--;
-    cursor++;
-  }
-  return { value: input.slice(i + 1, Math.max(i + 1, cursor - 1)), end: cursor };
-}
-
-function readLatexScript(input: string, start: number): { value: string; end: number } {
-  const group = readLatexGroup(input, start);
-  if (group) return group;
-  if (input[start] === "\\") {
-    const command = input.slice(start + 1).match(/^[A-Za-z]+/)?.[0];
-    if (command) return { value: `\\${command}`, end: start + command.length + 1 };
-  }
-  return { value: input[start] ?? "", end: start + 1 };
+  return <RichText text={text ?? ""} className={className} />;
 }

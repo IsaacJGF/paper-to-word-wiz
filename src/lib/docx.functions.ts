@@ -21,8 +21,14 @@ import {
   VerticalPositionRelativeFrom,
   TextWrappingType,
   TextWrappingSide,
+  Table,
+  TableCell,
+  TableRow,
+  UnderlineType,
+  WidthType,
 } from "docx";
 import { normalizeImagePlacementLayout, type ImagePlacementLayout } from "@/lib/image-layout";
+import { parseRichInlines, parseRichText, type RichAlign, type RichBlock, type RichInline } from "@/lib/rich-text";
 
 const Alt = z.object({ letra: z.string(), texto: z.string(), imagem: z.string().nullable().optional() });
 const ImagePlacement = z.any().nullable().optional();
@@ -62,28 +68,8 @@ const Input = z.object({
   }),
 });
 
-function stripLatex(s: string): string {
-  // Lightweight LaTeX → plain unicode rendering for .docx text runs.
-  return s
-    .replace(/\$\$([^$]+)\$\$/g, "$1")
-    .replace(/\$([^$]+)\$/g, "$1")
-    .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "($1)/($2)")
-    .replace(/\\sqrt\{([^}]*)\}/g, "√($1)")
-    .replace(/\\alpha/g, "α").replace(/\\beta/g, "β").replace(/\\gamma/g, "γ")
-    .replace(/\\delta/g, "δ").replace(/\\Delta/g, "Δ").replace(/\\theta/g, "θ")
-    .replace(/\\lambda/g, "λ").replace(/\\mu/g, "μ").replace(/\\pi/g, "π")
-    .replace(/\\sigma/g, "σ").replace(/\\Omega/g, "Ω").replace(/\\omega/g, "ω")
-    .replace(/\\times/g, "×").replace(/\\cdot/g, "·").replace(/\\pm/g, "±")
-    .replace(/\\leq/g, "≤").replace(/\\geq/g, "≥").replace(/\\neq/g, "≠")
-    .replace(/\\approx/g, "≈").replace(/\\infty/g, "∞").replace(/\\rightarrow/g, "→")
-    .replace(/\^\{([^}]+)\}/g, "^($1)")
-    .replace(/_\{([^}]+)\}/g, "_($1)")
-    .replace(/\^(\w)/g, "^$1").replace(/_(\w)/g, "_$1")
-    .replace(/\\\\/g, "\n")
-    .replace(/\\,/g, " ").replace(/\\ /g, " ");
-}
-
 type MathComponent = ConstructorParameters<typeof DocxMath>[0]["children"][number];
+type DocxChild = Paragraph | Table;
 
 const MATH_SYMBOLS: Record<string, string> = {
   alpha: "α",
@@ -225,19 +211,23 @@ type TextOptions = {
 };
 
 function runsFromText(text: string, opts: TextOptions) {
-  const parts = text.split(/(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$)/g).filter(Boolean);
-  return parts.flatMap((part) => {
-    const isMath = (part.startsWith("$$") && part.endsWith("$$")) || (part.startsWith("$") && part.endsWith("$"));
-    if (isMath) {
-      const latex = part.replace(/^\$\$?/, "").replace(/\$\$?$/, "");
-      return [latexMathRun(latex)];
-    }
+  return runsFromRichInlines(parseRichInlines(text), opts);
+}
 
-    const lines = stripLatex(part).split("\n");
-    return lines.flatMap((line, i) => {
-      const runs = [new TextRun({ text: line, size: opts.size * 2, bold: opts.bold, font: "Arial", color: opts.color })];
-      if (i < lines.length - 1) runs.push(new TextRun({ break: 1, font: "Arial", color: opts.color }));
-      return runs;
+function runsFromRichInlines(inlines: RichInline[], opts: TextOptions) {
+  return inlines.map((inline) => {
+    if (inline.type === "break") return new TextRun({ break: 1, font: "Arial", color: opts.color });
+    if (inline.type === "math") return latexMathRun(inline.latex);
+    return new TextRun({
+      text: inline.text,
+      size: opts.size * 2,
+      bold: opts.bold || inline.bold,
+      italics: inline.italic,
+      underline: inline.underline ? { type: UnderlineType.SINGLE } : undefined,
+      superScript: inline.superscript,
+      subScript: inline.subscript,
+      font: "Arial",
+      color: opts.color,
     });
   });
 }
@@ -248,6 +238,57 @@ function paragraphFromText(text: string, opts: TextOptions) {
     spacing: { after: opts.spacingAfter ?? 120, line: 300 },
     children: runsFromText(text, opts),
   });
+}
+
+function richChildrenFromText(text: string, opts: TextOptions): DocxChild[] {
+  const blocks = parseRichText(text);
+  if (blocks.length === 0) return [];
+  return blocks.flatMap((block) => richBlockToDocx(block, opts));
+}
+
+function richBlockToDocx(block: RichBlock, opts: TextOptions): DocxChild[] {
+  if (block.type === "table") return [tableFromRichBlock(block, opts)];
+
+  if (block.type === "list") {
+    return block.items.map((item, index) => new Paragraph({
+      alignment: alignmentFromRichAlign(block.align),
+      spacing: { after: opts.spacingAfter ?? 80, line: 300 },
+      indent: { left: 360, hanging: 240 },
+      children: [
+        new TextRun({ text: block.ordered ? `${index + 1}. ` : "• ", size: opts.size * 2, font: "Arial" }),
+        ...runsFromRichInlines(item, opts),
+      ],
+    }));
+  }
+
+  return [new Paragraph({
+    alignment: alignmentFromRichAlign(block.align),
+    spacing: { after: opts.spacingAfter ?? 120, line: 300 },
+    children: runsFromRichInlines(block.inlines, opts),
+  })];
+}
+
+function tableFromRichBlock(block: Extract<RichBlock, { type: "table" }>, opts: TextOptions) {
+  const columnCount = Math.max(1, ...block.rows.map((row) => row.length));
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: block.rows.map((row) => new TableRow({
+      children: Array.from({ length: columnCount }).map((_, index) => new TableCell({
+        children: [new Paragraph({
+          alignment: alignmentFromRichAlign(block.align),
+          spacing: { after: 40, line: 260 },
+          children: runsFromRichInlines(row[index] ?? [], opts),
+        })],
+      })),
+    })),
+  });
+}
+
+function alignmentFromRichAlign(align: RichAlign) {
+  if (align === "left") return AlignmentType.LEFT;
+  if (align === "center") return AlignmentType.CENTER;
+  if (align === "right") return AlignmentType.RIGHT;
+  return AlignmentType.JUSTIFIED;
 }
 
 type ImgInfo = { buffer: Buffer; type: "png" | "jpg" | "gif" | "bmp"; width: number; height: number };
@@ -373,7 +414,7 @@ export const generateDocx = createServerFn({ method: "POST" })
     const { questions, config } = data;
     const size = config.fontSize;
 
-    const children: Paragraph[] = [];
+    const children: DocxChild[] = [];
 
     // Content width on A4 with 1134 twip margins ≈ 9638 twips ≈ 642 px @96dpi
     const CONTENT_WIDTH_PX = 640;
@@ -415,7 +456,7 @@ export const generateDocx = createServerFn({ method: "POST" })
 
     if (config.instrucoes) {
       children.push(paragraphFromText("Instruções:", { size, bold: true, align: AlignmentType.LEFT, spacingAfter: 80 }));
-      children.push(paragraphFromText(config.instrucoes, { size, spacingAfter: 240 }));
+      children.push(...richChildrenFromText(config.instrucoes, { size, spacingAfter: 240 }));
     }
 
     let previousReferenceKey: string | null = null;
@@ -434,11 +475,11 @@ export const generateDocx = createServerFn({ method: "POST" })
         const imageIsFloating = Boolean(q.referencia_imagem_layout && normalizeImagePlacementLayout(q.referencia_imagem_layout as Partial<ImagePlacementLayout>).mode !== "block");
         if (referenceImage && (imageIsFloating || imagePos === "antes")) children.push(referenceImage);
         if (q.referencia_texto) {
-          children.push(paragraphFromText(q.referencia_texto, { size, align: AlignmentType.JUSTIFIED, spacingAfter: 100 }));
+          children.push(...richChildrenFromText(q.referencia_texto, { size, spacingAfter: 100 }));
         }
         if (referenceImage && !imageIsFloating && imagePos === "entre") children.push(referenceImage);
         if (q.referencia_texto_apos) {
-          children.push(paragraphFromText(q.referencia_texto_apos, { size, align: AlignmentType.JUSTIFIED, spacingAfter: 100 }));
+          children.push(...richChildrenFromText(q.referencia_texto_apos, { size, spacingAfter: 100 }));
         }
         if (referenceImage && !imageIsFloating && imagePos !== "antes" && imagePos !== "entre") children.push(referenceImage);
         if (q.referencia_fonte) {
@@ -462,7 +503,7 @@ export const generateDocx = createServerFn({ method: "POST" })
         : null;
       if (freeEnunciadoImg) children.push(freeEnunciadoImg);
       if (enunciadoImg && q.enunciado_imagem_pos === "antes") children.push(enunciadoImg);
-      children.push(paragraphFromText(q.enunciado, { size, spacingAfter: 120 }));
+      children.push(...richChildrenFromText(q.enunciado, { size, spacingAfter: 120 }));
       if (enunciadoImg && q.enunciado_imagem_pos !== "antes") children.push(enunciadoImg);
       q.alternativas.forEach((a) => {
         children.push(new Paragraph({
