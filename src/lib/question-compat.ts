@@ -169,12 +169,15 @@ function omitColumn(row: QuestionInsertRow, column: string): QuestionInsertRow {
 
 function findMissingColumn(error: unknown, sampleRow?: QuestionInsertRow) {
   const text = errorText(error);
-  const candidates = Object.keys(sampleRow ?? {});
-  for (const column of candidates) {
-    if (text.includes(column.toLowerCase())) return column;
-  }
-  for (const column of OPTIONAL_INSERT_COLUMNS) {
-    if (text.includes(column.toLowerCase())) return column;
+  const candidates = [
+    ...Object.keys(sampleRow ?? {}),
+    ...OPTIONAL_INSERT_COLUMNS,
+  ];
+  // Longest names first so 'enunciado_imagem_layout' wins over 'enunciado_imagem'.
+  const sorted = Array.from(new Set(candidates)).sort((a, b) => b.length - a.length);
+  for (const column of sorted) {
+    const re = new RegExp(`(^|[^a-z0-9_])${column.toLowerCase()}([^a-z0-9_]|$)`);
+    if (re.test(text)) return column;
   }
   return null;
 }
