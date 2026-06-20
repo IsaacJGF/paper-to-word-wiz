@@ -168,7 +168,62 @@ function renderLatexNodes(input: string, prefix: string): ReactNode[] {
         }
       }
 
-      text += MATH_SYMBOLS[command] ?? (MATH_WORDS.has(command) ? command : command);
+      if (command === "vec") {
+        const group = readLatexGroup(input, commandEnd);
+        if (group) {
+          pushText();
+          nodes.push(
+            <span key={`${prefix}-vec-${nodes.length}`} className="inline-flex flex-col items-center align-middle leading-none">
+              <span className="text-[0.65em] leading-none">→</span>
+              <span>{renderLatexNodes(group.value, `${prefix}-vecc-${nodes.length}`)}</span>
+            </span>,
+          );
+          i = group.end;
+          continue;
+        }
+      }
+
+      if (command === "bar" || command === "overline") {
+        const group = readLatexGroup(input, commandEnd);
+        if (group) {
+          pushText();
+          nodes.push(<span key={`${prefix}-bar-${nodes.length}`} style={{ textDecoration: "overline" }}>{renderLatexNodes(group.value, `${prefix}-barc-${nodes.length}`)}</span>);
+          i = group.end;
+          continue;
+        }
+      }
+
+      if (command === "hat") {
+        const group = readLatexGroup(input, commandEnd);
+        if (group) {
+          pushText();
+          nodes.push(
+            <span key={`${prefix}-hat-${nodes.length}`} className="inline-flex flex-col items-center align-middle leading-none">
+              <span className="text-[0.75em] leading-none">^</span>
+              <span>{renderLatexNodes(group.value, `${prefix}-hatc-${nodes.length}`)}</span>
+            </span>,
+          );
+          i = group.end;
+          continue;
+        }
+      }
+
+      if (command === "left" || command === "right" || command === "begin" || command === "end") {
+        i = commandEnd;
+        const group = readLatexGroup(input, i);
+        if (group) i = group.end;
+        continue;
+      }
+
+      if (command === "," || command === ";" || command === "quad" || command === "qquad") {
+        text += " ";
+        i = commandEnd;
+        continue;
+      }
+
+      const symbol = MATH_SYMBOLS[command];
+      const word = MATH_WORDS.has(command) ? command : null;
+      text += symbol ?? word ?? command;
       i = command ? commandEnd : i + 1;
       continue;
     }
@@ -178,8 +233,8 @@ function renderLatexNodes(input: string, prefix: string): ReactNode[] {
       const script = readLatexScript(input, i + 1);
       const content = renderLatexNodes(script.value, `${prefix}-s-${nodes.length}`);
       nodes.push(char === "^"
-        ? <sup key={`${prefix}-sup-${nodes.length}`}>{content}</sup>
-        : <sub key={`${prefix}-sub-${nodes.length}`}>{content}</sub>);
+        ? <sup key={`${prefix}-sup-${nodes.length}`} className="text-[0.7em] leading-none">{content}</sup>
+        : <sub key={`${prefix}-sub-${nodes.length}`} className="text-[0.7em] leading-none">{content}</sub>);
       i = script.end;
       continue;
     }
@@ -189,7 +244,13 @@ function renderLatexNodes(input: string, prefix: string): ReactNode[] {
       continue;
     }
 
-    text += char;
+    if (char === "&") {
+      text += " ";
+      i++;
+      continue;
+    }
+
+    text += char === "~" ? " " : char;
     i++;
   }
 
@@ -198,7 +259,8 @@ function renderLatexNodes(input: string, prefix: string): ReactNode[] {
 }
 
 function readLatexScript(input: string, start: number): { value: string; end: number } {
-  if (input[start] === "{") return readBalancedGroup(input, start) ?? { value: "", end: start + 1 };
+  const group = readLatexGroup(input, start);
+  if (group) return group;
   if (input[start] === "\\") {
     const command = input.slice(start).match(/^\\[A-Za-z]+/);
     if (command) return { value: command[0], end: start + command[0].length };
@@ -207,8 +269,10 @@ function readLatexScript(input: string, start: number): { value: string; end: nu
 }
 
 function readLatexGroup(input: string, start: number): { value: string; end: number } | null {
-  if (input[start] !== "{") return null;
-  return readBalancedGroup(input, start);
+  let i = start;
+  while (input[i] === " ") i++;
+  if (input[i] !== "{") return null;
+  return readBalancedGroup(input, i);
 }
 
 function readBalancedGroup(input: string, start: number): { value: string; end: number } | null {
