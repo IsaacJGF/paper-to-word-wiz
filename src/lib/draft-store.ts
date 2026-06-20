@@ -31,6 +31,7 @@ export type DraftDigitization = {
   referencia_imagem_layout?: ImagePlacementLayout;
   referencia_texto_apos?: string;
   imageDataUrl?: string;
+  imageDataUrls?: string[];
   questoes: DraftQuestion[];
 };
 
@@ -59,6 +60,7 @@ function normalizeDraft(draft: DraftDigitization | DraftQuestion): DraftDigitiza
       referencia_imagem_layout: draft.referencia_imagem_layout,
       referencia_texto_apos: draft.referencia_texto_apos ?? "",
       imageDataUrl: draft.imageDataUrl,
+      imageDataUrls: Array.isArray(draft.imageDataUrls) ? draft.imageDataUrls.filter(Boolean) : undefined,
       questoes: draft.questoes.length > 0 ? draft.questoes : [{
         numero: "",
         enunciado: "",
@@ -81,6 +83,7 @@ function normalizeDraft(draft: DraftDigitization | DraftQuestion): DraftDigitiza
     referencia_imagem_layout: undefined,
     referencia_texto_apos: "",
     imageDataUrl: undefined,
+    imageDataUrls: undefined,
     questoes: [draft as DraftQuestion],
   };
 }
