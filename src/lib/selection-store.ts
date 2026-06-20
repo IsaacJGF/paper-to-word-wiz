@@ -3,19 +3,20 @@ const SEL_KEY = "digitalizador.selecionadas";
 export function loadSelectedQuestionIds(): string[] {
   return uniqueIds([
     ...readIdsFromUrl(),
-    ...readIdsFromStorage(sessionStorage),
-    ...readIdsFromStorage(localStorage),
+    ...readIdsFromStorage("sessionStorage"),
+    ...readIdsFromStorage("localStorage"),
   ]);
 }
 
 export function saveSelectedQuestionIds(ids: string[]) {
   const normalized = uniqueIds(ids);
-  writeIdsToStorage(localStorage, normalized);
-  writeIdsToStorage(sessionStorage, normalized);
+  writeIdsToStorage("localStorage", normalized);
+  writeIdsToStorage("sessionStorage", normalized);
 }
 
 function readIdsFromUrl() {
   try {
+    if (typeof window === "undefined") return [];
     const raw = new URLSearchParams(window.location.search).get("ids");
     return raw ? parseIds(raw) : [];
   } catch {
@@ -23,17 +24,19 @@ function readIdsFromUrl() {
   }
 }
 
-function readIdsFromStorage(storage: Storage) {
+function readIdsFromStorage(kind: "localStorage" | "sessionStorage") {
   try {
-    return parseIds(JSON.parse(storage.getItem(SEL_KEY) ?? "[]"));
+    if (typeof window === "undefined") return [];
+    return parseIds(JSON.parse(window[kind].getItem(SEL_KEY) ?? "[]"));
   } catch {
     return [];
   }
 }
 
-function writeIdsToStorage(storage: Storage, ids: string[]) {
+function writeIdsToStorage(kind: "localStorage" | "sessionStorage", ids: string[]) {
   try {
-    storage.setItem(SEL_KEY, JSON.stringify(ids));
+    if (typeof window === "undefined") return;
+    window[kind].setItem(SEL_KEY, JSON.stringify(ids));
   } catch {}
 }
 
