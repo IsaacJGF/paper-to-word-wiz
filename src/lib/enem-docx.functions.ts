@@ -638,13 +638,13 @@ function isEnemQuestion(question: Pick<EnemQuestion, "prova" | "instituicao" | "
   return [question.prova, question.instituicao, question.fonte, question.referencia_fonte].some(isEnemProof);
 }
 
-function isEnemProof(value: string | null | undefined) {
+function isEnemProof(value: unknown) {
   const normalized = normalizeProofName(value);
   return normalized.includes("ENEM") || normalized.includes("EXAME NACIONAL DO ENSINO MEDIO");
 }
 
-function normalizeProofName(value: string | null | undefined) {
-  return (value ?? "")
+function normalizeProofName(value: unknown) {
+  return (typeof value === "string" ? value : value == null ? "" : String(value))
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .trim()
