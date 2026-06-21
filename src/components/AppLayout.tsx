@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { ScanLine, Library, FileText, BookMarked } from "lucide-react";
+import { ScanLine, Library, FileText, BookMarked, BarChart3 } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
@@ -7,6 +7,7 @@ const tabs = [
   { to: "/", label: "Digitalizar", icon: ScanLine },
   { to: "/questoes", label: "Questões salvas", icon: Library },
   { to: "/catalogos", label: "Catálogos", icon: BookMarked },
+  { to: "/analise-provas", label: "Análise de Provas", icon: BarChart3 },
   { to: "/documento", label: "Criar documento", icon: FileText },
 ] as const;
 
@@ -40,7 +41,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             })}
           </nav>
         </div>
-        <nav className="sm:hidden flex border-t">
+        <nav className="sm:hidden flex border-t overflow-x-auto">
           {tabs.map((t) => {
             const Icon = t.icon;
             const active = pathname === t.to || (t.to !== "/" && pathname.startsWith(t.to));
@@ -49,7 +50,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 key={t.to}
                 to={t.to}
                 className={cn(
-                  "flex-1 flex flex-col items-center gap-0.5 py-2 text-xs",
+                  "min-w-20 flex-1 flex flex-col items-center gap-0.5 py-2 text-xs",
                   active ? "text-primary" : "text-muted-foreground",
                 )}
               >
