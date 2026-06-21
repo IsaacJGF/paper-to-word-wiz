@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AppLayout } from "@/components/AppLayout";
 import { generateDocx } from "@/lib/docx.functions";
+import { RichText } from "@/components/RichText";
 import { fetchDocumentQuestions, type DocumentQuestion } from "@/lib/question-compat";
 import { loadSelectedQuestionIds, saveSelectedQuestionIds } from "@/lib/selection-store";
 import { toast } from "sonner";
