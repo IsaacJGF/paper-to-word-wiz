@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { FileText, Image as ImageIcon, Layers, Link2, Shuffle } from "lucide-react";
 import type { ProvaAnalysisSummary, ReferenceAnalysisRow } from "@/lib/prova-analysis";
 
@@ -50,7 +51,7 @@ export function AnalysisReferencePanel({ summary }: { summary: ProvaAnalysisSumm
   );
 }
 
-function ReferenceMetricCard({ title, value, description, icon }: { title: string; value: number; description?: string; icon: React.ReactNode }) {
+function ReferenceMetricCard({ title, value, description, icon }: { title: string; value: number; description?: string; icon: ReactNode }) {
   return (
     <div className="rounded-xl border bg-card p-4">
       <div className="flex items-center justify-between gap-2 text-muted-foreground">
