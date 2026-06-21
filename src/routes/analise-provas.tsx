@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { BarChart3, FileSearch, Image as ImageIcon, Loader2, Sigma, TextSearch } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { BarChart3, FileSearch, Image as ImageIcon, Loader2, TextSearch } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -318,7 +318,7 @@ function AnalysisResult({ summary, filters }: { summary: AnalysisSummary; filter
   );
 }
 
-function SummaryCard({ title, value, description, icon }: { title: string; value: number; description?: string; icon: React.ReactNode }) {
+function SummaryCard({ title, value, description, icon }: { title: string; value: number; description?: string; icon: ReactNode }) {
   return (
     <div className="rounded-xl border bg-card p-4">
       <div className="flex items-center justify-between gap-2 text-muted-foreground">
