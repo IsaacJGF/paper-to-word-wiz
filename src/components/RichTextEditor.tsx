@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import {
   AlignCenter,
   AlignJustify,
@@ -168,7 +168,7 @@ export function RichTextEditor({
   );
 }
 
-function ToolbarButton({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+function ToolbarButton({ title, onClick, children }: { title: string; onClick: () => void; children: ReactNode }) {
   return (
     <Button type="button" size="icon" variant="ghost" className="size-8" title={title} aria-label={title} onClick={onClick}>
       {children}
