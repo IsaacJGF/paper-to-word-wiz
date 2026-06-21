@@ -12,6 +12,7 @@ export type ProvaAnalysisQuestion = {
   conteudos_relacionados?: string[] | null;
   tags_livres?: string[] | null;
   tags?: string[] | null;
+  grupo_id?: string | null;
   referencia_texto?: string | null;
   referencia_texto_apos?: string | null;
   referencia_imagem?: string | null;
@@ -50,6 +51,31 @@ export type TermFrequencyRow = {
   examples: TermExample[];
 };
 
+export type ReferenceAnalysisRow = {
+  key: string;
+  grupoId?: string | null;
+  itemCount: number;
+  questionIds: string[];
+  years: string[];
+  hasImage: boolean;
+  textLength: number;
+  preview: string;
+  areas: string[];
+  contents: string[];
+  subcontents: string[];
+  mixedContent: boolean;
+};
+
+export type ReferenceAnalysisSummary = {
+  totalReferences: number;
+  totalItemsWithReference: number;
+  averageItemsPerReference: number;
+  averageTextLength: number;
+  referencesWithImage: number;
+  referencesWithMixedContent: number;
+  topReferences: ReferenceAnalysisRow[];
+};
+
 export type ProvaAnalysisSummary = {
   questions: ProvaAnalysisQuestion[];
   total: number;
@@ -64,6 +90,7 @@ export type ProvaAnalysisSummary = {
   generalTermFrequency: TermFrequencyRow[];
   physicsTermFrequency: TermFrequencyRow[];
   commandFrequency: TermFrequencyRow[];
+  referenceAnalysis: ReferenceAnalysisSummary;
   withReference: number;
   withImage: number;
   withEquation: number;
@@ -149,6 +176,7 @@ export function analyzeProvaQuestions(questions: ProvaAnalysisQuestion[]): Prova
     generalTermFrequency: analyzeTerms(normalized, GENERAL_TERMS),
     physicsTermFrequency: analyzeTerms(normalized, PHYSICS_TERMS),
     commandFrequency: analyzeTerms(normalized, COMMAND_PATTERNS),
+    referenceAnalysis: analyzeReferences(normalized),
     withReference: normalized.filter(hasReference).length,
     withImage: normalized.filter(hasImage).length,
     withEquation: normalized.filter((q) => Boolean(q.tem_equacao)).length,
@@ -164,7 +192,7 @@ export function analyzeProvaQuestions(questions: ProvaAnalysisQuestion[]): Prova
 }
 
 export function hasReference(question: ProvaAnalysisQuestion) {
-  return Boolean(question.referencia_texto?.trim() || question.referencia_texto_apos?.trim() || question.referencia_imagem);
+  return Boolean(question.grupo_id || question.referencia_texto?.trim() || question.referencia_texto_apos?.trim() || question.referencia_imagem);
 }
 
 export function hasImage(question: ProvaAnalysisQuestion) {
@@ -195,6 +223,7 @@ function normalizeQuestionForAnalysis(question: ProvaAnalysisQuestion): ProvaAna
     conteudos_relacionados: normalizeTextArray(question.conteudos_relacionados),
     tags_livres: normalizeTextArray(question.tags_livres),
     tags: normalizeTextArray(question.tags),
+    grupo_id: normalizeNullableText(question.grupo_id),
     referencia_texto: normalizeNullableText(question.referencia_texto),
     referencia_texto_apos: normalizeNullableText(question.referencia_texto_apos),
     referencia_imagem: normalizeNullableText(question.referencia_imagem),
@@ -238,6 +267,7 @@ function analyzeTerms(questions: ProvaAnalysisQuestion[], terms: string[]): Term
       const years = new Set<string>();
       const examples: TermExample[] = [];
       const normalizedTerm = normalizeForSearch(term);
+      let questionCount = 0;
 
       for (const question of questions) {
         const text = getSearchableQuestionText(question);
@@ -245,6 +275,7 @@ function analyzeTerms(questions: ProvaAnalysisQuestion[], terms: string[]): Term
         if (occurrences === 0) continue;
 
         count += occurrences;
+        questionCount += 1;
         if (question.ano) years.add(question.ano);
         if (examples.length < 3) examples.push(buildTermExample(question));
       }
@@ -252,14 +283,84 @@ function analyzeTerms(questions: ProvaAnalysisQuestion[], terms: string[]): Term
       return {
         term,
         count,
-        questionCount: examples.length === 0 ? 0 : questions.filter((question) => countOccurrences(getSearchableQuestionText(question), normalizedTerm) > 0).length,
-        percent: total > 0 ? Math.round((examples.length === 0 ? 0 : questions.filter((question) => countOccurrences(getSearchableQuestionText(question), normalizedTerm) > 0).length / total) * 1000) / 10 : 0,
+        questionCount,
+        percent: total > 0 ? Math.round((questionCount / total) * 1000) / 10 : 0,
         years: Array.from(years).sort(compareNumericText),
         examples,
       };
     })
     .filter((row) => row.count > 0)
     .sort((a, b) => b.count - a.count || a.term.localeCompare(b.term, "pt-BR"));
+}
+
+function analyzeReferences(questions: ProvaAnalysisQuestion[]): ReferenceAnalysisSummary {
+  const groups = new Map<string, ProvaAnalysisQuestion[]>();
+
+  for (const question of questions) {
+    const key = getReferenceKey(question);
+    if (!key) continue;
+    const current = groups.get(key) ?? [];
+    current.push(question);
+    groups.set(key, current);
+  }
+
+  const rows = Array.from(groups.entries()).map(([key, group]) => buildReferenceRow(key, group));
+  const totalReferences = rows.length;
+  const totalItemsWithReference = rows.reduce((sum, row) => sum + row.itemCount, 0);
+  const totalTextLength = rows.reduce((sum, row) => sum + row.textLength, 0);
+
+  return {
+    totalReferences,
+    totalItemsWithReference,
+    averageItemsPerReference: totalReferences > 0 ? roundOne(totalItemsWithReference / totalReferences) : 0,
+    averageTextLength: totalReferences > 0 ? Math.round(totalTextLength / totalReferences) : 0,
+    referencesWithImage: rows.filter((row) => row.hasImage).length,
+    referencesWithMixedContent: rows.filter((row) => row.mixedContent).length,
+    topReferences: rows.sort((a, b) => b.itemCount - a.itemCount || b.textLength - a.textLength).slice(0, 12),
+  };
+}
+
+function getReferenceKey(question: ProvaAnalysisQuestion) {
+  if (question.grupo_id) return `grupo:${question.grupo_id}`;
+  if (!hasReference(question)) return null;
+  const signature = normalizeForSearch([
+    question.referencia_texto,
+    question.referencia_texto_apos,
+    question.referencia_imagem,
+  ].filter(Boolean).join("|"));
+  return signature ? `referencia:${signature}` : null;
+}
+
+function buildReferenceRow(key: string, group: ProvaAnalysisQuestion[]): ReferenceAnalysisRow {
+  const first = group[0];
+  const text = [first.referencia_texto, first.referencia_texto_apos].filter(Boolean).join(" ");
+  const areas = uniqueText(group.map((q) => q.area_geral).filter((value): value is string => Boolean(value))).sort(compareNumericText);
+  const contents = uniqueText(group.map((q) => q.conteudo_principal).filter((value): value is string => Boolean(value))).sort(compareNumericText);
+  const subcontents = uniqueText(group.map((q) => q.subconteudo_principal).filter((value): value is string => Boolean(value))).sort(compareNumericText);
+  const years = uniqueText(group.map((q) => q.ano).filter((value): value is string => Boolean(value))).sort(compareNumericText);
+
+  return {
+    key,
+    grupoId: first.grupo_id ?? null,
+    itemCount: group.length,
+    questionIds: group.map((q) => q.id),
+    years,
+    hasImage: group.some((q) => Boolean(q.referencia_imagem)),
+    textLength: plainText(text).length,
+    preview: buildReferencePreview(first),
+    areas,
+    contents,
+    subcontents,
+    mixedContent: contents.length > 1 || areas.length > 1,
+  };
+}
+
+function buildReferencePreview(question: ProvaAnalysisQuestion) {
+  const text = [question.referencia_texto, question.referencia_texto_apos]
+    .filter(Boolean)
+    .join(" ") || "Referência sem texto cadastrado.";
+  const clean = plainText(text);
+  return clean.length > 220 ? `${clean.slice(0, 217)}...` : clean;
 }
 
 function countYears(questions: ProvaAnalysisQuestion[]): YearCountRow[] {
@@ -325,7 +426,7 @@ function buildPreview(question: ProvaAnalysisQuestion) {
   const text = [question.enunciado, question.referencia_texto, question.referencia_texto_apos]
     .map((value) => value ?? "")
     .find((value) => value.trim().length > 0) ?? "Sem texto cadastrado.";
-  const clean = text.replace(/<[^>]+>/g, " ").replace(/\$+/g, "").replace(/\s+/g, " ").trim();
+  const clean = plainText(text);
   return clean.length > 180 ? `${clean.slice(0, 177)}...` : clean;
 }
 
@@ -338,6 +439,18 @@ function normalizeForSearch(value: string | null | undefined) {
     .replace(/[‘’]/g, "'")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function plainText(value: string | null | undefined) {
+  return (value ?? "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\$+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function roundOne(value: number) {
+  return Math.round(value * 10) / 10;
 }
 
 function escapeRegExp(value: string) {
