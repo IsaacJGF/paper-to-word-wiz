@@ -1,13 +1,14 @@
 export type RichAlign = "left" | "center" | "right" | "justify";
+export type RichListStyle = "bullet" | "decimal" | "upper-alpha";
 
 export type RichInline =
-  | { type: "text"; text: string; bold?: boolean; italic?: boolean; underline?: boolean; superscript?: boolean; subscript?: boolean }
+  | { type: "text"; text: string; bold?: boolean; italic?: boolean; underline?: boolean; superscript?: boolean; subscript?: boolean; highlight?: boolean }
   | { type: "math"; latex: string; display: boolean }
   | { type: "break" };
 
 export type RichBlock =
   | { type: "paragraph"; align: RichAlign; inlines: RichInline[] }
-  | { type: "list"; align: RichAlign; ordered: boolean; items: RichInline[][] }
+  | { type: "list"; align: RichAlign; ordered: boolean; listStyle: RichListStyle; items: RichInline[][] }
   | { type: "table"; align: RichAlign; rows: RichInline[][][] };
 
 type InlineStyle = Omit<Extract<RichInline, { type: "text" }>, "type" | "text">;
@@ -19,6 +20,14 @@ type StyleToken = {
   innerEnd: number;
   style: InlineStyle;
 };
+
+const BARE_LATEX_COMMANDS = new Set([
+  "alpha", "beta", "gamma", "delta", "Delta", "epsilon", "varepsilon", "theta", "lambda", "mu", "pi",
+  "rho", "sigma", "phi", "varphi", "omega", "Omega", "nabla", "times", "cdot", "pm", "mp", "le",
+  "leq", "ge", "geq", "neq", "approx", "sim", "propto", "infty", "rightarrow", "to", "leftarrow",
+  "leftrightarrow", "degree", "circ", "ohm", "partial", "sum", "int", "div", "frac", "dfrac", "tfrac",
+  "sqrt", "vec", "bar", "overline", "hat", "sin", "cos", "tan", "sen", "log", "ln", "lim",
+]);
 
 export function parseRichText(text: string | null | undefined): RichBlock[] {
   const normalized = normalizeInput(text ?? "");
@@ -105,13 +114,20 @@ function splitTableCells(line: string) {
   return trimmed.split("|");
 }
 
-function parseList(lines: string[]): { ordered: boolean; items: RichInline[][] } | null {
-  const ordered = lines.every((line) => /^\s*\d+[.)]\s+/.test(line));
+function parseList(lines: string[]): { ordered: boolean; listStyle: RichListStyle; items: RichInline[][] } | null {
+  const numbered = lines.every((line) => /^\s*\d+[.)]\s+/.test(line));
+  const lettered = lines.every((line) => /^\s*[A-Za-z][.)]\s+/.test(line));
   const unordered = lines.every((line) => /^\s*[-*•]\s+/.test(line));
-  if (!ordered && !unordered) return null;
+  if (!numbered && !lettered && !unordered) return null;
+  const markerRegex = numbered
+    ? /^\s*\d+[.)]\s+/
+    : lettered
+      ? /^\s*[A-Za-z][.)]\s+/
+      : /^\s*[-*•]\s+/;
   return {
-    ordered,
-    items: lines.map((line) => parseRichInlines(line.replace(/^\s*(?:\d+[.)]|[-*•])\s+/, ""))),
+    ordered: numbered || lettered,
+    listStyle: numbered ? "decimal" : lettered ? "upper-alpha" : "bullet",
+    items: lines.map((line) => parseRichInlines(line.replace(markerRegex, ""))),
   };
 }
 
@@ -163,12 +179,91 @@ function splitMathSegments(text: string): Array<{ type: "text"; value: string } 
         continue;
       }
     }
+
+    const bareLatex = readBareLatex(text, i);
+    if (bareLatex) {
+      flush();
+      segments.push({ type: "math", value: bareLatex.value, display: false });
+      i = bareLatex.end;
+      continue;
+    }
+
     plain += text[i];
     i++;
   }
 
   flush();
   return segments;
+}
+
+function readBareLatex(input: string, start: number): { value: string; end: number } | null {
+  if (input[start] === "\\") return readBareLatexCommand(input, start);
+  return readBareScriptExpression(input, start);
+}
+
+function readBareLatexCommand(input: string, start: number): { value: string; end: number } | null {
+  const match = input.slice(start + 1).match(/^[A-Za-z]+/);
+  const command = match?.[0] ?? "";
+  if (!command || !BARE_LATEX_COMMANDS.has(command)) return null;
+
+  let end = start + 1 + command.length;
+  const requiredGroups = command === "frac" || command === "dfrac" || command === "tfrac" ? 2
+    : command === "sqrt" || command === "vec" || command === "bar" || command === "overline" || command === "hat" ? 1
+      : 0;
+
+  for (let i = 0; i < requiredGroups; i++) {
+    const group = readBalancedGroupAt(input, end);
+    if (!group) return null;
+    end = group.end;
+  }
+
+  while (input[end] === "^" || input[end] === "_") {
+    const script = readScriptAt(input, end);
+    if (!script) break;
+    end = script.end;
+  }
+
+  return { value: input.slice(start, end), end };
+}
+
+function readBareScriptExpression(input: string, start: number): { value: string; end: number } | null {
+  const base = input[start];
+  if (!base || !/[A-Za-z0-9)]/.test(base)) return null;
+  let end = start + 1;
+  let foundScript = false;
+  while (input[end] === "^" || input[end] === "_") {
+    const script = readScriptAt(input, end);
+    if (!script) break;
+    foundScript = true;
+    end = script.end;
+  }
+  return foundScript ? { value: input.slice(start, end), end } : null;
+}
+
+function readScriptAt(input: string, start: number): { end: number } | null {
+  if (input[start] !== "^" && input[start] !== "_") return null;
+  const valueStart = start + 1;
+  const group = readBalancedGroupAt(input, valueStart);
+  if (group) return { end: group.end };
+  if (input[valueStart] === "\\") {
+    const command = input.slice(valueStart + 1).match(/^[A-Za-z]+/);
+    if (command) return { end: valueStart + 1 + command[0].length };
+  }
+  return valueStart < input.length ? { end: valueStart + 1 } : null;
+}
+
+function readBalancedGroupAt(input: string, start: number): { end: number } | null {
+  let i = start;
+  while (input[i] === " ") i++;
+  if (input[i] !== "{") return null;
+  let depth = 1;
+  i++;
+  while (i < input.length && depth > 0) {
+    if (input[i] === "{") depth++;
+    if (input[i] === "}") depth--;
+    i++;
+  }
+  return depth === 0 ? { end: i } : null;
 }
 
 function parseStyledText(text: string, style: InlineStyle): RichInline[] {
@@ -194,6 +289,8 @@ function splitBreaks(text: string, style: InlineStyle): RichInline[] {
 
 function findFirstStyleToken(text: string): StyleToken | null {
   const tokens = [
+    spanHighlightToken(text),
+    tagToken(text, "mark", { highlight: true }),
     tagToken(text, "strong", { bold: true }),
     tagToken(text, "b", { bold: true }),
     tagToken(text, "em", { italic: true }),
@@ -209,6 +306,7 @@ function findFirstStyleToken(text: string): StyleToken | null {
     latexCommandToken(text, "textsuperscript", { superscript: true }),
     latexCommandToken(text, "textsubscript", { subscript: true }),
     wrappedToken(text, "**", "**", { bold: true }),
+    wrappedToken(text, "==", "==", { highlight: true }),
     wrappedToken(text, "__", "__", { underline: true }),
     wrappedToken(text, "*", "*", { italic: true }),
     wrappedToken(text, "_", "_", { italic: true }),
@@ -248,6 +346,22 @@ function tagToken(text: string, tag: string, style: InlineStyle): StyleToken | n
   return { start, end: start + match[0].length, innerStart, innerEnd, style };
 }
 
+function spanHighlightToken(text: string): StyleToken | null {
+  const regex = /<span\s+[^>]*style=["'][^"']*(?:background|background-color)[^"']*["'][^>]*>[\s\S]+?<\/span>/i;
+  const match = regex.exec(text);
+  if (!match || match.index === undefined) return null;
+  const start = match.index;
+  const openLength = match[0].indexOf(">") + 1;
+  const closeStart = match[0].toLowerCase().lastIndexOf("</span>");
+  return {
+    start,
+    end: start + match[0].length,
+    innerStart: start + openLength,
+    innerEnd: start + closeStart,
+    style: { highlight: true },
+  };
+}
+
 function wrappedToken(text: string, open: string, close: string, style: InlineStyle): StyleToken | null {
   const start = text.indexOf(open);
   if (start === -1) return null;
@@ -271,5 +385,6 @@ function decodeEntities(text: string) {
   return text
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&");
+    .replace(/&amp;/g, "&")
+    .replace(/&nbsp;/g, " ");
 }
