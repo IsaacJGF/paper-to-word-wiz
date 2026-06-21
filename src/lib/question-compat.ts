@@ -20,6 +20,9 @@ export type DocumentQuestion = {
   enunciado_imagem: string | null;
   enunciado_imagem_pos: string | null;
   enunciado_imagem_layout: ImagePlacementLayout | null;
+  prova: string | null;
+  instituicao: string | null;
+  ano: string | null;
 };
 
 const OPTIONAL_INSERT_COLUMNS = [
@@ -66,6 +69,9 @@ const DOCUMENT_SELECT_COLUMNS = [
   "enunciado_imagem",
   "enunciado_imagem_pos",
   "enunciado_imagem_layout",
+  "prova",
+  "instituicao",
+  "ano",
 ] as const;
 
 const REQUIRED_DOCUMENT_COLUMNS = [
@@ -148,6 +154,9 @@ function normalizeDocumentRows(rows: unknown[]): DocumentQuestion[] {
     enunciado_imagem: row.enunciado_imagem ?? null,
     enunciado_imagem_pos: row.enunciado_imagem_pos ?? null,
     enunciado_imagem_layout: row.enunciado_imagem_layout ?? null,
+    prova: row.prova ?? null,
+    instituicao: row.instituicao ?? null,
+    ano: row.ano ?? null,
   }));
 }
 
