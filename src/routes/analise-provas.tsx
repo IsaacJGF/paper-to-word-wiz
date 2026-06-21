@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, BarChart3, BookOpenCheck, FileSearch, Image as ImageIcon, Layers, ListChecks, Loader2, Sigma, Tags, TextSearch } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
+import { AnalysisCrossPanel } from "@/components/AnalysisCrossPanel";
 import { AnalysisLanguagePanel } from "@/components/AnalysisLanguagePanel";
 import { AnalysisReferencePanel } from "@/components/AnalysisReferencePanel";
 import { Button } from "@/components/ui/button";
@@ -175,7 +176,7 @@ function Page() {
             </p>
           </div>
           <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Referências/textos-base
+            Cruzamentos de dados
           </div>
         </div>
 
@@ -285,6 +286,7 @@ function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; f
       </div>
 
       <ChartsPanel summary={summary} />
+      <AnalysisCrossPanel summary={summary} />
       <AnalysisReferencePanel summary={summary} />
       <AnalysisLanguagePanel summary={summary} />
 
