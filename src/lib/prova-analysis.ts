@@ -2,6 +2,7 @@ export type ProvaAnalysisQuestion = {
   id: string;
   numero?: string | null;
   enunciado?: string | null;
+  resposta?: string | null;
   tipo?: string | null;
   ano?: string | null;
   prova?: string | null;
@@ -252,6 +253,7 @@ function normalizeQuestionForAnalysis(question: ProvaAnalysisQuestion): ProvaAna
     ...question,
     numero: normalizeNullableText(question.numero),
     enunciado: question.enunciado ?? "",
+    resposta: normalizeNullableText(question.resposta),
     tipo: normalizeNullableText(question.tipo),
     ano: normalizeNullableText(question.ano),
     prova: normalizeNullableText(question.prova),

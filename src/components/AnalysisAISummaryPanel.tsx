@@ -1,69 +1,56 @@
-import { useMemo, useState } from "react";
-import { Bot, Database, Sparkles } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useMemo } from "react";
+import { BarChart3, Database } from "lucide-react";
 import type { ProvaAnalysisSummary } from "@/lib/prova-analysis";
 import { generateAISummaryFromData, type AISummaryResult } from "@/lib/prova-ai-summary";
 
-export function AnalysisAISummaryPanel({ summary }: { summary: ProvaAnalysisSummary }) {
-  const [result, setResult] = useState<AISummaryResult | null>(null);
-  const preview = useMemo(() => generateAISummaryFromData(summary).structuredInput, [summary]);
-
-  const generate = () => setResult(generateAISummaryFromData(summary));
+export function AnalysisGeneralSummaryPanel({ summary }: { summary: ProvaAnalysisSummary }) {
+  const result = useMemo(() => generateAISummaryFromData(summary), [summary]);
 
   return (
     <div className="space-y-4 rounded-xl border bg-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="mb-2 flex items-center gap-2">
-            <Bot className="size-5 text-muted-foreground" />
-            <h2 className="font-semibold">Resumo inteligente com IA</h2>
+            <BarChart3 className="size-5 text-muted-foreground" />
+            <h2 className="font-semibold">Resumo geral</h2>
           </div>
           <p className="max-w-3xl text-sm text-muted-foreground">
-            O resumo usa apenas os dados estruturados da análise, sem enviar questões completas soltas. Se a amostra for pequena ou incompleta, o texto deve avisar e evitar conclusões fortes.
+            O resumo geral interpreta os principais dados estatísticos da análise atual.
           </p>
         </div>
-        <Button type="button" onClick={generate} className="gap-2">
-          <Sparkles className="size-4" /> Gerar resumo inteligente
-        </Button>
       </div>
 
-      <StructuredInputPreview input={result?.structuredInput ?? preview} />
+      <StructuredInputPreview input={result.structuredInput} />
 
-      {!result ? (
-        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          Clique em “Gerar resumo inteligente” para interpretar os dados analisados.
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {result.warning && (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-              {result.warning}
-            </div>
-          )}
+      <div className="space-y-4">
+        {result.warning && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+            {result.warning}
+          </div>
+        )}
 
-          <div className="grid gap-3 lg:grid-cols-2">
-            {result.sections.map((section) => (
-              <div key={section.title} className="rounded-lg border bg-background p-4">
-                <h3 className="font-semibold">{section.title}</h3>
-                <p className="mt-2 text-sm">{section.text}</p>
-                <div className="mt-3 rounded-md bg-muted/50 p-3">
-                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Dados usados</p>
-                  <ul className="space-y-1 text-xs text-muted-foreground">
-                    {section.evidence.map((item) => <li key={item}>• {item}</li>)}
-                  </ul>
-                </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          {result.sections.map((section) => (
+            <div key={section.title} className="rounded-lg border bg-background p-4">
+              <h3 className="font-semibold">{section.title}</h3>
+              <p className="mt-2 text-sm">{section.text}</p>
+              <div className="mt-3 rounded-md bg-muted/50 p-3">
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Dados usados</p>
+                <ul className="space-y-1 text-xs text-muted-foreground">
+                  {section.evidence.map((item) => <li key={item}>• {item}</li>)}
+                </ul>
               </div>
-            ))}
-          </div>
-
-          <div className="rounded-lg border bg-background p-4">
-            <h3 className="font-semibold">Como montar um simulado parecido</h3>
-            <ul className="mt-2 space-y-2 text-sm">
-              {result.simulationGuide.map((item) => <li key={item}>• {item}</li>)}
-            </ul>
-          </div>
+            </div>
+          ))}
         </div>
-      )}
+
+        <div className="rounded-lg border bg-background p-4">
+          <h3 className="font-semibold">Como montar um simulado parecido</h3>
+          <ul className="mt-2 space-y-2 text-sm">
+            {result.simulationGuide.map((item) => <li key={item}>• {item}</li>)}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 }
