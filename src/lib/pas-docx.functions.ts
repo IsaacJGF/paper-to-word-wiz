@@ -73,6 +73,13 @@ const PAS_BODY_SIZE = 10;
 const PAS_REFERENCE_SIZE = 6;
 const PAS_HEADER_SIZE = 9;
 const PAS_COLUMN_WIDTH_PX = 355;
+const PAS_COLUMN_OPTIONS = {
+  count: 2,
+  space: Math.round(0.3 * TWIP_PER_CM),
+  separator: true,
+  sep: true,
+  equalWidth: true,
+};
 
 const MATH_SYMBOLS: Record<string, string> = {
   alpha: "α",
@@ -127,7 +134,8 @@ export const generatePasDocx = createServerFn({ method: "POST" })
               footer: Math.round(0.25 * TWIP_PER_CM),
             },
           },
-          column: { count: 2, space: Math.round(0.3 * TWIP_PER_CM), separator: true },
+          column: PAS_COLUMN_OPTIONS,
+          columns: PAS_COLUMN_OPTIONS,
         } as any,
         headers: {
           default: new Header({
@@ -165,6 +173,7 @@ function buildPasChildren(data: PasInput): DocxChild[] {
   const { questions, config } = data;
   const children: DocxChild[] = [];
   let previousReferenceKey: string | null = null;
+  let renderedAnyReference = false;
 
   questions.forEach((q, idx) => {
     const referenceKey = getReferenceKey(q);
@@ -172,8 +181,9 @@ function buildPasChildren(data: PasInput): DocxChild[] {
     const shouldRenderReference = hasReference && referenceKey !== previousReferenceKey;
 
     if (shouldRenderReference) {
+      if (renderedAnyReference) children.push(horizontalLine(4, "666666"));
       children.push(...referenceChildren(q));
-      children.push(horizontalLine(4, "666666"));
+      renderedAnyReference = true;
     }
     previousReferenceKey = hasReference ? referenceKey : null;
 
@@ -453,7 +463,7 @@ function readImageSize(buf: Buffer, type: ImgInfo["type"]): { w: number; h: numb
 
 function horizontalLine(size: number, color: string) {
   return new Paragraph({
-    spacing: { before: 0, after: 80 },
+    spacing: { before: 80, after: 80 },
     border: { bottom: { color, size, style: BorderStyle.SINGLE, space: 1 } },
     children: [new TextRun({ text: "" })],
   });
