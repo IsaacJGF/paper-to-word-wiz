@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AppLayout } from "@/components/AppLayout";
 import { generateDocx } from "@/lib/docx.functions";
+import { generateEnemDocx } from "@/lib/enem-docx.functions";
 import { generatePasDocx } from "@/lib/pas-docx.functions";
 import { RichText } from "@/components/RichText";
 import { fetchDocumentQuestions, type DocumentQuestion } from "@/lib/question-compat";
@@ -53,6 +54,9 @@ function Page() {
     gabaritoSeparado: false,
     espacamentoQuestoes: 240,
     modeloPas: false,
+    modeloEnem: false,
+    enemSubtitulo: "Simulado de Ciências da Natureza",
+    enemCaderno: "2º DIA | CADERNO 1",
   });
 
   useEffect(() => {
@@ -121,6 +125,15 @@ function Page() {
       }
     }
 
+    if (config.modeloEnem) {
+      const invalid = questions.filter((q) => !isEnemQuestion(q));
+      if (invalid.length > 0) {
+        toast.error(`Modelo ENEM é exclusivo para questões ENEM. Remova ${invalid.length} questão(ões) de outra prova.`);
+        console.warn("Questões incompatíveis com Modelo ENEM:", invalid.map((q) => ({ id: q.id, prova: q.prova, ano: q.ano, instituicao: q.instituicao })));
+        return;
+      }
+    }
+
     if (config.incluirGabarito) {
       const semResp = questions.filter((q) => !q.resposta).length;
       if (semResp > 0 && !confirm(`${semResp} questão(ões) não têm resposta cadastrada. Gerar gabarito assim mesmo?`)) return;
@@ -130,8 +143,10 @@ function Page() {
     try {
       const result = config.modeloPas
         ? await generatePasDocx({ data: { questions, config } })
-        : await generateDocx({ data: { questions, config } });
-      const suffix = config.modeloPas ? "-modelo-pas" : "";
+        : config.modeloEnem
+          ? await generateEnemDocx({ data: { questions, config } })
+          : await generateDocx({ data: { questions, config } });
+      const suffix = config.modeloPas ? "-modelo-pas" : config.modeloEnem ? "-modelo-enem" : "";
       downloadDocx(result.docxBase64, `${config.titulo || "documento"}${suffix}.docx`);
       if (result.gabaritoBase64) downloadDocx(result.gabaritoBase64, `${config.titulo || "documento"}-gabarito.docx`);
       toast.success("Documento gerado!");
@@ -262,6 +277,7 @@ function Page() {
                             <span className="font-bold text-sm">Questão {i + 1}.</span>
                             {q.fonte && <span className="text-xs text-muted-foreground italic">({q.fonte})</span>}
                             {config.modeloPas && !isPasProof(q.prova) && <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive">fora do PAS</span>}
+                            {config.modeloEnem && !isEnemQuestion(q) && <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive">fora do ENEM</span>}
                             {q.prova && <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{q.prova}</span>}
                             {showGroupVisual && groupVisual ? (
                               <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium ${groupVisual.color.badge}`}>
@@ -290,29 +306,50 @@ function Page() {
             <div><Label>Título</Label><Input value={config.titulo} onChange={(e) => setConfig({ ...config, titulo: e.target.value })} /></div>
             <div className="space-y-2 rounded-lg border p-3 bg-muted/30">
               <label className="flex items-start gap-2 cursor-pointer">
-                <Checkbox checked={config.modeloPas} onCheckedChange={(v) => setConfig({ ...config, modeloPas: !!v, fontSize: !!v ? 10 : config.fontSize })} />
+                <Checkbox checked={config.modeloPas} onCheckedChange={(v) => setConfig({ ...config, modeloPas: !!v, modeloEnem: false, fontSize: !!v ? 10 : config.fontSize })} />
                 <span className="text-sm leading-snug">
                   <strong>Modelo PAS</strong><br />
                   <span className="text-xs text-muted-foreground">Formatação oficial em duas colunas. Aceita apenas PAS, PAS 1, PAS 2 ou PAS 3.</span>
                 </span>
               </label>
             </div>
-            <div><Label>Instituição</Label><Input value={config.instituicao} onChange={(e) => setConfig({ ...config, instituicao: e.target.value })} disabled={config.modeloPas} /></div>
-            <div className="grid grid-cols-2 gap-2">
-              <div><Label>Disciplina</Label><Input value={config.disciplina} onChange={(e) => setConfig({ ...config, disciplina: e.target.value })} disabled={config.modeloPas} /></div>
-              <div><Label>Professor</Label><Input value={config.professor} onChange={(e) => setConfig({ ...config, professor: e.target.value })} disabled={config.modeloPas} /></div>
-              <div><Label>Turma</Label><Input value={config.turma} onChange={(e) => setConfig({ ...config, turma: e.target.value })} disabled={config.modeloPas} /></div>
-              <div><Label>Data</Label><Input value={config.data} onChange={(e) => setConfig({ ...config, data: e.target.value })} disabled={config.modeloPas} /></div>
+            <div className="space-y-2 rounded-lg border p-3 bg-muted/30">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <Checkbox checked={config.modeloEnem} onCheckedChange={(v) => setConfig({ ...config, modeloEnem: !!v, modeloPas: false, fontSize: !!v ? 10 : config.fontSize })} />
+                <span className="text-sm leading-snug">
+                  <strong>Modelo ENEM</strong><br />
+                  <span className="text-xs text-muted-foreground">Formatação interna inspirada no ENEM, em duas colunas. Aceita apenas questões com prova ENEM.</span>
+                </span>
+              </label>
+              {config.modeloEnem && (
+                <div className="grid gap-2 pt-2">
+                  <div>
+                    <Label>Identificação menor</Label>
+                    <Input value={config.enemSubtitulo} onChange={(e) => setConfig({ ...config, enemSubtitulo: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label>Caderno / área</Label>
+                    <Input value={config.enemCaderno} onChange={(e) => setConfig({ ...config, enemCaderno: e.target.value })} />
+                  </div>
+                </div>
+              )}
             </div>
-            <div><Label>Instruções</Label><Textarea rows={3} value={config.instrucoes} onChange={(e) => setConfig({ ...config, instrucoes: e.target.value })} disabled={config.modeloPas} /></div>
+            <div><Label>Instituição</Label><Input value={config.instituicao} onChange={(e) => setConfig({ ...config, instituicao: e.target.value })} disabled={config.modeloPas || config.modeloEnem} /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label>Disciplina</Label><Input value={config.disciplina} onChange={(e) => setConfig({ ...config, disciplina: e.target.value })} disabled={config.modeloPas || config.modeloEnem} /></div>
+              <div><Label>Professor</Label><Input value={config.professor} onChange={(e) => setConfig({ ...config, professor: e.target.value })} disabled={config.modeloPas || config.modeloEnem} /></div>
+              <div><Label>Turma</Label><Input value={config.turma} onChange={(e) => setConfig({ ...config, turma: e.target.value })} disabled={config.modeloPas || config.modeloEnem} /></div>
+              <div><Label>Data</Label><Input value={config.data} onChange={(e) => setConfig({ ...config, data: e.target.value })} disabled={config.modeloPas || config.modeloEnem} /></div>
+            </div>
+            <div><Label>Instruções</Label><Textarea rows={3} value={config.instrucoes} onChange={(e) => setConfig({ ...config, instrucoes: e.target.value })} disabled={config.modeloPas || config.modeloEnem} /></div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <Label>Fonte (pt)</Label>
-                <Input type="number" min={9} max={18} value={config.fontSize} onChange={(e) => setConfig({ ...config, fontSize: +e.target.value || 12 })} disabled={config.modeloPas} />
+                <Input type="number" min={9} max={18} value={config.fontSize} onChange={(e) => setConfig({ ...config, fontSize: +e.target.value || 12 })} disabled={config.modeloPas || config.modeloEnem} />
               </div>
               <div>
                 <Label>Espaço entre questões</Label>
-                <Input type="number" min={120} max={600} step={40} value={config.espacamentoQuestoes} onChange={(e) => setConfig({ ...config, espacamentoQuestoes: +e.target.value || 240 })} disabled={config.modeloPas} />
+                <Input type="number" min={120} max={600} step={40} value={config.espacamentoQuestoes} onChange={(e) => setConfig({ ...config, espacamentoQuestoes: +e.target.value || 240 })} disabled={config.modeloPas || config.modeloEnem} />
               </div>
             </div>
             <div className="space-y-2 border-t pt-3">
@@ -320,7 +357,7 @@ function Page() {
                 <Checkbox checked={config.incluirGabarito} onCheckedChange={(v) => setConfig({ ...config, incluirGabarito: !!v })} />
                 <span className="text-sm">Incluir gabarito</span>
               </label>
-              {config.incluirGabarito && !config.modeloPas && (
+              {config.incluirGabarito && !config.modeloPas && !config.modeloEnem && (
                 <label className="flex items-center gap-2 cursor-pointer pl-6">
                   <Checkbox checked={config.gabaritoSeparado} onCheckedChange={(v) => setConfig({ ...config, gabaritoSeparado: !!v })} />
                   <span className="text-sm">Em arquivo separado</span>
@@ -464,4 +501,18 @@ function referenceLabel(index: number) {
 function isPasProof(value: string | null | undefined) {
   const normalized = (value ?? "").trim().toUpperCase().replace(/\s+/g, " ");
   return normalized === "PAS" || normalized === "PAS 1" || normalized === "PAS 2" || normalized === "PAS 3" || normalized === "PAS1" || normalized === "PAS2" || normalized === "PAS3";
+}
+
+function isEnemQuestion(question: Pick<DocumentQuestion, "prova" | "instituicao" | "fonte" | "referencia_fonte">) {
+  return [question.prova, question.instituicao, question.fonte, question.referencia_fonte].some(isEnemProof);
+}
+
+function isEnemProof(value: string | null | undefined) {
+  const normalized = (value ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
+  return normalized.includes("ENEM") || normalized.includes("EXAME NACIONAL DO ENSINO MEDIO");
 }
