@@ -288,8 +288,8 @@ function Page() {
                             ) : null}
                             {referenceKey && <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{referenceBlockSize > 1 ? `bloco de ${referenceBlockSize}` : "bloco único"}</span>}
                           </div>
-                          <div className="text-sm line-clamp-2 [&_p]:m-0 [&_p]:inline"><RichText text={q.enunciado} /></div>
-                          {q.alternativas.length > 0 && <p className="text-xs text-muted-foreground mt-1">{q.alternativas.length} alternativas{q.resposta ? ` · gabarito: ${q.resposta}` : ""}</p>}
+                          <div className="text-sm line-clamp-2 [&_p]:m-0 [&_p]:inline"><RichText text={q.enunciado ?? ""} /></div>
+                          {(q.alternativas ?? []).length > 0 && <p className="text-xs text-muted-foreground mt-1">{(q.alternativas ?? []).length} alternativas{q.resposta ? ` · gabarito: ${q.resposta}` : ""}</p>}
                         </div>
                         <Button size="icon" variant="ghost" onClick={() => remove(q.id)}><X className="size-4" /></Button>
                       </div>
@@ -499,7 +499,7 @@ function referenceLabel(index: number) {
 }
 
 function isPasProof(value: string | null | undefined) {
-  const normalized = (value ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+  const normalized = normalizeProofText(value);
   return normalized === "PAS" || normalized === "PAS 1" || normalized === "PAS 2" || normalized === "PAS 3" || normalized === "PAS1" || normalized === "PAS2" || normalized === "PAS3";
 }
 
@@ -508,11 +508,15 @@ function isEnemQuestion(question: Pick<DocumentQuestion, "prova" | "instituicao"
 }
 
 function isEnemProof(value: string | null | undefined) {
-  const normalized = (value ?? "")
+  const normalized = normalizeProofText(value);
+  return normalized.includes("ENEM") || normalized.includes("EXAME NACIONAL DO ENSINO MEDIO");
+}
+
+function normalizeProofText(value: unknown) {
+  return (typeof value === "string" ? value : value == null ? "" : String(value))
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .trim()
     .toUpperCase()
     .replace(/\s+/g, " ");
-  return normalized.includes("ENEM") || normalized.includes("EXAME NACIONAL DO ENSINO MEDIO");
 }

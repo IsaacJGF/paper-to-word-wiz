@@ -139,24 +139,24 @@ export async function fetchDocumentQuestions(ids: string[]): Promise<DocumentQue
 function normalizeDocumentRows(rows: unknown[]): DocumentQuestion[] {
   return (rows as Partial<DocumentQuestion>[]).map((row) => ({
     id: String(row.id),
-    numero: row.numero ?? null,
-    enunciado: row.enunciado ?? "",
+    numero: normalizeNullableString(row.numero),
+    enunciado: normalizeString(row.enunciado),
     alternativas: Array.isArray(row.alternativas) ? normalizeAlternatives(row.alternativas) : [],
-    resposta: row.resposta ?? null,
-    fonte: row.fonte ?? null,
-    referencia_texto: row.referencia_texto ?? null,
-    referencia_fonte: row.referencia_fonte ?? null,
-    grupo_id: row.grupo_id ?? null,
-    referencia_imagem: row.referencia_imagem ?? null,
-    referencia_imagem_pos: row.referencia_imagem_pos ?? null,
-    referencia_imagem_layout: row.referencia_imagem_layout ?? null,
-    referencia_texto_apos: row.referencia_texto_apos ?? null,
-    enunciado_imagem: row.enunciado_imagem ?? null,
-    enunciado_imagem_pos: row.enunciado_imagem_pos ?? null,
-    enunciado_imagem_layout: row.enunciado_imagem_layout ?? null,
-    prova: row.prova ?? null,
-    instituicao: row.instituicao ?? null,
-    ano: row.ano ?? null,
+    resposta: normalizeNullableString(row.resposta),
+    fonte: normalizeNullableString(row.fonte),
+    referencia_texto: normalizeNullableString(row.referencia_texto),
+    referencia_fonte: normalizeNullableString(row.referencia_fonte),
+    grupo_id: normalizeNullableString(row.grupo_id),
+    referencia_imagem: normalizeNullableString(row.referencia_imagem),
+    referencia_imagem_pos: normalizeNullableString(row.referencia_imagem_pos),
+    referencia_imagem_layout: normalizeLayout(row.referencia_imagem_layout),
+    referencia_texto_apos: normalizeNullableString(row.referencia_texto_apos),
+    enunciado_imagem: normalizeNullableString(row.enunciado_imagem),
+    enunciado_imagem_pos: normalizeNullableString(row.enunciado_imagem_pos),
+    enunciado_imagem_layout: normalizeLayout(row.enunciado_imagem_layout),
+    prova: normalizeNullableString(row.prova),
+    instituicao: normalizeNullableString(row.instituicao),
+    ano: normalizeNullableString(row.ano),
   }));
 }
 
@@ -164,11 +164,25 @@ function normalizeAlternatives(value: unknown[]) {
   return value.map((item) => {
     const alt = item as { letra?: unknown; texto?: unknown; imagem?: unknown };
     return {
-      letra: typeof alt.letra === "string" ? alt.letra : "",
-      texto: typeof alt.texto === "string" ? alt.texto : "",
-      imagem: typeof alt.imagem === "string" ? alt.imagem : null,
+      letra: normalizeString(alt.letra),
+      texto: normalizeString(alt.texto),
+      imagem: normalizeNullableString(alt.imagem),
     };
   });
+}
+
+function normalizeString(value: unknown) {
+  return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function normalizeNullableString(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (value == null) return null;
+  return String(value);
+}
+
+function normalizeLayout(value: unknown): ImagePlacementLayout | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as ImagePlacementLayout : null;
 }
 
 function omitColumn(row: QuestionInsertRow, column: string): QuestionInsertRow {
