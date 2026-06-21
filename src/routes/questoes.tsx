@@ -1,8 +1,28 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Search, Trash2, Copy, FileText, Image as ImageIcon, Sigma, Loader2, ScanLine, Pencil, ChevronDown, ListChecks, Table as TableIcon, Layers, Filter } from "lucide-react";
+import {
+  Search,
+  Trash2,
+  Copy,
+  FileText,
+  Image as ImageIcon,
+  Sigma,
+  Loader2,
+  ScanLine,
+  Pencil,
+  ChevronDown,
+  ListChecks,
+  Table as TableIcon,
+  Layers,
+  Filter,
+  Save,
+  Plus,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -65,6 +85,28 @@ type AdvancedFilters = {
   instituicao: string;
   ano: string;
 };
+type EditDraft = {
+  numero: string;
+  enunciado: string;
+  alternativas: { letra: string; texto: string; imagem?: string | null }[];
+  tipo: string;
+  resposta: string;
+  fonte: string;
+  area_geral: string;
+  conteudo_principal: string;
+  subconteudo_principal: string;
+  conteudos_relacionados: string[];
+  tags_livres: string[];
+  ano: string;
+  prova: string;
+  instituicao: string;
+  observacoes: string;
+};
+
+type ReferenceGroupState = { items: Q[]; selected: Set<string> };
+
+const PAGE_SIZE = 24;
+const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
 const EMPTY_ADVANCED_FILTERS: AdvancedFilters = {
   area_geral: "",
@@ -80,12 +122,15 @@ function Page() {
   const navigate = useNavigate();
   const [items, setItems] = useState<Q[]>([]);
   const [loading, setLoading] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(0);
   const [q, setQ] = useState("");
-  const [sel, setSel] = useState<Set<string>>(new Set());
-  const [editingContent, setEditingContent] = useState<Q | null>(null);
-  const [editingContentValue, setEditingContentValue] = useState("");
+  const debouncedQuery = useDebouncedValue(q, 450);
+  const [sel, setSel] = useState<Set<string>>(new Set(() => loadSelectedQuestionIds()));
+  const [editing, setEditing] = useState<Q | null>(null);
+  const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [expanded, setExpanded] = useState<Q | null>(null);
-  const [referenceGroup, setReferenceGroup] = useState<{ key: string; selected: Set<string> } | null>(null);
+  const [referenceGroup, setReferenceGroup] = useState<ReferenceGroupState | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilters>(EMPTY_ADVANCED_FILTERS);
   const [draftFilters, setDraftFilters] = useState<AdvancedFilters>(EMPTY_ADVANCED_FILTERS);
@@ -93,8 +138,11 @@ function Page() {
   const [catalogConteudos, setCatalogConteudos] = useState<CatalogItem[]>([]);
   const [subconteudos, setSubconteudos] = useState<CatalogItem[]>([]);
   const [relacionados, setRelacionados] = useState<CatalogItem[]>([]);
+  const [tagsCat, setTagsCat] = useState<CatalogItem[]>([]);
   const [provas, setProvas] = useState<CatalogItem[]>([]);
   const [instituicoes, setInstituicoes] = useState<CatalogItem[]>([]);
+  const [anos, setAnos] = useState<string[]>([]);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const commitSelection = (next: Set<string>) => {
     setSel(next);
@@ -103,19 +151,30 @@ function Page() {
 
   const load = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from("questions").select("*").order("created_at", { ascending: false });
-    if (error) {
-      toast.error("Falha ao carregar");
-    } else {
-      const loaded = (data ?? []) as unknown as Q[];
-      setItems(loaded);
-      const validIds = new Set(loaded.map((item) => item.id));
-      const storedIds = loadSelectedQuestionIds().filter((id) => validIds.has(id));
-      commitSelection(new Set(storedIds));
+    try {
+      const from = page * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db = supabase as any;
+      let query = db.from("questions").select("*", { count: "exact" });
+      query = applySupabaseFilters(query, debouncedQuery, advancedFilters);
+      query = query.order("created_at", { ascending: false }).range(from, to);
+
+      const { data, count, error } = await query;
+      if (error) {
+        console.error(error);
+        toast.error("Falha ao carregar questões.");
+        return;
+      }
+      setItems((data ?? []) as Q[]);
+      setTotalCount(count ?? 0);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
-  useEffect(() => { load(); }, []);
+
+  useEffect(() => { setPage(0); }, [debouncedQuery, advancedFilters]);
+  useEffect(() => { load(); }, [page, debouncedQuery, advancedFilters]);
 
   useEffect(() => {
     (async () => {
@@ -126,6 +185,7 @@ function Page() {
         ["catalog_conteudos", setCatalogConteudos],
         ["catalog_subconteudos", setSubconteudos],
         ["catalog_relacionados", setRelacionados],
+        ["catalog_tags", setTagsCat],
         ["catalog_provas", setProvas],
         ["catalog_instituicoes", setInstituicoes],
       ] as const;
@@ -133,36 +193,15 @@ function Page() {
         const { data, error } = await db.from(table).select("*").order("nome");
         if (!error) setter((data ?? []) as CatalogItem[]);
       }
+      const { data: yearRows } = await db.from("questions").select("ano").not("ano", "is", null).limit(2000);
+      setAnos(uniqueYears((yearRows ?? []) as Array<{ ano?: string | null }>));
     })();
   }, []);
 
-  const disciplinas = useMemo(() => {
-    const s = new Set<string>();
-    items.forEach((i) => { if (i.disciplina) s.add(i.disciplina); });
-    return [...s].sort();
-  }, [items]);
-
-  const conteudos = useMemo(() => {
-    const s = new Set<string>();
-    items.forEach((i) => getConteudos(i).forEach((c) => s.add(c)));
-    return [...s].sort((a, b) => a.localeCompare(b, "pt-BR"));
-  }, [items]);
-
-  const anos = useMemo(() => {
-    const s = new Set<string>();
-    items.forEach((item) => { if (item.ano?.trim()) s.add(item.ano.trim()); });
-    return [...s].sort((a, b) => b.localeCompare(a, "pt-BR", { numeric: true }));
-  }, [items]);
-
   const activeFilterCount = useMemo(() => countActiveFilters(advancedFilters), [advancedFilters]);
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-  const filtered = useMemo(() => items.filter((i) => {
-    if (q.trim() && !matchesSearch(i, q)) return false;
-    if (!matchesAdvancedFilters(i, advancedFilters)) return false;
-    return true;
-  }), [items, q, advancedFilters]);
-
-  const referenceGroups = useMemo(() => {
+  const visibleReferenceGroups = useMemo(() => {
     const groups = new Map<string, Q[]>();
     for (const item of items) {
       const key = getReferenceKey(item);
@@ -181,12 +220,25 @@ function Page() {
     commitSelection(next);
   };
 
-  const openReferenceGroup = (question: Q) => {
+  const fetchReferenceItems = async (question: Q) => {
+    if (!getReferenceKey(question)) return [question];
+    if (question.grupo_id?.trim()) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from("questions")
+        .select("*")
+        .eq("grupo_id", question.grupo_id)
+        .order("numero", { ascending: true });
+      if (!error && Array.isArray(data) && data.length > 0) return (data as Q[]).sort(compareReferenceItems);
+    }
     const key = getReferenceKey(question);
-    if (!key) return;
-    const group = referenceGroups.get(key) ?? [question];
+    return (key ? visibleReferenceGroups.get(key) : null) ?? [question];
+  };
+
+  const openReferenceGroup = async (question: Q) => {
+    const group = await fetchReferenceItems(question);
     const selectedIds = group.filter((item) => sel.has(item.id)).map((item) => item.id);
-    setReferenceGroup({ key, selected: new Set(selectedIds.length > 0 ? selectedIds : [question.id]) });
+    setReferenceGroup({ items: group, selected: new Set(selectedIds.length > 0 ? selectedIds : [question.id]) });
   };
 
   const toggleReferenceGroupItem = (id: string, checked: boolean) => {
@@ -199,16 +251,10 @@ function Page() {
   };
 
   const selectAllReferenceGroupItems = () => {
-    setReferenceGroup((current) => {
-      if (!current) return current;
-      const group = referenceGroups.get(current.key) ?? [];
-      return { ...current, selected: new Set(group.map((item) => item.id)) };
-    });
+    setReferenceGroup((current) => current ? { ...current, selected: new Set(current.items.map((item) => item.id)) } : current);
   };
 
-  const clearReferenceGroupItems = () => {
-    setReferenceGroup((current) => current ? { ...current, selected: new Set() } : current);
-  };
+  const clearReferenceGroupItems = () => setReferenceGroup((current) => current ? { ...current, selected: new Set() } : current);
 
   const addReferenceGroupSelection = () => {
     if (!referenceGroup) return;
@@ -223,20 +269,17 @@ function Page() {
     setReferenceGroup(null);
   };
 
-  const selectWholeReferenceGroup = (question: Q) => {
-    const key = getReferenceKey(question);
-    if (!key) return;
-    const group = referenceGroups.get(key) ?? [];
+  const selectWholeReferenceGroup = async (question: Q) => {
+    const group = await fetchReferenceItems(question);
     if (group.length === 0) return;
     const next = new Set(sel);
     group.forEach((item) => next.add(item.id));
     commitSelection(next);
-    toast.success(`${group.length} itens da mesma referência selecionados.`);
+    toast.success(`${group.length} item${group.length > 1 ? "s" : ""} da mesma referência selecionado${group.length > 1 ? "s" : ""}.`);
   };
 
   const openDocument = () => {
-    const ids = [...sel];
-    saveSelectedQuestionIds(ids);
+    saveSelectedQuestionIds([...sel]);
     navigate({ to: "/documento" });
   };
 
@@ -251,8 +294,9 @@ function Page() {
   };
 
   const clearAdvancedFilters = () => {
-    setDraftFilters(cloneAdvancedFilters(EMPTY_ADVANCED_FILTERS));
-    setAdvancedFilters(cloneAdvancedFilters(EMPTY_ADVANCED_FILTERS));
+    const clean = cloneAdvancedFilters(EMPTY_ADVANCED_FILTERS);
+    setDraftFilters(clean);
+    setAdvancedFilters(clean);
   };
 
   const onDelete = async (id: string) => {
@@ -261,7 +305,8 @@ function Page() {
     if (error) toast.error("Falha ao excluir");
     else {
       toast.success("Questão excluída");
-      setItems(items.filter((x) => x.id !== id));
+      setItems((current) => current.filter((x) => x.id !== id));
+      setTotalCount((current) => Math.max(0, current - 1));
       const ns = new Set(sel);
       ns.delete(id);
       commitSelection(ns);
@@ -269,48 +314,11 @@ function Page() {
   };
 
   const onDuplicate = async (q: Q) => {
-    const duplicated = {
-      numero: q.numero,
-      enunciado: q.enunciado,
-      alternativas: q.alternativas,
-      tipo: q.tipo,
-      resposta: q.resposta,
-      fonte: q.fonte,
-      disciplina: q.disciplina,
-      conteudo: q.conteudo,
-      dificuldade: null,
-      area_geral: q.area_geral ?? null,
-      conteudo_principal: q.conteudo_principal ?? null,
-      subconteudo_principal: q.subconteudo_principal ?? null,
-      conteudos_relacionados: q.conteudos_relacionados ?? [],
-      tags_livres: q.tags_livres ?? [],
-      tags: q.tags ?? q.tags_livres ?? null,
-      ano: q.ano ?? null,
-      prova: q.prova ?? null,
-      instituicao: q.instituicao ?? null,
-      observacoes: q.observacoes ?? null,
-      referencia_texto: q.referencia_texto ?? null,
-      referencia_fonte: q.referencia_fonte ?? null,
-      grupo_id: q.grupo_id ?? null,
-      referencia_imagem: q.referencia_imagem ?? null,
-      referencia_imagem_pos: q.referencia_imagem_pos ?? null,
-      referencia_imagem_layout: q.referencia_imagem_layout ?? null,
-      referencia_texto_apos: q.referencia_texto_apos ?? null,
-      enunciado_imagem: q.enunciado_imagem ?? null,
-      enunciado_imagem_pos: q.enunciado_imagem_pos ?? null,
-      enunciado_imagem_layout: q.enunciado_imagem_layout ?? null,
-      imagem_original_url: q.imagem_original_url ?? null,
-      tem_equacao: q.tem_equacao,
-      tem_imagem: q.tem_imagem,
-    };
-
+    const duplicated = buildDuplicatePayload(q);
     try {
       const { removedColumns } = await insertQuestionsWithCompatibility([duplicated]);
-      if (removedColumns.length > 0) {
-        toast.warning("Questão duplicada. Alguns campos novos não foram gravados porque o banco ainda precisa da atualização.");
-      } else {
-        toast.success("Questão duplicada");
-      }
+      if (removedColumns.length > 0) toast.warning("Questão duplicada. Alguns campos novos não foram gravados porque o banco ainda precisa da atualização.");
+      else toast.success("Questão duplicada");
       load();
     } catch (error) {
       console.error(error);
@@ -318,30 +326,37 @@ function Page() {
     }
   };
 
-  const openContentEditor = (question: Q) => {
-    setEditingContent(question);
-    setEditingContentValue(getConteudos(question)[0] ?? question.conteudo ?? "");
+  const openQuestionEditor = (question: Q) => {
+    setEditing(question);
+    setEditDraft(toEditDraft(question));
   };
 
-  const updateQuestionContent = async () => {
-    if (!editingContent) return;
-    const conteudo = editingContentValue.trim() || null;
-    const { error } = await supabase.from("questions").update({ conteudo }).eq("id", editingContent.id);
-    if (error) {
-      toast.error("Falha ao atualizar conteúdo");
-      return;
+  const saveQuestionEdit = async () => {
+    if (!editing || !editDraft) return;
+    setSavingEdit(true);
+    try {
+      const payload = editDraftToPayload(editDraft, editing);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from("questions")
+        .update(payload)
+        .eq("id", editing.id)
+        .select("*")
+        .single();
+      if (error) {
+        console.error(error);
+        toast.error("Falha ao salvar edição.");
+        return;
+      }
+      const updated = (data ?? { ...editing, ...payload }) as Q;
+      setItems((current) => current.map((item) => item.id === editing.id ? updated : item));
+      setExpanded((current) => current?.id === editing.id ? updated : current);
+      setEditing(null);
+      setEditDraft(null);
+      toast.success("Questão atualizada.");
+    } finally {
+      setSavingEdit(false);
     }
-
-    setItems((current) =>
-      current.map((item) =>
-        item.id === editingContent.id
-          ? { ...item, conteudo }
-          : item,
-      ),
-    );
-    setEditingContent(null);
-    setEditingContentValue("");
-    toast.success("Conteúdo da questão atualizado com sucesso.");
   };
 
   return (
@@ -350,12 +365,15 @@ function Page() {
         <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
           <div>
             <h1 className="text-2xl font-bold">Questões salvas</h1>
-            <p className="text-sm text-muted-foreground">{items.length} questões na sua biblioteca</p>
+            <p className="text-sm text-muted-foreground">
+              {totalCount} questão{totalCount === 1 ? "" : "ões"} encontrada{totalCount === 1 ? "" : "s"}
+              {sel.size > 0 ? ` · ${sel.size} selecionada${sel.size > 1 ? "s" : ""}` : ""}
+            </p>
           </div>
           <Button asChild className="gap-2"><Link to="/"><ScanLine className="size-4" /> Nova questão</Link></Button>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-2 mb-4">
+        <div className="flex flex-col sm:flex-row gap-2 mb-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <Input className="pl-9" placeholder="Pesquisar por palavra ou trecho da questão..." value={q} onChange={(e) => setQ(e.target.value)} />
@@ -366,27 +384,32 @@ function Page() {
           </Button>
         </div>
 
+        <div className="mb-4 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span>Busca com debounce e filtros aplicados no banco.</span>
+          <span>Página {Math.min(page + 1, totalPages)} de {totalPages}</span>
+        </div>
+
         {loading ? (
           <div className="flex items-center justify-center py-20"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
-        ) : filtered.length === 0 ? (
+        ) : items.length === 0 ? (
           <div className="text-center py-20 border-2 border-dashed rounded-xl">
             <FileText className="size-10 mx-auto text-muted-foreground mb-2" />
-            <p className="font-medium">Nenhuma questão {items.length > 0 ? "encontrada" : "ainda"}</p>
-            <p className="text-sm text-muted-foreground">{items.length > 0 ? "Ajuste a pesquisa ou filtros." : "Comece digitalizando sua primeira questão."}</p>
+            <p className="font-medium">Nenhuma questão {totalCount > 0 ? "nesta página" : "encontrada"}</p>
+            <p className="text-sm text-muted-foreground">Ajuste a pesquisa, limpe os filtros ou digitalize uma nova questão.</p>
           </div>
         ) : (
           <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-            {filtered.map((it) => {
+            {items.map((it) => {
               const isSel = sel.has(it.id);
-              const source = formatQuestionSource(it);
+              const source = formatQuestionSource(it) || "Fonte não informada";
               const hasAlternativas = Array.isArray(it.alternativas) && it.alternativas.length > 0;
               const hasImagem = !!(it.tem_imagem || it.enunciado_imagem || it.referencia_imagem);
               const chips = getCardChips(it);
               const chipsShown = chips.slice(0, 3);
               const chipsExtra = chips.length - chipsShown.length;
               const referenceKey = getReferenceKey(it);
-              const referenceItems = referenceKey ? referenceGroups.get(referenceKey) ?? [] : [];
-              const hasReferenceGroup = referenceItems.length > 1;
+              const visibleReferenceItems = referenceKey ? visibleReferenceGroups.get(referenceKey) ?? [] : [];
+              const hasReferenceGroup = Boolean(referenceKey);
               return (
                 <div
                   key={it.id}
@@ -399,10 +422,10 @@ function Page() {
                         <span className="font-mono">#{it.id.slice(0, 6)}</span>
                         {it.numero && <span>· Q{it.numero}</span>}
                       </div>
-                      {source && <p className="mt-0.5 truncate text-xs font-semibold text-foreground">{source}</p>}
+                      <p className="mt-0.5 truncate text-xs font-semibold text-foreground">{source}</p>
                     </div>
                     <div className="flex shrink-0 -mr-1 -mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openContentEditor(it)} title="Alterar conteúdo"><Pencil className="size-3.5" /></Button>
+                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openQuestionEditor(it)} title="Editar questão"><Pencil className="size-3.5" /></Button>
                       <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onDuplicate(it)} title="Duplicar"><Copy className="size-3.5" /></Button>
                       <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => onDelete(it.id)} title="Excluir"><Trash2 className="size-3.5" /></Button>
                     </div>
@@ -412,11 +435,11 @@ function Page() {
                     <div className="mt-2 flex flex-wrap gap-1">
                       {chipsShown.map((t) => <Badge key={t} variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">{t}</Badge>)}
                       {chipsExtra > 0 && <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">+{chipsExtra}</Badge>}
-                      {hasReferenceGroup && <Badge variant="outline" className="gap-1 text-[10px] px-1.5 py-0 font-normal"><Layers className="size-3" /> {referenceItems.length} itens na mesma referência</Badge>}
+                      {hasReferenceGroup && <Badge variant="outline" className="gap-1 text-[10px] px-1.5 py-0 font-normal"><Layers className="size-3" /> {visibleReferenceItems.length > 1 ? `${visibleReferenceItems.length} visíveis` : "mesma referência"}</Badge>}
                     </div>
                   )}
 
-                  <MathText text={it.enunciado} className="mt-2 line-clamp-3 min-h-[3.75rem] text-sm text-foreground/90" />
+                  <RichText text={it.enunciado} className="mt-2 line-clamp-3 min-h-[3.75rem] text-sm text-foreground/90" />
 
                   <div className="mt-2 flex flex-wrap gap-1">
                     {hasImagem && <span title="Possui imagem" className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"><ImageIcon className="size-3" />Imagem</span>}
@@ -438,11 +461,7 @@ function Page() {
 
                   <div className="mt-auto pt-3 flex items-center justify-between text-[11px] text-muted-foreground border-t mt-3">
                     <span>{formatTipo(it.tipo)} · {new Date(it.created_at).toLocaleDateString("pt-BR")}</span>
-                    <button
-                      type="button"
-                      onClick={() => setExpanded(it)}
-                      className="inline-flex items-center gap-1 text-primary hover:underline font-medium"
-                    >
+                    <button type="button" onClick={() => setExpanded(it)} className="inline-flex items-center gap-1 text-primary hover:underline font-medium">
                       Detalhes <ChevronDown className="size-3" />
                     </button>
                   </div>
@@ -451,6 +470,12 @@ function Page() {
             })}
           </div>
         )}
+
+        <div className="mt-5 flex items-center justify-between gap-2">
+          <Button variant="outline" disabled={loading || page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>Página anterior</Button>
+          <span className="text-sm text-muted-foreground">{totalCount === 0 ? "0" : `${page * PAGE_SIZE + 1}-${Math.min((page + 1) * PAGE_SIZE, totalCount)}`} de {totalCount}</span>
+          <Button variant="outline" disabled={loading || page + 1 >= totalPages} onClick={() => setPage((p) => p + 1)}>Próxima página</Button>
+        </div>
 
         <AdvancedFiltersDialog
           open={advancedOpen}
@@ -468,9 +493,9 @@ function Page() {
           onApply={applyAdvancedFilters}
           onClear={clearAdvancedFilters}
         />
-        <QuestionDetailsDialog question={expanded} onClose={() => setExpanded(null)} />
+        <QuestionDetailsDialog question={expanded} onClose={() => setExpanded(null)} onEdit={openQuestionEditor} />
         <ReferenceGroupDialog
-          group={referenceGroup ? referenceGroups.get(referenceGroup.key) ?? [] : []}
+          group={referenceGroup?.items ?? []}
           selectedIds={referenceGroup?.selected ?? new Set()}
           assessmentIds={sel}
           onToggle={toggleReferenceGroupItem}
@@ -478,6 +503,21 @@ function Page() {
           onClear={clearReferenceGroupItems}
           onAdd={addReferenceGroupSelection}
           onClose={() => setReferenceGroup(null)}
+        />
+        <EditQuestionDialog
+          question={editing}
+          draft={editDraft}
+          saving={savingEdit}
+          areas={areas}
+          conteudos={catalogConteudos}
+          subconteudos={subconteudos}
+          relacionados={relacionados}
+          tags={tagsCat}
+          provas={provas}
+          instituicoes={instituicoes}
+          onDraftChange={setEditDraft}
+          onClose={() => { setEditing(null); setEditDraft(null); }}
+          onSave={saveQuestionEdit}
         />
 
         {sel.size > 0 && (
@@ -489,34 +529,6 @@ function Page() {
             <Button size="sm" variant="ghost" className="text-primary-foreground hover:bg-primary/80" onClick={() => commitSelection(new Set())}>Limpar</Button>
           </div>
         )}
-
-        <Dialog open={!!editingContent} onOpenChange={(open) => !open && setEditingContent(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Alterar conteúdo</DialogTitle>
-              <DialogDescription>
-                Esta ação muda apenas o conteúdo vinculado à questão.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="editar-conteudo">Conteúdo vinculado</label>
-              <Input
-                id="editar-conteudo"
-                list="conteudos-salvos"
-                value={editingContentValue}
-                onChange={(e) => setEditingContentValue(e.target.value)}
-                placeholder="Selecione ou crie um conteúdo"
-              />
-              <datalist id="conteudos-salvos">
-                {conteudos.map((name) => <option key={name} value={name} />)}
-              </datalist>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setEditingContent(null)}>Cancelar</Button>
-              <Button onClick={updateQuestionContent}>Salvar conteúdo</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
     </AppLayout>
   );
@@ -574,84 +586,33 @@ function AdvancedFiltersDialog({
 
         <div className="space-y-4 overflow-y-auto p-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="filtro-area">Área geral</label>
-            <FilterSelect
-              id="filtro-area"
-              value={filters.area_geral}
-              onChange={updateArea}
-              options={areas}
-              placeholder="Todas as áreas"
-            />
+            <Label htmlFor="filtro-area">Área geral</Label>
+            <FilterSelect id="filtro-area" value={filters.area_geral} onChange={updateArea} options={areas} placeholder="Todas as áreas" />
           </div>
-
           <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="filtro-conteudo">Conteúdo principal</label>
-            <FilterSelect
-              id="filtro-conteudo"
-              value={filters.conteudo_principal}
-              onChange={updateConteudo}
-              options={conteudoOptions}
-              placeholder={filters.area_geral ? "Todos os conteúdos" : "Selecione uma área primeiro"}
-              disabled={!filters.area_geral}
-            />
+            <Label htmlFor="filtro-conteudo">Conteúdo principal</Label>
+            <FilterSelect id="filtro-conteudo" value={filters.conteudo_principal} onChange={updateConteudo} options={conteudoOptions} placeholder={filters.area_geral ? "Todos os conteúdos" : "Selecione uma área primeiro"} disabled={!filters.area_geral} />
           </div>
-
           <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="filtro-subconteudo">Subconteúdo principal</label>
-            <FilterSelect
-              id="filtro-subconteudo"
-              value={filters.subconteudo_principal}
-              onChange={(value) => update({ subconteudo_principal: value })}
-              options={subconteudoOptions}
-              placeholder={filters.conteudo_principal ? "Todos os subconteúdos" : "Selecione um conteúdo primeiro"}
-              disabled={!filters.conteudo_principal}
-            />
+            <Label htmlFor="filtro-subconteudo">Subconteúdo principal</Label>
+            <FilterSelect id="filtro-subconteudo" value={filters.subconteudo_principal} onChange={(value) => update({ subconteudo_principal: value })} options={subconteudoOptions} placeholder={filters.conteudo_principal ? "Todos os subconteúdos" : "Selecione um conteúdo primeiro"} disabled={!filters.conteudo_principal} />
           </div>
-
           <div className="space-y-2">
-            <label className="text-sm font-medium">Conteúdos relacionados</label>
-            <CatalogMultiSelect
-              values={filters.conteudos_relacionados}
-              onChange={(values) => update({ conteudos_relacionados: values })}
-              options={relacionados}
-              placeholder="Buscar e adicionar conteúdos"
-            />
+            <Label>Conteúdos relacionados</Label>
+            <CatalogMultiSelect values={filters.conteudos_relacionados} onChange={(values) => update({ conteudos_relacionados: values })} options={relacionados} placeholder="Buscar e adicionar conteúdos" />
           </div>
-
           <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="filtro-prova">Prova</label>
-            <FilterSelect
-              id="filtro-prova"
-              value={filters.prova}
-              onChange={(value) => update({ prova: value })}
-              options={provas}
-              placeholder="Todas as provas"
-            />
+            <Label htmlFor="filtro-prova">Prova</Label>
+            <FilterSelect id="filtro-prova" value={filters.prova} onChange={(value) => update({ prova: value })} options={provas} placeholder="Todas as provas" />
           </div>
-
           <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="filtro-instituicao">Instituição</label>
-            <FilterSelect
-              id="filtro-instituicao"
-              value={filters.instituicao}
-              onChange={(value) => update({ instituicao: value })}
-              options={instituicoes}
-              placeholder="Todas as instituições"
-            />
+            <Label htmlFor="filtro-instituicao">Instituição</Label>
+            <FilterSelect id="filtro-instituicao" value={filters.instituicao} onChange={(value) => update({ instituicao: value })} options={instituicoes} placeholder="Todas as instituições" />
           </div>
-
           <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="filtro-ano">Ano</label>
-            <Input
-              id="filtro-ano"
-              list="anos-questoes"
-              value={filters.ano}
-              onChange={(event) => update({ ano: event.target.value })}
-              placeholder="Digite ou selecione o ano"
-            />
-            <datalist id="anos-questoes">
-              {anos.map((ano) => <option key={ano} value={ano} />)}
-            </datalist>
+            <Label htmlFor="filtro-ano">Ano</Label>
+            <Input id="filtro-ano" list="anos-questoes" value={filters.ano} onChange={(event) => update({ ano: event.target.value })} placeholder="Digite ou selecione o ano" />
+            <datalist id="anos-questoes">{anos.map((ano) => <option key={ano} value={ano} />)}</datalist>
           </div>
         </div>
 
@@ -667,14 +628,7 @@ function AdvancedFiltersDialog({
   );
 }
 
-function FilterSelect({
-  id,
-  value,
-  onChange,
-  options,
-  placeholder,
-  disabled,
-}: {
+function FilterSelect({ id, value, onChange, options, placeholder, disabled }: {
   id: string;
   value: string;
   onChange: (value: string) => void;
@@ -684,19 +638,352 @@ function FilterSelect({
 }) {
   const visibleOptions = options.filter((item) => item.ativo || item.nome === value);
   return (
-    <select
-      id={id}
-      value={value}
-      disabled={disabled}
-      onChange={(event) => onChange(event.target.value)}
-      className="h-10 w-full rounded-md border bg-card px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
-    >
+    <select id={id} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="h-10 w-full rounded-md border bg-card px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60">
       <option value="">{placeholder}</option>
-      {visibleOptions.map((item) => (
-        <option key={item.id} value={item.nome}>{item.nome}{item.ativo ? "" : " (inativo)"}</option>
-      ))}
+      {visibleOptions.map((item) => <option key={item.id} value={item.nome}>{item.nome}{item.ativo ? "" : " (inativo)"}</option>)}
     </select>
   );
+}
+
+function EditQuestionDialog({
+  question,
+  draft,
+  saving,
+  areas,
+  conteudos,
+  subconteudos,
+  relacionados,
+  tags,
+  provas,
+  instituicoes,
+  onDraftChange,
+  onClose,
+  onSave,
+}: {
+  question: Q | null;
+  draft: EditDraft | null;
+  saving: boolean;
+  areas: CatalogItem[];
+  conteudos: CatalogItem[];
+  subconteudos: CatalogItem[];
+  relacionados: CatalogItem[];
+  tags: CatalogItem[];
+  provas: CatalogItem[];
+  instituicoes: CatalogItem[];
+  onDraftChange: (draft: EditDraft | null) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  if (!question || !draft) return null;
+  const area = areas.find((item) => item.nome === draft.area_geral);
+  const conteudoOptions = area ? conteudos.filter((item) => item.area_id === area.id) : [];
+  const conteudo = conteudoOptions.find((item) => item.nome === draft.conteudo_principal);
+  const subOptions = conteudo ? subconteudos.filter((item) => item.conteudo_id === conteudo.id) : [];
+  const patch = (partial: Partial<EditDraft>) => onDraftChange({ ...draft, ...partial });
+  const updateAlt = (index: number, partial: Partial<EditDraft["alternativas"][number]>) => {
+    const next = [...draft.alternativas];
+    next[index] = { ...next[index], ...partial };
+    patch({ alternativas: next });
+  };
+  const addAlt = () => patch({ alternativas: reletterAlternatives([...draft.alternativas, { letra: LETTERS[draft.alternativas.length] ?? "X", texto: "" }]) });
+  const removeAlt = (index: number) => patch({ alternativas: reletterAlternatives(draft.alternativas.filter((_, i) => i !== index)) });
+
+  return (
+    <Dialog open={!!question} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Editar questão</DialogTitle>
+          <DialogDescription>
+            Edite enunciado, alternativas, gabarito e metadados. A referência/texto-base não é alterada aqui.
+          </DialogDescription>
+        </DialogHeader>
+
+        {(question.referencia_texto || question.referencia_imagem) && (
+          <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+            Esta questão possui referência vinculada. Para evitar quebrar grupos de itens, a referência fica bloqueada nesta edição.
+          </div>
+        )}
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Tipo</Label>
+            <select value={draft.tipo} onChange={(event) => patch({ tipo: event.target.value })} className="h-10 w-full rounded-md border bg-card px-3 text-sm">
+              <option value="multipla_escolha">Múltipla escolha</option>
+              <option value="certo_errado">Certo ou errado</option>
+              <option value="numerica">Numérica</option>
+              <option value="discursiva">Discursiva</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label>Número do item</Label>
+            <Input value={draft.numero} onChange={(event) => patch({ numero: event.target.value })} placeholder="Ex.: 68" />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Enunciado</Label>
+          <Textarea value={draft.enunciado} onChange={(event) => patch({ enunciado: event.target.value })} rows={8} className="font-mono text-sm" />
+          <div className="rounded-md border bg-muted/20 p-3 text-sm"><RichText text={draft.enunciado} /></div>
+        </div>
+
+        {draft.tipo === "multipla_escolha" && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <Label>Alternativas</Label>
+              <Button type="button" size="sm" variant="outline" onClick={addAlt} className="gap-1"><Plus className="size-3" /> Adicionar</Button>
+            </div>
+            <div className="space-y-2">
+              {draft.alternativas.map((alt, index) => (
+                <div key={index} className="grid gap-2 rounded-lg border p-2 sm:grid-cols-[60px_1fr_auto]">
+                  <Input value={alt.letra} onChange={(event) => updateAlt(index, { letra: event.target.value })} className="text-center font-bold" />
+                  <Textarea value={alt.texto} onChange={(event) => updateAlt(index, { texto: event.target.value })} rows={2} />
+                  <Button type="button" size="icon" variant="ghost" className="text-destructive" onClick={() => removeAlt(index)}><X className="size-4" /></Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-2">
+            <Label>Gabarito</Label>
+            <Input value={draft.resposta} onChange={(event) => patch({ resposta: event.target.value })} />
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label>Fonte específica do item</Label>
+            <Input value={draft.fonte} onChange={(event) => patch({ fonte: event.target.value })} placeholder="Ex.: banca/ano, se houver" />
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-2">
+            <Label>Área geral</Label>
+            <FilterSelect id="edit-area" value={draft.area_geral} onChange={(value) => patch({ area_geral: value, conteudo_principal: "", subconteudo_principal: "" })} options={areas} placeholder="Selecione" />
+          </div>
+          <div className="space-y-2">
+            <Label>Conteúdo principal</Label>
+            <FilterSelect id="edit-conteudo" value={draft.conteudo_principal} onChange={(value) => patch({ conteudo_principal: value, subconteudo_principal: "" })} options={conteudoOptions} placeholder={draft.area_geral ? "Selecione" : "Escolha área"} disabled={!draft.area_geral} />
+          </div>
+          <div className="space-y-2">
+            <Label>Subconteúdo principal</Label>
+            <FilterSelect id="edit-sub" value={draft.subconteudo_principal} onChange={(value) => patch({ subconteudo_principal: value })} options={subOptions} placeholder={draft.conteudo_principal ? "Selecione" : "Escolha conteúdo"} disabled={!draft.conteudo_principal} />
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Conteúdos relacionados</Label>
+            <CatalogMultiSelect values={draft.conteudos_relacionados} onChange={(values) => patch({ conteudos_relacionados: values })} options={relacionados} placeholder="Buscar conteúdos relacionados" />
+          </div>
+          <div className="space-y-2">
+            <Label>Tags</Label>
+            <CatalogMultiSelect values={draft.tags_livres} onChange={(values) => patch({ tags_livres: values })} options={tags} placeholder="Buscar tags" />
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-2">
+            <Label>Prova</Label>
+            <FilterSelect id="edit-prova" value={draft.prova} onChange={(value) => patch({ prova: value })} options={provas} placeholder="Selecione" />
+          </div>
+          <div className="space-y-2">
+            <Label>Instituição</Label>
+            <FilterSelect id="edit-instituicao" value={draft.instituicao} onChange={(value) => patch({ instituicao: value })} options={instituicoes} placeholder="Selecione" />
+          </div>
+          <div className="space-y-2">
+            <Label>Ano</Label>
+            <Input value={draft.ano} onChange={(event) => patch({ ano: event.target.value })} placeholder="Ex.: 2024" />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Observações</Label>
+          <Textarea value={draft.observacoes} onChange={(event) => patch({ observacoes: event.target.value })} rows={3} />
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button type="button" onClick={onSave} disabled={saving} className="gap-2">
+            {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Salvar edição
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function QuestionDetailsDialog({ question, onClose, onEdit }: { question: Q | null; onClose: () => void; onEdit: (question: Q) => void }) {
+  if (!question) return null;
+  const hasReference = Boolean(question.referencia_texto || question.referencia_texto_apos || question.referencia_imagem);
+  return (
+    <Dialog open={!!question} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{formatQuestionSource(question) || "Questão"}</DialogTitle>
+          <DialogDescription>{formatTipo(question.tipo)}{question.numero ? ` · Item ${question.numero}` : ""}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          {hasReference && (
+            <section className="rounded-lg border bg-muted/20 p-3">
+              <h3 className="mb-2 text-sm font-semibold">Referência</h3>
+              {question.referencia_texto && <RichText text={question.referencia_texto} className="text-sm" />}
+              {question.referencia_imagem && <img src={question.referencia_imagem} alt="Referência" className="my-2 max-h-96 max-w-full rounded border object-contain" />}
+              {question.referencia_texto_apos && <RichText text={question.referencia_texto_apos} className="text-sm" />}
+              {question.referencia_fonte && <p className="mt-2 text-right text-xs text-muted-foreground">{question.referencia_fonte}</p>}
+            </section>
+          )}
+          <section>
+            <h3 className="mb-2 text-sm font-semibold">Enunciado</h3>
+            <RichText text={question.enunciado} className="text-sm" />
+            {question.enunciado_imagem && <img src={question.enunciado_imagem} alt="Enunciado" className="my-2 max-h-96 max-w-full rounded border object-contain" />}
+          </section>
+          {question.alternativas?.length > 0 && (
+            <section>
+              <h3 className="mb-2 text-sm font-semibold">Alternativas</h3>
+              <div className="space-y-2">
+                {question.alternativas.map((alt) => (
+                  <div key={alt.letra} className="rounded-md border p-2 text-sm">
+                    <strong>{alt.letra}) </strong><RichText text={alt.texto} className="inline" />
+                    {alt.imagem && <img src={alt.imagem} alt={`Alternativa ${alt.letra}`} className="mt-2 max-h-60 max-w-full rounded border object-contain" />}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+          <section className="grid gap-2 rounded-lg border bg-muted/20 p-3 text-xs sm:grid-cols-2">
+            <p><strong>Área:</strong> {question.area_geral || "—"}</p>
+            <p><strong>Conteúdo:</strong> {question.conteudo_principal || "—"}</p>
+            <p><strong>Subconteúdo:</strong> {question.subconteudo_principal || "—"}</p>
+            <p><strong>Gabarito:</strong> {question.resposta || "—"}</p>
+            <p><strong>Prova:</strong> {question.prova || "—"}</p>
+            <p><strong>Instituição:</strong> {question.instituicao || "—"}</p>
+            <p><strong>Ano:</strong> {question.ano || "—"}</p>
+            <p><strong>Tags:</strong> {(question.tags_livres ?? question.tags ?? []).join(", ") || "—"}</p>
+          </section>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Fechar</Button>
+          <Button onClick={() => { onClose(); onEdit(question); }} className="gap-2"><Pencil className="size-4" /> Editar questão</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReferenceGroupDialog({ group, selectedIds, assessmentIds, onToggle, onSelectAll, onClear, onAdd, onClose }: {
+  group: Q[];
+  selectedIds: Set<string>;
+  assessmentIds: Set<string>;
+  onToggle: (id: string, checked: boolean) => void;
+  onSelectAll: () => void;
+  onClear: () => void;
+  onAdd: () => void;
+  onClose: () => void;
+}) {
+  const first = group[0];
+  return (
+    <Dialog open={group.length > 0} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Itens da mesma referência</DialogTitle>
+          <DialogDescription>Selecione itens individuais ou adicione todo o grupo à avaliação.</DialogDescription>
+        </DialogHeader>
+        {first && (
+          <div className="rounded-lg border bg-muted/20 p-3">
+            {first.referencia_texto && <RichText text={first.referencia_texto} className="text-sm" />}
+            {first.referencia_imagem && <img src={first.referencia_imagem} alt="Referência" className="my-2 max-h-96 max-w-full rounded border object-contain" />}
+            {first.referencia_texto_apos && <RichText text={first.referencia_texto_apos} className="text-sm" />}
+            {first.referencia_fonte && <p className="mt-2 text-right text-xs text-muted-foreground">{first.referencia_fonte}</p>}
+          </div>
+        )}
+        <div className="space-y-3">
+          {group.map((item) => (
+            <div key={item.id} className="rounded-lg border p-3" title={metadataTooltip(item)}>
+              <div className="mb-2 flex items-start gap-2">
+                <Checkbox checked={selectedIds.has(item.id)} onCheckedChange={(value) => onToggle(item.id, Boolean(value))} className="mt-1" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong>{item.numero ? `Item ${item.numero}` : "Item"}</strong>
+                    {assessmentIds.has(item.id) && <Badge variant="secondary">já selecionado</Badge>}
+                    <CompactPedagogicalInfo question={item} />
+                  </div>
+                  <RichText text={item.enunciado} className="mt-2 text-sm" />
+                  {item.enunciado_imagem && <img src={item.enunciado_imagem} alt="Imagem do item" className="mt-2 max-h-80 max-w-full rounded border object-contain" />}
+                  {item.alternativas?.length > 0 && (
+                    <div className="mt-2 space-y-1 text-sm">
+                      {item.alternativas.map((alt) => <div key={alt.letra}><strong>{alt.letra}) </strong><RichText text={alt.texto} className="inline" /></div>)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <DialogFooter className="gap-2 sm:justify-between sm:space-x-0">
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={onSelectAll}>Selecionar todos</Button>
+            <Button type="button" variant="ghost" onClick={onClear}>Limpar</Button>
+          </div>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={onClose}>Fechar</Button>
+            <Button type="button" onClick={onAdd}>Adicionar selecionados</Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CompactPedagogicalInfo({ question }: { question: Q }) {
+  const entries = getPedagogicalEntries(question);
+  const shown = entries.slice(0, 2);
+  const hidden = entries.length - shown.length;
+  const title = metadataTooltip(question);
+  if (entries.length === 0 && !question.resposta) return <Badge variant="destructive" className="text-[10px] px-1.5 py-0 font-normal">Sem conteúdo vinculado</Badge>;
+  return (
+    <div className="flex flex-wrap gap-1" title={title}>
+      {shown.map((entry) => <Badge key={`${entry.label}-${entry.value}`} variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">{entry.value}</Badge>)}
+      {hidden > 0 && <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">+{hidden}</Badge>}
+    </div>
+  );
+}
+
+function useDebouncedValue<T>(value: T, delay: number) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebounced(value), delay);
+    return () => window.clearTimeout(id);
+  }, [value, delay]);
+  return debounced;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applySupabaseFilters(query: any, term: string, filters: AdvancedFilters) {
+  const search = sanitizeSearchTerm(term);
+  if (search) {
+    const pattern = `%${search}%`;
+    query = query.or([
+      `enunciado.ilike.${pattern}`,
+      `referencia_texto.ilike.${pattern}`,
+      `referencia_texto_apos.ilike.${pattern}`,
+      `observacoes.ilike.${pattern}`,
+      `fonte.ilike.${pattern}`,
+      `prova.ilike.${pattern}`,
+      `instituicao.ilike.${pattern}`,
+    ].join(","));
+  }
+  if (filters.area_geral) query = query.eq("area_geral", filters.area_geral);
+  if (filters.conteudo_principal) query = query.eq("conteudo_principal", filters.conteudo_principal);
+  if (filters.subconteudo_principal) query = query.eq("subconteudo_principal", filters.subconteudo_principal);
+  if (filters.conteudos_relacionados.length > 0) query = query.contains("conteudos_relacionados", filters.conteudos_relacionados);
+  if (filters.prova) query = query.eq("prova", filters.prova);
+  if (filters.instituicao) query = query.eq("instituicao", filters.instituicao);
+  if (filters.ano) query = query.eq("ano", filters.ano.trim());
+  return query;
+}
+
+function sanitizeSearchTerm(value: string) {
+  return value.trim().replace(/[%,()]/g, " ").replace(/\s+/g, " ");
 }
 
 function cloneAdvancedFilters(filters: AdvancedFilters): AdvancedFilters {
@@ -704,15 +991,7 @@ function cloneAdvancedFilters(filters: AdvancedFilters): AdvancedFilters {
 }
 
 function countActiveFilters(filters: AdvancedFilters) {
-  return [
-    filters.area_geral,
-    filters.conteudo_principal,
-    filters.subconteudo_principal,
-    filters.conteudos_relacionados.length > 0 ? "relacionados" : "",
-    filters.prova,
-    filters.instituicao,
-    filters.ano,
-  ].filter(Boolean).length;
+  return [filters.area_geral, filters.conteudo_principal, filters.subconteudo_principal, filters.conteudos_relacionados.length > 0 ? "relacionados" : "", filters.prova, filters.instituicao, filters.ano].filter(Boolean).length;
 }
 
 function getConteudos(question: Q) {
@@ -724,67 +1003,17 @@ function getConteudos(question: Q) {
   return Array.from(new Set(all)).sort((a, b) => a.localeCompare(b, "pt-BR"));
 }
 
-function splitConteudos(value: string | null) {
-  return (value ?? "")
-    .split(/[,;\n]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function matchesSearch(question: Q, term: string) {
-  const needle = normalizeFilterText(term);
-  if (!needle) return true;
-  return [
-    question.enunciado,
-    question.referencia_texto ?? "",
-    question.referencia_texto_apos ?? "",
-    question.observacoes ?? "",
-    ...((question.alternativas ?? []).map((alt) => alt.texto ?? "")),
-  ].some((value) => normalizeFilterText(value).includes(needle));
-}
-
-function matchesAdvancedFilters(question: Q, filters: AdvancedFilters) {
-  if (filters.area_geral && !sameFilterValue(question.area_geral, filters.area_geral)) return false;
-  if (filters.conteudo_principal && !matchesAnyFilterValue([question.conteudo_principal, question.conteudo], filters.conteudo_principal)) return false;
-  if (filters.subconteudo_principal && !sameFilterValue(question.subconteudo_principal, filters.subconteudo_principal)) return false;
-  if (filters.conteudos_relacionados.length > 0) {
-    const related = [...(question.conteudos_relacionados ?? []), ...splitConteudos(question.conteudo)];
-    const hasRelated = filters.conteudos_relacionados.some((filter) => matchesAnyFilterValue(related, filter));
-    if (!hasRelated) return false;
-  }
-  if (filters.prova && !sameFilterValue(question.prova, filters.prova)) return false;
-  if (filters.instituicao && !sameFilterValue(question.instituicao, filters.instituicao)) return false;
-  if (filters.ano && !sameFilterValue(question.ano, filters.ano)) return false;
-  return true;
-}
-
-function matchesAnyFilterValue(values: Array<string | null | undefined>, expected: string) {
-  return values.some((value) => sameFilterValue(value, expected));
-}
-
-function sameFilterValue(value: string | null | undefined, expected: string) {
-  return normalizeFilterText(value ?? "") === normalizeFilterText(expected);
-}
-
-function normalizeFilterText(value: string) {
-  return value.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+function splitConteudos(value: string | null | undefined) {
+  return (value ?? "").split(/[,;\n]+/).map((item) => item.trim()).filter(Boolean);
 }
 
 function formatTipo(tipo: string) {
-  const labels: Record<string, string> = {
-    multipla_escolha: "Múltipla escolha",
-    certo_errado: "Certo ou errado",
-    numerica: "Numérica",
-    discursiva: "Discursiva",
-  };
+  const labels: Record<string, string> = { multipla_escolha: "Múltipla escolha", certo_errado: "Certo ou errado", numerica: "Numérica", discursiva: "Discursiva" };
   return labels[tipo] ?? tipo;
 }
 
 function formatQuestionSource(question: Pick<Q, "prova" | "instituicao" | "ano">) {
-  return [question.prova, question.instituicao, question.ano]
-    .map((item) => item?.trim())
-    .filter(Boolean)
-    .join(" - ");
+  return [question.prova, question.instituicao, question.ano].map((item) => item?.trim()).filter(Boolean).join(" - ");
 }
 
 function getCardChips(question: Q) {
@@ -798,15 +1027,9 @@ function getPedagogicalEntries(question: Q): PedagogicalEntry[] {
   if (question.area_geral?.trim()) entries.push({ label: "Área", value: question.area_geral.trim() });
   if (question.conteudo_principal?.trim()) entries.push({ label: "Conteúdo", value: question.conteudo_principal.trim() });
   if (question.subconteudo_principal?.trim()) entries.push({ label: "Subconteúdo", value: question.subconteudo_principal.trim() });
-  for (const value of question.conteudos_relacionados ?? []) {
-    if (value?.trim()) entries.push({ label: "Relacionado", value: value.trim() });
-  }
-  for (const value of question.tags_livres ?? question.tags ?? []) {
-    if (value?.trim()) entries.push({ label: "Tag", value: value.trim() });
-  }
-  if (entries.length === 0) {
-    for (const value of splitConteudos(question.conteudo)) entries.push({ label: "Conteúdo", value });
-  }
+  for (const value of question.conteudos_relacionados ?? []) if (value?.trim()) entries.push({ label: "Relacionado", value: value.trim() });
+  for (const value of question.tags_livres ?? question.tags ?? []) if (value?.trim()) entries.push({ label: "Tag", value: value.trim() });
+  if (entries.length === 0) for (const value of splitConteudos(question.conteudo)) entries.push({ label: "Conteúdo", value });
   return entries;
 }
 
@@ -819,277 +1042,116 @@ function metadataTooltip(question: Q) {
   return parts.join("\n");
 }
 
-function CompactPedagogicalInfo({ question }: { question: Q }) {
-  const entries = getPedagogicalEntries(question);
-  const shown = entries.slice(0, 2);
-  const hidden = entries.length - shown.length;
-  const title = metadataTooltip(question);
-
-  if (entries.length === 0 && !question.resposta) {
-    return <Badge variant="destructive" className="text-[10px] px-1.5 py-0 font-normal">Sem conteúdo vinculado</Badge>;
-  }
-
-  return (
-    <div className="flex flex-wrap gap-1" title={title || undefined}>
-      {shown.map((entry) => (
-        <Badge key={`${entry.label}-${entry.value}`} variant="secondary" className="max-w-44 truncate text-[10px] px-1.5 py-0 font-normal">
-          {entry.value}
-        </Badge>
-      ))}
-      {hidden > 0 && <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">+{hidden}</Badge>}
-      {question.resposta && <Badge className="text-[10px] px-1.5 py-0 font-normal">Gabarito: {question.resposta}</Badge>}
-    </div>
-  );
-}
-
-function hasReference(question: ReferenceLike) {
-  return Boolean(
-    question.referencia_texto?.trim() ||
-    question.referencia_texto_apos?.trim() ||
-    question.referencia_imagem,
-  );
-}
-
 function getReferenceKey(question: ReferenceLike) {
-  if (!hasReference(question)) return null;
-  const groupId = question.grupo_id?.trim();
-  if (groupId) return `grupo:${groupId}`;
-  return `ref:${referenceFingerprint(question)}`;
-}
-
-function referenceFingerprint(question: ReferenceLike) {
-  const image = question.referencia_imagem
-    ? `${question.referencia_imagem.length}:${question.referencia_imagem.slice(0, 64)}:${question.referencia_imagem.slice(-64)}`
-    : "";
-  return [
-    question.referencia_texto?.trim() ?? "",
-    question.referencia_texto_apos?.trim() ?? "",
-    question.referencia_fonte?.trim() ?? "",
-    image,
-  ].join("|");
+  const hasReference = Boolean(question.referencia_texto?.trim() || question.referencia_texto_apos?.trim() || question.referencia_imagem);
+  if (!hasReference) return null;
+  if (question.grupo_id?.trim()) return `grupo:${question.grupo_id.trim()}`;
+  const imageKey = question.referencia_imagem ? `${question.referencia_imagem.length}:${question.referencia_imagem.slice(0, 32)}:${question.referencia_imagem.slice(-32)}` : "";
+  return [question.referencia_texto?.trim() ?? "", question.referencia_texto_apos?.trim() ?? "", question.referencia_fonte?.trim() ?? "", imageKey].join("|");
 }
 
 function compareReferenceItems(a: Q, b: Q) {
-  const aNumber = readItemNumber(a.numero);
-  const bNumber = readItemNumber(b.numero);
-  if (aNumber !== null && bNumber !== null && aNumber !== bNumber) return aNumber - bNumber;
-  if (aNumber !== null && bNumber === null) return -1;
-  if (aNumber === null && bNumber !== null) return 1;
+  const na = Number.parseInt(a.numero ?? "", 10);
+  const nb = Number.parseInt(b.numero ?? "", 10);
+  if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
   return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
 }
 
-function readItemNumber(value: string | null) {
-  const raw = value?.match(/\d+/)?.[0];
-  if (!raw) return null;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : null;
+function uniqueYears(rows: Array<{ ano?: string | null }>) {
+  const set = new Set<string>();
+  rows.forEach((row) => { if (row.ano?.trim()) set.add(row.ano.trim()); });
+  return [...set].sort((a, b) => b.localeCompare(a, "pt-BR", { numeric: true }));
 }
 
-function QuestionDetailsDialog({ question, onClose }: { question: Q | null; onClose: () => void }) {
-  const it = question;
-  if (!it) return null;
-  const source = formatQuestionSource(it);
-  return (
-    <Dialog open={!!question} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-xs text-muted-foreground">#{it.id.slice(0, 6)}</span>
-            {it.numero && <Badge variant="outline">Q{it.numero}</Badge>}
-            {source && <span>{source}</span>}
-          </DialogTitle>
-          <DialogDescription>
-            {formatTipo(it.tipo)} · {new Date(it.created_at).toLocaleDateString("pt-BR")}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <CompactPedagogicalInfo question={it} />
-
-          <ReferenceBlock question={it} />
-          <QuestionStatement question={it} />
-          <AlternativesList question={it} />
-
-          {it.resposta && (
-            <div className="text-sm"><span className="font-medium">Gabarito: </span><Badge>{it.resposta}</Badge></div>
-          )}
-          {it.observacoes && (
-            <div className="rounded-md border bg-muted/40 p-3 text-sm">
-              <p className="font-medium mb-1">Observações / Resolução</p>
-              <MathText text={it.observacoes} className="whitespace-pre-wrap" />
-            </div>
-          )}
-
-          <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 border-t pt-3">
-            {it.area_geral && <span>Área: {it.area_geral}</span>}
-            {it.conteudo_principal && <span>Conteúdo principal: {it.conteudo_principal}</span>}
-            {it.subconteudo_principal && <span>Subconteúdo: {it.subconteudo_principal}</span>}
-            {(it.conteudos_relacionados ?? []).length > 0 && <span>Relacionados: {(it.conteudos_relacionados ?? []).join(", ")}</span>}
-            {(it.tags_livres ?? []).length > 0 && <span>Tags: {(it.tags_livres ?? []).join(", ")}</span>}
-            {it.fonte && <span>Fonte: {it.fonte}</span>}
-            {it.prova && <span>Prova: {it.prova}</span>}
-            {it.instituicao && <span>Instituição: {it.instituicao}</span>}
-            {it.ano && <span>Ano: {it.ano}</span>}
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Recolher</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+function toEditDraft(question: Q): EditDraft {
+  return {
+    numero: question.numero ?? "",
+    enunciado: question.enunciado ?? "",
+    alternativas: Array.isArray(question.alternativas) ? question.alternativas.map((alt) => ({ letra: alt.letra ?? "", texto: alt.texto ?? "", imagem: alt.imagem ?? null })) : [],
+    tipo: question.tipo ?? "discursiva",
+    resposta: question.resposta ?? "",
+    fonte: question.fonte ?? "",
+    area_geral: question.area_geral ?? "",
+    conteudo_principal: question.conteudo_principal ?? "",
+    subconteudo_principal: question.subconteudo_principal ?? "",
+    conteudos_relacionados: question.conteudos_relacionados ?? [],
+    tags_livres: question.tags_livres ?? question.tags ?? [],
+    ano: question.ano ?? "",
+    prova: question.prova ?? "",
+    instituicao: question.instituicao ?? "",
+    observacoes: question.observacoes ?? "",
+  };
 }
 
-function ReferenceGroupDialog({
-  group,
-  selectedIds,
-  assessmentIds,
-  onToggle,
-  onSelectAll,
-  onClear,
-  onAdd,
-  onClose,
-}: {
-  group: Q[];
-  selectedIds: Set<string>;
-  assessmentIds: Set<string>;
-  onToggle: (id: string, checked: boolean) => void;
-  onSelectAll: () => void;
-  onClear: () => void;
-  onAdd: () => void;
-  onClose: () => void;
-}) {
-  const reference = group[0];
-  const open = group.length > 0;
-  const selectedCount = group.filter((item) => selectedIds.has(item.id)).length;
-
-  return (
-    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Layers className="size-5" /> Itens da mesma referência
-          </DialogTitle>
-          <DialogDescription>
-            Veja a referência comum uma única vez e escolha quais itens entram na avaliação.
-          </DialogDescription>
-        </DialogHeader>
-
-        {reference && (
-          <div className="space-y-4">
-            <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="inline-flex items-center gap-2 text-sm font-medium">
-                  <TableIcon className="size-4" /> Referência comum
-                </div>
-                <Badge variant="outline">{group.length} itens vinculados</Badge>
-              </div>
-              <ReferenceBlock question={reference} compact />
-            </div>
-
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="text-sm font-medium">Itens da referência</div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-muted-foreground">{selectedCount} de {group.length} selecionado{selectedCount === 1 ? "" : "s"}</span>
-                <Button type="button" size="sm" variant="outline" onClick={onSelectAll}>Selecionar todos</Button>
-                <Button type="button" size="sm" variant="ghost" onClick={onClear}>Limpar</Button>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              {group.map((item, index) => {
-                const source = formatQuestionSource(item);
-                return (
-                  <div key={item.id} className={`rounded-lg border p-3 ${selectedIds.has(item.id) ? "border-primary bg-primary/5" : "bg-background"}`}>
-                    <div className="flex items-start gap-3">
-                      <Checkbox
-                        checked={selectedIds.has(item.id)}
-                        onCheckedChange={(checked) => onToggle(item.id, checked === true)}
-                        className="mt-1"
-                      />
-                      <div className="min-w-0 flex-1 space-y-3">
-                        <div className="flex items-start justify-between gap-2 flex-wrap">
-                          <div className="min-w-0 space-y-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-semibold text-sm">{item.numero ? `Item ${item.numero}` : `Item ${index + 1}`}</span>
-                              {assessmentIds.has(item.id) && <Badge variant="secondary">Já na avaliação</Badge>}
-                              {item.tem_equacao && <Sigma className="size-3.5 text-muted-foreground" />}
-                              {(item.tem_imagem || item.enunciado_imagem) && <ImageIcon className="size-3.5 text-muted-foreground" />}
-                            </div>
-                            {source && <p className="text-xs font-medium text-muted-foreground">{source}</p>}
-                          </div>
-                          <CompactPedagogicalInfo question={item} />
-                        </div>
-
-                        <QuestionStatement question={item} />
-                        <AlternativesList question={item} />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button onClick={onAdd} disabled={selectedCount === 0}>Adicionar itens selecionados à avaliação</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+function editDraftToPayload(draft: EditDraft, original: Q) {
+  const alternativas = draft.tipo === "multipla_escolha" ? reletterAlternatives(draft.alternativas) : [];
+  const textForMath = [draft.enunciado, ...alternativas.map((alt) => alt.texto)].join("\n");
+  const hasImage = Boolean(original.referencia_imagem || original.enunciado_imagem || alternativas.some((alt) => alt.imagem));
+  return {
+    numero: draft.numero.trim() || null,
+    enunciado: draft.enunciado,
+    alternativas,
+    tipo: draft.tipo,
+    resposta: draft.resposta.trim() || null,
+    fonte: draft.fonte.trim() || null,
+    disciplina: draft.area_geral || null,
+    conteudo: draft.conteudo_principal || null,
+    area_geral: draft.area_geral || null,
+    conteudo_principal: draft.conteudo_principal || null,
+    subconteudo_principal: draft.subconteudo_principal || null,
+    conteudos_relacionados: draft.conteudos_relacionados,
+    tags_livres: draft.tags_livres,
+    tags: draft.tags_livres,
+    ano: draft.ano.trim() || null,
+    prova: draft.prova || null,
+    instituicao: draft.instituicao || null,
+    observacoes: draft.observacoes.trim() || null,
+    tem_equacao: containsMath(textForMath),
+    tem_imagem: hasImage,
+  };
 }
 
-function ReferenceBlock({ question, compact = false }: { question: Q; compact?: boolean }) {
-  if (!hasReference(question)) return null;
-  const image = question.referencia_imagem;
-  const pos = question.referencia_imagem_pos ?? "depois";
-  const imageClass = compact ? "max-h-72 max-w-full rounded-md border bg-background object-contain" : "max-w-full rounded-md border bg-background";
-  return (
-    <div className={compact ? "space-y-3" : "rounded-md border bg-muted/40 p-3 space-y-3"}>
-      {(pos === "antes" || pos === "livre") && image && <img src={image} alt="Referência" className={imageClass} />}
-      {question.referencia_texto && <MathText text={question.referencia_texto} className="text-sm whitespace-pre-wrap leading-relaxed" />}
-      {pos === "entre" && image && <img src={image} alt="Referência" className={imageClass} />}
-      {question.referencia_texto_apos && <MathText text={question.referencia_texto_apos} className="text-sm whitespace-pre-wrap leading-relaxed" />}
-      {image && !["antes", "entre", "livre"].includes(pos) && <img src={image} alt="Referência" className={imageClass} />}
-      {question.referencia_fonte && <p className="text-xs text-right text-muted-foreground">{question.referencia_fonte}</p>}
-    </div>
-  );
+function reletterAlternatives(alts: EditDraft["alternativas"]) {
+  return alts.map((alt, index) => ({ ...alt, letra: alt.letra?.trim() || LETTERS[index] || String(index + 1), texto: alt.texto ?? "" }));
 }
 
-function QuestionStatement({ question }: { question: Q }) {
-  return (
-    <div className="space-y-2">
-      {question.enunciado_imagem && question.enunciado_imagem_pos === "antes" && (
-        <img src={question.enunciado_imagem} alt="Enunciado" className="max-w-full rounded-md border" />
-      )}
-      <MathText text={question.enunciado} className="text-sm whitespace-pre-wrap leading-relaxed" />
-      {question.enunciado_imagem && question.enunciado_imagem_pos !== "antes" && (
-        <img src={question.enunciado_imagem} alt="Enunciado" className="max-w-full rounded-md border" />
-      )}
-    </div>
-  );
+function containsMath(value: string) {
+  return /\$[^$]+\$|\\frac|\\sqrt|\^\{|_\{|[=≈≤≥]/.test(value);
 }
 
-function AlternativesList({ question }: { question: Q }) {
-  if (!Array.isArray(question.alternativas) || question.alternativas.length === 0) return null;
-  return (
-    <div className="space-y-2">
-      {question.alternativas.map((a) => (
-        <div key={a.letra} className={`flex gap-2 rounded-md border p-2 text-sm ${question.resposta === a.letra ? "border-primary bg-primary/5" : ""}`}>
-          <span className="font-semibold">{a.letra})</span>
-          <div className="min-w-0 flex-1 space-y-2">
-            <MathText text={a.texto} className="whitespace-pre-wrap leading-relaxed" />
-            {a.imagem && <img src={a.imagem} alt={`Alternativa ${a.letra}`} className="max-w-full rounded border" />}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function MathText({ text, className = "" }: { text: string | null | undefined; className?: string }) {
-  return <RichText text={text ?? ""} className={className} />;
+function buildDuplicatePayload(q: Q) {
+  return {
+    numero: q.numero,
+    enunciado: q.enunciado,
+    alternativas: q.alternativas,
+    tipo: q.tipo,
+    resposta: q.resposta,
+    fonte: q.fonte,
+    disciplina: q.disciplina,
+    conteudo: q.conteudo,
+    dificuldade: null,
+    area_geral: q.area_geral ?? null,
+    conteudo_principal: q.conteudo_principal ?? null,
+    subconteudo_principal: q.subconteudo_principal ?? null,
+    conteudos_relacionados: q.conteudos_relacionados ?? [],
+    tags_livres: q.tags_livres ?? [],
+    tags: q.tags ?? q.tags_livres ?? null,
+    ano: q.ano ?? null,
+    prova: q.prova ?? null,
+    instituicao: q.instituicao ?? null,
+    observacoes: q.observacoes ?? null,
+    referencia_texto: q.referencia_texto ?? null,
+    referencia_fonte: q.referencia_fonte ?? null,
+    grupo_id: q.grupo_id ?? null,
+    referencia_imagem: q.referencia_imagem ?? null,
+    referencia_imagem_pos: q.referencia_imagem_pos ?? null,
+    referencia_imagem_layout: q.referencia_imagem_layout ?? null,
+    referencia_texto_apos: q.referencia_texto_apos ?? null,
+    enunciado_imagem: q.enunciado_imagem ?? null,
+    enunciado_imagem_pos: q.enunciado_imagem_pos ?? null,
+    enunciado_imagem_layout: q.enunciado_imagem_layout ?? null,
+    imagem_original_url: q.imagem_original_url ?? null,
+    tem_equacao: q.tem_equacao,
+    tem_imagem: q.tem_imagem,
+  };
 }
