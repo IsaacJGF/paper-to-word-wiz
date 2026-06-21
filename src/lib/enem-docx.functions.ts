@@ -14,9 +14,6 @@ import {
   MathSubScript,
   MathSuperScript,
   Packer,
-  PageBorderDisplay,
-  PageBorderOffsetFrom,
-  PageBorderZOrder,
   PageBreak,
   PageNumber,
   Paragraph,
@@ -26,7 +23,6 @@ import {
   TableRow,
   TextRun,
   UnderlineType,
-  VerticalAlign,
   WidthType,
 } from "docx";
 import { parseRichInlines, parseRichText, type RichAlign, type RichBlock, type RichInline } from "@/lib/rich-text";
@@ -71,19 +67,17 @@ type MathComponent = ConstructorParameters<typeof DocxMath>[0]["children"][numbe
 type DocxChild = Paragraph | Table;
 type ImgInfo = { buffer: Buffer; type: "png" | "jpg" | "gif" | "bmp"; width: number; height: number };
 
+const A4_WIDTH_TWIP = 11906;
+const A4_HEIGHT_TWIP = 16838;
 const TWIP_PER_CM = 567;
-const ENEM_PAGE_WIDTH_TWIP = Math.round(20 * TWIP_PER_CM);
-const ENEM_PAGE_HEIGHT_TWIP = Math.round(27.5 * TWIP_PER_CM);
 const ENEM_BODY_SIZE = 10;
-const ENEM_REFERENCE_SIZE = 8;
-const ENEM_HEADER_TITLE_SIZE = 20;
-const ENEM_COLUMN_WIDTH_PX = 335;
+const ENEM_REFERENCE_SIZE = 7;
+const ENEM_COLUMN_WIDTH_PX = 350;
 const ENEM_TEXT_LINE = 240;
 const ENEM_YELLOW = "EEECA3";
-const ENEM_SIDE_YELLOW = "FFF7B8";
+const ENEM_BLACK = "111111";
 const ENEM_BLUE = "123B66";
 const ENEM_GRAY = "666666";
-const ENEM_BLACK = "111111";
 const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
 
 const ENEM_COLUMN_OPTIONS = {
@@ -124,52 +118,34 @@ const MATH_SYMBOLS: Record<string, string> = {
 };
 
 export const generateEnemDocx = createServerFn({ method: "POST" })
-  .validator((d: unknown) => Input.parse(d))
+  .inputValidator((d: unknown) => Input.parse(d))
   .handler(async ({ data }) => {
     validateEnemQuestions(data.questions);
 
     const children = buildEnemChildren(data);
-    const footerLabel = buildFooterLabel(data.config);
     const doc = new Document({
       creator: "Digitalizador de Questões",
-      settings: { evenAndOddHeaders: true },
       styles: {
         default: { document: { run: { font: "Calibri", size: ENEM_BODY_SIZE * 2 } } },
       },
       sections: [{
         properties: {
           page: {
-            size: { width: ENEM_PAGE_WIDTH_TWIP, height: ENEM_PAGE_HEIGHT_TWIP },
+            size: { width: A4_WIDTH_TWIP, height: A4_HEIGHT_TWIP },
             margin: {
-              top: Math.round(0.95 * TWIP_PER_CM),
-              bottom: Math.round(0.8 * TWIP_PER_CM),
+              top: Math.round(1.1 * TWIP_PER_CM),
+              bottom: Math.round(0.9 * TWIP_PER_CM),
               left: Math.round(1 * TWIP_PER_CM),
               right: Math.round(1 * TWIP_PER_CM),
-              header: Math.round(0.25 * TWIP_PER_CM),
-              footer: Math.round(0.25 * TWIP_PER_CM),
-              gutter: Math.round(0.08 * TWIP_PER_CM),
-            },
-            borders: {
-              pageBorders: {
-                display: PageBorderDisplay.ALL_PAGES,
-                offsetFrom: PageBorderOffsetFrom.PAGE,
-                zOrder: PageBorderZOrder.BACK,
-              },
-              pageBorderLeft: { style: BorderStyle.SINGLE, size: 18, color: ENEM_SIDE_YELLOW, space: 8 },
-              pageBorderRight: { style: BorderStyle.SINGLE, size: 18, color: ENEM_SIDE_YELLOW, space: 8 },
+              header: Math.round(0.3 * TWIP_PER_CM),
+              footer: Math.round(0.3 * TWIP_PER_CM),
             },
           },
           column: ENEM_COLUMN_OPTIONS,
           columns: ENEM_COLUMN_OPTIONS,
         } as any,
-        headers: {
-          default: buildEnemHeader(data.config, "odd"),
-          even: buildEnemHeader(data.config, "even"),
-        },
-        footers: {
-          default: buildEnemFooter(footerLabel, "odd"),
-          even: buildEnemFooter(footerLabel, "even"),
-        },
+        headers: { default: buildEnemHeader(data.config) },
+        footers: { default: buildEnemFooter(buildFooterLabel(data.config)) },
         children,
       }],
     });
@@ -195,7 +171,7 @@ function buildEnemChildren(data: EnemInput): DocxChild[] {
 
     children.push(...richChildrenFromText(question.enunciado, {
       spacingAfter: 70,
-      firstLine: Math.round(0.58 * TWIP_PER_CM),
+      firstLine: Math.round(0.55 * TWIP_PER_CM),
     }));
 
     if (question.enunciado_imagem) {
@@ -223,87 +199,40 @@ function buildEnemChildren(data: EnemInput): DocxChild[] {
   return children;
 }
 
-function buildEnemHeader(config: EnemInput["config"], side: "odd" | "even") {
+function buildEnemHeader(config: EnemInput["config"]) {
   const title = config.titulo?.trim() || "SIMULADO";
   const subtitle = config.enemSubtitulo?.trim() || "Simulado de Ciências da Natureza";
   const caderno = config.enemCaderno?.trim() || "CADERNO 1";
-  const titleCell = headerTextCell(title, subtitle, side === "even" ? AlignmentType.LEFT : AlignmentType.RIGHT);
-  const cadernoCell = headerCadernoCell(caderno, side === "even" ? AlignmentType.RIGHT : AlignmentType.LEFT);
-  const cells = side === "even" ? [titleCell, cadernoCell] : [cadernoCell, titleCell];
 
   return new Header({
     children: [
-      new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        layout: TableLayoutType.FIXED,
-        borders: tableNoBorders(),
-        rows: [new TableRow({ children: cells })],
+      new Paragraph({
+        alignment: AlignmentType.RIGHT,
+        spacing: { after: 10 },
+        children: [new TextRun({ text: title.toUpperCase(), bold: true, size: 16 * 2, font: "Calibri", color: ENEM_BLUE })],
       }),
-      horizontalLine(6, "404040", 24, 70),
+      new Paragraph({
+        alignment: AlignmentType.RIGHT,
+        spacing: { before: 0, after: 20 },
+        children: [new TextRun({ text: `${subtitle} | ${caderno}`, size: 9 * 2, font: "Calibri", color: ENEM_GRAY })],
+      }),
+      horizontalLine(8, "404040", 10, 40),
     ],
   });
 }
 
-function buildEnemFooter(label: string, side: "odd" | "even") {
-  const pageCell = new TableCell({
-    width: { size: 12, type: WidthType.PERCENTAGE },
-    borders: tableNoBorders(),
-    children: [new Paragraph({
-      alignment: side === "even" ? AlignmentType.LEFT : AlignmentType.RIGHT,
-      children: [new TextRun({ children: [PageNumber.CURRENT], bold: true, size: 9 * 2, font: "Calibri" })],
-    })],
-  });
-  const labelCell = new TableCell({
-    width: { size: 88, type: WidthType.PERCENTAGE },
-    borders: tableNoBorders(),
-    children: [new Paragraph({
-      alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: label, size: 8 * 2, font: "Calibri", color: ENEM_GRAY })],
-    })],
-  });
-
+function buildEnemFooter(label: string) {
   return new Footer({
     children: [
-      horizontalLine(5, "777777", 30, 20),
-      new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        layout: TableLayoutType.FIXED,
-        borders: tableNoBorders(),
-        rows: [new TableRow({ children: side === "even" ? [pageCell, labelCell] : [labelCell, pageCell] })],
+      horizontalLine(5, "777777", 20, 20),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [
+          new TextRun({ text: `${label}  |  Página `, size: 8 * 2, font: "Calibri", color: ENEM_GRAY }),
+          new TextRun({ children: [PageNumber.CURRENT], size: 8 * 2, font: "Calibri", color: ENEM_GRAY }),
+        ],
       }),
     ],
-  });
-}
-
-function headerTextCell(title: string, subtitle: string, align: typeof AlignmentType[keyof typeof AlignmentType]) {
-  return new TableCell({
-    width: { size: 64, type: WidthType.PERCENTAGE },
-    borders: tableNoBorders(),
-    verticalAlign: VerticalAlign.CENTER,
-    children: [
-      new Paragraph({
-        alignment: align,
-        spacing: { after: 0 },
-        children: [new TextRun({ text: title.toUpperCase(), bold: true, size: ENEM_HEADER_TITLE_SIZE * 2, font: "Calibri", color: ENEM_BLUE })],
-      }),
-      new Paragraph({
-        alignment: align,
-        spacing: { before: 0, after: 0 },
-        children: [new TextRun({ text: subtitle, size: 10 * 2, font: "Calibri", color: ENEM_GRAY })],
-      }),
-    ],
-  });
-}
-
-function headerCadernoCell(caderno: string, align: typeof AlignmentType[keyof typeof AlignmentType]) {
-  return new TableCell({
-    width: { size: 36, type: WidthType.PERCENTAGE },
-    borders: tableNoBorders(),
-    verticalAlign: VerticalAlign.CENTER,
-    children: [new Paragraph({
-      alignment: align,
-      children: [new TextRun({ text: caderno.toUpperCase(), bold: true, size: 11 * 2, font: "Calibri", color: ENEM_BLACK })],
-    })],
   });
 }
 
@@ -312,13 +241,11 @@ function questionHeading(number: number) {
     width: { size: 100, type: WidthType.PERCENTAGE },
     layout: TableLayoutType.FIXED,
     borders: tableNoBorders(),
-    columnWidths: [2200, 5200, 1200],
     rows: [new TableRow({
       children: [
         new TableCell({
-          width: { size: 26, type: WidthType.PERCENTAGE },
+          width: { size: 32, type: WidthType.PERCENTAGE },
           borders: tableNoBorders(),
-          verticalAlign: VerticalAlign.BOTTOM,
           children: [new Paragraph({
             spacing: { after: 0 },
             children: [new TextRun({ text: `QUESTÃO ${number}`, bold: true, size: 11 * 2, font: "Calibri" })],
@@ -333,11 +260,7 @@ function questionHeading(number: number) {
 
 function lineCell(color: string) {
   return new TableCell({
-    borders: {
-      ...tableNoBorders(),
-      bottom: { style: BorderStyle.SINGLE, size: 8, color },
-    },
-    verticalAlign: VerticalAlign.BOTTOM,
+    borders: { ...tableNoBorders(), bottom: { style: BorderStyle.SINGLE, size: 8, color } },
     children: [new Paragraph({ spacing: { after: 0 }, children: [new TextRun({ text: "" })] })],
   });
 }
@@ -350,14 +273,14 @@ function referenceChildren(question: EnemQuestion): DocxChild[] {
   if (image && imagePos === "antes") children.push(image);
   if (question.referencia_texto) {
     children.push(...richChildrenFromText(question.referencia_texto, {
-      firstLine: Math.round(0.58 * TWIP_PER_CM),
+      firstLine: Math.round(0.55 * TWIP_PER_CM),
       spacingAfter: 70,
     }));
   }
   if (image && imagePos === "entre") children.push(image);
   if (question.referencia_texto_apos) {
     children.push(...richChildrenFromText(question.referencia_texto_apos, {
-      firstLine: Math.round(0.58 * TWIP_PER_CM),
+      firstLine: Math.round(0.55 * TWIP_PER_CM),
       spacingAfter: 70,
     }));
   }
