@@ -25,6 +25,7 @@ import {
   TableCell,
   TableRow,
   UnderlineType,
+  HighlightColor,
   WidthType,
 } from "docx";
 import { normalizeImagePlacementLayout, type ImagePlacementLayout } from "@/lib/image-layout";
@@ -224,6 +225,7 @@ function runsFromRichInlines(inlines: RichInline[], opts: TextOptions) {
       bold: opts.bold || inline.bold,
       italics: inline.italic,
       underline: inline.underline ? { type: UnderlineType.SINGLE } : undefined,
+      highlight: inline.highlight ? HighlightColor.YELLOW : undefined,
       superScript: inline.superscript,
       subScript: inline.subscript,
       font: "Arial",
