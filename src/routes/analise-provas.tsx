@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, BarChart3, BookOpenCheck, FileSearch, Image as ImageIcon, Layers, ListChecks, Loader2, Sigma, Tags, TextSearch } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
 import { AnalysisCrossPanel } from "@/components/AnalysisCrossPanel";
+import { AnalysisDataQualityPanel } from "@/components/AnalysisDataQualityPanel";
 import { AnalysisLanguagePanel } from "@/components/AnalysisLanguagePanel";
 import { AnalysisReferencePanel } from "@/components/AnalysisReferencePanel";
 import { Button } from "@/components/ui/button";
@@ -57,6 +58,7 @@ const ANALYSIS_COLUMNS = [
   "numero",
   "enunciado",
   "tipo",
+  "resposta",
   "ano",
   "prova",
   "instituicao",
@@ -176,7 +178,7 @@ function Page() {
             </p>
           </div>
           <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Cruzamentos de dados
+            Qualidade dos dados
           </div>
         </div>
 
@@ -276,6 +278,7 @@ function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; f
     <div className="space-y-4">
       {summary.total < 10 && <SmallSampleAlert total={summary.total} />}
       <SummaryCards summary={summary} period={period} />
+      <AnalysisDataQualityPanel summary={summary} />
 
       <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
         <div className="space-y-4">
@@ -299,7 +302,6 @@ function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; f
         <VisualFrequencyTable title="Questões por ano" rows={summary.questionsByYear.map((row) => ({ value: row.year, count: row.count, percent: summary.total > 0 ? Math.round((row.count / summary.total) * 1000) / 10 : 0, years: [row.year] }))} total={summary.total} />
       </div>
 
-      <MetadataQuality summary={summary} />
       <QuestionList questions={summary.questions} />
     </div>
   );
@@ -607,25 +609,6 @@ function ProgressBar({ percent }: { percent: number }) {
   return (
     <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
       <div className="h-full rounded-full bg-primary/70" style={{ width: `${Math.max(4, Math.min(100, percent))}%` }} />
-    </div>
-  );
-}
-
-function MetadataQuality({ summary }: { summary: ProvaAnalysisSummary }) {
-  const missing = summary.missingMetadata;
-  const totalMissing = missing.area + missing.content + missing.subcontent + missing.year + missing.type;
-  if (totalMissing === 0) return null;
-  return (
-    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
-      <h2 className="font-semibold">Qualidade dos dados</h2>
-      <p className="mt-1 text-sm">Algumas questões estão incompletas. Isso pode reduzir a precisão da análise.</p>
-      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-5">
-        <Info label="Sem área" value={String(missing.area)} />
-        <Info label="Sem conteúdo" value={String(missing.content)} />
-        <Info label="Sem subconteúdo" value={String(missing.subcontent)} />
-        <Info label="Sem ano" value={String(missing.year)} />
-        <Info label="Sem tipo" value={String(missing.type)} />
-      </div>
     </div>
   );
 }
