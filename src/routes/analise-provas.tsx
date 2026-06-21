@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BarChart3, BookOpenCheck, FileSearch, FileText, Image as ImageIcon, Layers, ListChecks, Loader2, Sigma, Tags, TextSearch } from "lucide-react";
+import { BarChart3, BookOpenCheck, FileSearch, Image as ImageIcon, Layers, ListChecks, Loader2, Sigma, Tags, TextSearch } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -589,7 +589,6 @@ function formatType(tipo: string) {
     certo_errado: "Certo ou errado",
     numerica: "Numérica",
     discursiva: "Discursiva",
-    "Sem tipo": "Sem tipo",
     "Sem tipo": "Sem tipo",
   };
   return labels[tipo] ?? tipo;
