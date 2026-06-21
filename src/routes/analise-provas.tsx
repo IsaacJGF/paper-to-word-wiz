@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BarChart3, FileSearch, FileText, Image as ImageIcon, Loader2, Sigma, TextSearch } from "lucide-react";
+import { BarChart3, BookOpenCheck, FileSearch, FileText, Image as ImageIcon, Layers, ListChecks, Loader2, Sigma, Tags, TextSearch } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -172,7 +172,7 @@ function Page() {
             </p>
           </div>
           <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Motor estatístico inicial
+            Painel visual com cards e tabelas
           </div>
         </div>
 
@@ -274,46 +274,114 @@ function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; f
   const period = formatPeriod(filters, summary.years);
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <SummaryCard title="Questões analisadas" value={summary.total} icon={<FileSearch className="size-5" />} />
-        <SummaryCard title="Anos analisados" value={summary.years.length} description={period} icon={<BarChart3 className="size-5" />} />
-        <SummaryCard title="Com referência" value={summary.withReference} description={percentage(summary.withReference, summary.total)} icon={<TextSearch className="size-5" />} />
-        <SummaryCard title="Com imagem" value={summary.withImage} description={percentage(summary.withImage, summary.total)} icon={<ImageIcon className="size-5" />} />
-        <SummaryCard title="Com equação" value={summary.withEquation} description={percentage(summary.withEquation, summary.total)} icon={<Sigma className="size-5" />} />
-      </div>
+      <SummaryCards summary={summary} period={period} />
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-        <div className="rounded-xl border bg-card p-4">
-          <h2 className="font-semibold">Resumo da busca</h2>
-          <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-            <Info label="Prova" value={filters.prova || "Todas"} />
-            <Info label="Instituição" value={filters.instituicao || "Todas"} />
-            <Info label="Período" value={period} />
-            <Info label="Área geral" value={filters.areaGeral || "Todas"} />
-            <Info label="Conteúdo principal" value={filters.conteudoPrincipal || "Todos"} />
-            <Info label="Subconteúdo principal" value={filters.subconteudoPrincipal || "Todos"} />
-            <Info label="Tipo de questão" value={filters.tipo ? formatType(filters.tipo) : "Todos"} />
-            <Info label="Com alternativas" value={`${summary.withAlternatives} (${percentage(summary.withAlternatives, summary.total)})`} />
-          </div>
+      <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
+        <div className="space-y-4">
+          <SearchSummary filters={filters} period={period} />
+          <TopContentCards summary={summary} />
         </div>
-
-        <div className="rounded-xl border bg-card p-4">
-          <h2 className="font-semibold">Quantidade por tipo</h2>
-          <FrequencyList rows={summary.typeCounts} formatValue={formatType} />
-        </div>
+        <TypeBreakdownCard summary={summary} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <FrequencyTable title="Questões por ano" rows={summary.questionsByYear.map((row) => ({ value: row.year, count: row.count, percent: summary.total > 0 ? Math.round((row.count / summary.total) * 1000) / 10 : 0, years: [row.year] }))} total={summary.total} />
-        <FrequencyTable title="Áreas gerais mais frequentes" rows={summary.areaFrequency} total={summary.total} />
-        <FrequencyTable title="Conteúdos principais mais frequentes" rows={summary.contentFrequency} total={summary.total} />
-        <FrequencyTable title="Subconteúdos principais mais frequentes" rows={summary.subcontentFrequency} total={summary.total} />
-        <FrequencyTable title="Conteúdos relacionados mais frequentes" rows={summary.relatedContentFrequency} total={summary.total} emptyText="Nenhum conteúdo relacionado cadastrado nas questões analisadas." />
-        <FrequencyTable title="Tags mais frequentes" rows={summary.tagFrequency} total={summary.total} emptyText="Nenhuma tag cadastrada nas questões analisadas." />
+        <VisualFrequencyTable title="Conteúdos mais cobrados" rows={summary.contentFrequency} total={summary.total} highlightFirst />
+        <VisualFrequencyTable title="Subconteúdos mais cobrados" rows={summary.subcontentFrequency} total={summary.total} highlightFirst />
+        <VisualFrequencyTable title="Tags mais frequentes" rows={summary.tagFrequency} total={summary.total} emptyText="Nenhuma tag cadastrada nas questões analisadas." />
+        <VisualFrequencyTable title="Áreas gerais mais cobradas" rows={summary.areaFrequency} total={summary.total} />
+        <VisualFrequencyTable title="Conteúdos relacionados mais frequentes" rows={summary.relatedContentFrequency} total={summary.total} emptyText="Nenhum conteúdo relacionado cadastrado nas questões analisadas." />
+        <VisualFrequencyTable title="Questões por ano" rows={summary.questionsByYear.map((row) => ({ value: row.year, count: row.count, percent: summary.total > 0 ? Math.round((row.count / summary.total) * 1000) / 10 : 0, years: [row.year] }))} total={summary.total} />
       </div>
 
       <MetadataQuality summary={summary} />
       <QuestionList questions={summary.questions} />
+    </div>
+  );
+}
+
+function SummaryCards({ summary, period }: { summary: ProvaAnalysisSummary; period: string }) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <SummaryCard title="Total de questões" value={summary.total} icon={<FileSearch className="size-5" />} />
+      <SummaryCard title="Total de anos" value={summary.years.length} description={period} icon={<BarChart3 className="size-5" />} />
+      <SummaryCard title="Com referência" value={summary.withReference} description={percentage(summary.withReference, summary.total)} icon={<TextSearch className="size-5" />} />
+      <SummaryCard title="Com imagem" value={summary.withImage} description={percentage(summary.withImage, summary.total)} icon={<ImageIcon className="size-5" />} />
+      <SummaryCard title="Com alternativas" value={summary.withAlternatives} description={percentage(summary.withAlternatives, summary.total)} icon={<ListChecks className="size-5" />} />
+      <SummaryCard title="Com equação" value={summary.withEquation} description={percentage(summary.withEquation, summary.total)} icon={<Sigma className="size-5" />} />
+    </div>
+  );
+}
+
+function SearchSummary({ filters, period }: { filters: AnalysisFilters; period: string }) {
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 className="font-semibold">Resumo da busca</h2>
+        <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">Filtros aplicados</span>
+      </div>
+      <div className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <Info label="Prova" value={filters.prova || "Todas"} />
+        <Info label="Instituição" value={filters.instituicao || "Todas"} />
+        <Info label="Período" value={period} />
+        <Info label="Tipo" value={filters.tipo ? formatType(filters.tipo) : "Todos"} />
+        <Info label="Área geral" value={filters.areaGeral || "Todas"} />
+        <Info label="Conteúdo principal" value={filters.conteudoPrincipal || "Todos"} />
+        <Info label="Subconteúdo principal" value={filters.subconteudoPrincipal || "Todos"} />
+      </div>
+    </div>
+  );
+}
+
+function TopContentCards({ summary }: { summary: ProvaAnalysisSummary }) {
+  const topContent = summary.contentFrequency[0];
+  const topSubcontent = summary.subcontentFrequency[0];
+  const topTag = summary.tagFrequency[0];
+  return (
+    <div className="grid gap-3 md:grid-cols-3">
+      <TopMetricCard title="Conteúdo líder" row={topContent} icon={<BookOpenCheck className="size-4" />} empty="Sem conteúdo principal" />
+      <TopMetricCard title="Subconteúdo líder" row={topSubcontent} icon={<Layers className="size-4" />} empty="Sem subconteúdo" />
+      <TopMetricCard title="Tag líder" row={topTag} icon={<Tags className="size-4" />} empty="Sem tags" />
+    </div>
+  );
+}
+
+function TopMetricCard({ title, row, icon, empty }: { title: string; row?: FrequencyRow; icon: ReactNode; empty: string }) {
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {icon}
+        {title}
+      </div>
+      {row ? (
+        <>
+          <p className="mt-3 line-clamp-2 text-lg font-semibold">{row.value}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{row.count} questão{row.count === 1 ? "" : "ões"} · {formatPercent(row.percent)} · {row.years.length > 0 ? `anos: ${row.years.join(", ")}` : "sem ano"}</p>
+        </>
+      ) : (
+        <p className="mt-3 text-sm text-muted-foreground">{empty}</p>
+      )}
+    </div>
+  );
+}
+
+function TypeBreakdownCard({ summary }: { summary: ProvaAnalysisSummary }) {
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 className="font-semibold">Questões por tipo</h2>
+        <span className="text-xs text-muted-foreground">{summary.total} no total</span>
+      </div>
+      <div className="space-y-3">
+        {summary.typeCounts.map((item) => (
+          <div key={item.value}>
+            <div className="mb-1 flex items-center justify-between gap-2 text-sm">
+              <span>{formatType(item.value)}</span>
+              <strong>{item.count}</strong>
+            </div>
+            <ProgressBar percent={item.percent} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -340,26 +408,15 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
-function FrequencyList({ rows, formatValue }: { rows: FrequencyRow[]; formatValue?: (value: string) => string }) {
-  if (rows.length === 0) return <p className="mt-3 text-sm text-muted-foreground">Sem dados suficientes.</p>;
-  return (
-    <div className="mt-3 space-y-2">
-      {rows.map((item) => (
-        <div key={item.value} className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-sm">
-          <span>{formatValue ? formatValue(item.value) : item.value}</span>
-          <strong>{item.count}</strong>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function FrequencyTable({ title, rows, total, emptyText = "Sem dados suficientes." }: { title: string; rows: FrequencyRow[]; total: number; emptyText?: string }) {
+function VisualFrequencyTable({ title, rows, total, emptyText = "Sem dados suficientes.", highlightFirst }: { title: string; rows: FrequencyRow[]; total: number; emptyText?: string; highlightFirst?: boolean }) {
   const visible = rows.slice(0, 12);
   return (
     <div className="rounded-xl border bg-card p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-semibold">{title}</h2>
+        <div>
+          <h2 className="font-semibold">{title}</h2>
+          <p className="text-xs text-muted-foreground">Quantidade, porcentagem e anos em que apareceu.</p>
+        </div>
         <span className="text-xs text-muted-foreground">Base: {total} questão{total === 1 ? "" : "ões"}</span>
       </div>
       {visible.length === 0 ? (
@@ -369,25 +426,39 @@ function FrequencyTable({ title, rows, total, emptyText = "Sem dados suficientes
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-muted-foreground">
               <tr className="border-b">
-                <th className="py-2 pr-2 font-medium">Item</th>
+                <th className="min-w-56 py-2 pr-2 font-medium">Item</th>
                 <th className="py-2 pr-2 text-right font-medium">Qtd.</th>
                 <th className="py-2 pr-2 text-right font-medium">%</th>
-                <th className="py-2 font-medium">Anos</th>
+                <th className="min-w-32 py-2 font-medium">Anos</th>
               </tr>
             </thead>
             <tbody>
-              {visible.map((row) => (
+              {visible.map((row, index) => (
                 <tr key={row.value} className="border-b last:border-0">
-                  <td className="py-2 pr-2">{row.value}</td>
-                  <td className="py-2 pr-2 text-right font-semibold">{row.count}</td>
-                  <td className="py-2 pr-2 text-right">{row.percent}%</td>
-                  <td className="py-2 text-xs text-muted-foreground">{row.years.length > 0 ? row.years.join(", ") : "—"}</td>
+                  <td className="py-2 pr-2 align-top">
+                    <div className="flex items-center gap-2">
+                      {highlightFirst && index === 0 && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">mais cobrado</span>}
+                      <span className="font-medium">{row.value}</span>
+                    </div>
+                    <div className="mt-2 max-w-xs"><ProgressBar percent={row.percent} /></div>
+                  </td>
+                  <td className="py-2 pr-2 text-right align-top font-semibold">{row.count}</td>
+                  <td className="py-2 pr-2 text-right align-top">{formatPercent(row.percent)}</td>
+                  <td className="py-2 align-top text-xs text-muted-foreground">{row.years.length > 0 ? row.years.join(", ") : "—"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+function ProgressBar({ percent }: { percent: number }) {
+  return (
+    <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+      <div className="h-full rounded-full bg-primary/70" style={{ width: `${Math.max(4, Math.min(100, percent))}%` }} />
     </div>
   );
 }
@@ -488,6 +559,10 @@ function percentage(value: number, total: number) {
   return `${Math.round((value / total) * 100)}%`;
 }
 
+function formatPercent(value: number) {
+  return `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+}
+
 function formatPeriod(filters: AnalysisFilters, years: string[]) {
   if (filters.anoInicial && filters.anoFinal) return `${filters.anoInicial}–${filters.anoFinal}`;
   if (filters.anoInicial) return `A partir de ${filters.anoInicial}`;
@@ -514,6 +589,7 @@ function formatType(tipo: string) {
     certo_errado: "Certo ou errado",
     numerica: "Numérica",
     discursiva: "Discursiva",
+    "Sem tipo": "Sem tipo",
     "Sem tipo": "Sem tipo",
   };
   return labels[tipo] ?? tipo;
