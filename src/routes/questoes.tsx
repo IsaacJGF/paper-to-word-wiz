@@ -126,7 +126,7 @@ function Page() {
   const [page, setPage] = useState(0);
   const [q, setQ] = useState("");
   const debouncedQuery = useDebouncedValue(q, 450);
-  const [sel, setSel] = useState<Set<string>>(new Set(() => loadSelectedQuestionIds()));
+  const [sel, setSel] = useState<Set<string>>(() => new Set(loadSelectedQuestionIds()));
   const [editing, setEditing] = useState<Q | null>(null);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [expanded, setExpanded] = useState<Q | null>(null);
