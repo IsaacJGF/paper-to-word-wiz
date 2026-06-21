@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AppLayout } from "@/components/AppLayout";
 import { generateDocx } from "@/lib/docx.functions";
+import { generatePasDocx } from "@/lib/pas-docx.functions";
 import { RichText } from "@/components/RichText";
 import { fetchDocumentQuestions, type DocumentQuestion } from "@/lib/question-compat";
 import { loadSelectedQuestionIds, saveSelectedQuestionIds } from "@/lib/selection-store";
@@ -19,51 +20,16 @@ export const Route = createFileRoute("/documento")({
 });
 
 const REFERENCE_GROUP_COLORS = [
-  {
-    bar: "bg-sky-500",
-    border: "border-sky-300",
-    banner: "border-sky-300 bg-sky-50 text-sky-800",
-    badge: "bg-sky-100 text-sky-800",
-  },
-  {
-    bar: "bg-emerald-500",
-    border: "border-emerald-300",
-    banner: "border-emerald-300 bg-emerald-50 text-emerald-800",
-    badge: "bg-emerald-100 text-emerald-800",
-  },
-  {
-    bar: "bg-amber-500",
-    border: "border-amber-300",
-    banner: "border-amber-300 bg-amber-50 text-amber-800",
-    badge: "bg-amber-100 text-amber-800",
-  },
-  {
-    bar: "bg-rose-500",
-    border: "border-rose-300",
-    banner: "border-rose-300 bg-rose-50 text-rose-800",
-    badge: "bg-rose-100 text-rose-800",
-  },
-  {
-    bar: "bg-violet-500",
-    border: "border-violet-300",
-    banner: "border-violet-300 bg-violet-50 text-violet-800",
-    badge: "bg-violet-100 text-violet-800",
-  },
-  {
-    bar: "bg-cyan-500",
-    border: "border-cyan-300",
-    banner: "border-cyan-300 bg-cyan-50 text-cyan-800",
-    badge: "bg-cyan-100 text-cyan-800",
-  },
+  { bar: "bg-sky-500", border: "border-sky-300", banner: "border-sky-300 bg-sky-50 text-sky-800", badge: "bg-sky-100 text-sky-800" },
+  { bar: "bg-emerald-500", border: "border-emerald-300", banner: "border-emerald-300 bg-emerald-50 text-emerald-800", badge: "bg-emerald-100 text-emerald-800" },
+  { bar: "bg-amber-500", border: "border-amber-300", banner: "border-amber-300 bg-amber-50 text-amber-800", badge: "bg-amber-100 text-amber-800" },
+  { bar: "bg-rose-500", border: "border-rose-300", banner: "border-rose-300 bg-rose-50 text-rose-800", badge: "bg-rose-100 text-rose-800" },
+  { bar: "bg-violet-500", border: "border-violet-300", banner: "border-violet-300 bg-violet-50 text-violet-800", badge: "bg-violet-100 text-violet-800" },
+  { bar: "bg-cyan-500", border: "border-cyan-300", banner: "border-cyan-300 bg-cyan-50 text-cyan-800", badge: "bg-cyan-100 text-cyan-800" },
 ] as const;
 
 type ReferenceGroupColor = typeof REFERENCE_GROUP_COLORS[number];
-type ReferenceGroupVisual = {
-  label: string;
-  color: ReferenceGroupColor;
-  totalItems: number;
-  blockCount: number;
-};
+type ReferenceGroupVisual = { label: string; color: ReferenceGroupColor; totalItems: number; blockCount: number };
 
 function Page() {
   const [questions, setQuestions] = useState<DocumentQuestion[]>([]);
@@ -81,6 +47,7 @@ function Page() {
     incluirGabarito: false,
     gabaritoSeparado: false,
     espacamentoQuestoes: 240,
+    modeloPas: false,
   });
 
   useEffect(() => {
@@ -89,7 +56,6 @@ function Page() {
       if (ids.length === 0) { setLoading(false); return; }
       try {
         const data = await fetchDocumentQuestions(ids);
-        // preserve order from saved selection
         const map = new Map(data.map((d) => [d.id, d]));
         const ordered = ids.map((i) => map.get(i)).filter((x): x is DocumentQuestion => !!x);
         setQuestions(ordered);
@@ -113,6 +79,7 @@ function Page() {
     setQuestions(next);
     saveSelectedQuestionIds(next.map((x) => x.id));
   };
+
   const remove = (id: string) => {
     const next = questions.filter((q) => q.id !== id);
     setQuestions(next);
@@ -121,19 +88,33 @@ function Page() {
 
   const onGenerate = async () => {
     if (questions.length === 0) { toast.error("Selecione ao menos uma questão."); return; }
+
+    if (config.modeloPas) {
+      const invalid = questions.filter((q) => !isPasProof(q.prova));
+      if (invalid.length > 0) {
+        toast.error(`Modelo PAS é exclusivo para questões PAS. Remova ${invalid.length} questão(ões) de outra prova.`);
+        console.warn("Questões incompatíveis com Modelo PAS:", invalid.map((q) => ({ id: q.id, prova: q.prova, ano: q.ano, instituicao: q.instituicao })));
+        return;
+      }
+    }
+
     if (config.incluirGabarito) {
       const semResp = questions.filter((q) => !q.resposta).length;
       if (semResp > 0 && !confirm(`${semResp} questão(ões) não têm resposta cadastrada. Gerar gabarito assim mesmo?`)) return;
     }
+
     setGenerating(true);
     try {
-      const result = await generateDocx({ data: { questions, config } });
-      downloadDocx(result.docxBase64, `${config.titulo || "documento"}.docx`);
+      const result = config.modeloPas
+        ? await generatePasDocx({ data: { questions, config } })
+        : await generateDocx({ data: { questions, config } });
+      const suffix = config.modeloPas ? "-modelo-pas" : "";
+      downloadDocx(result.docxBase64, `${config.titulo || "documento"}${suffix}.docx`);
       if (result.gabaritoBase64) downloadDocx(result.gabaritoBase64, `${config.titulo || "documento"}-gabarito.docx`);
       toast.success("Documento gerado!");
     } catch (e) {
       console.error(e);
-      toast.error("Falha ao gerar o documento.");
+      toast.error(e instanceof Error ? e.message : "Falha ao gerar o documento.");
     } finally {
       setGenerating(false);
     }
@@ -199,10 +180,7 @@ function Page() {
                           </div>
                         </div>
                       )}
-                      <div
-                        className={`relative flex gap-2 items-start overflow-hidden rounded-lg border bg-background p-3 ${showGroupVisual && groupVisual ? groupVisual.color.border : referenceKey ? "border-primary/30" : ""}`}
-                        title={groupTitle}
-                      >
+                      <div className={`relative flex gap-2 items-start overflow-hidden rounded-lg border bg-background p-3 ${showGroupVisual && groupVisual ? groupVisual.color.border : referenceKey ? "border-primary/30" : ""}`} title={groupTitle}>
                         {showGroupVisual && groupVisual && (
                           <div className="absolute inset-y-0 left-0 flex w-4 justify-center">
                             <div className={`w-1.5 ${groupVisual.color.bar} ${startsReferenceBlock ? "rounded-t-full" : ""} ${endsReferenceBlock ? "rounded-b-full" : ""}`} />
@@ -217,27 +195,19 @@ function Page() {
                           <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <span className="font-bold text-sm">Questão {i + 1}.</span>
                             {q.fonte && <span className="text-xs text-muted-foreground italic">({q.fonte})</span>}
+                            {config.modeloPas && !isPasProof(q.prova) && <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive">fora do PAS</span>}
+                            {q.prova && <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{q.prova}</span>}
                             {showGroupVisual && groupVisual ? (
                               <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium ${groupVisual.color.badge}`}>
                                 <Link2 className="size-3" /> {groupVisual.label}{splitGroup ? " separado" : ""}
                               </span>
                             ) : referenceKey ? (
-                              <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                                com referência
-                              </span>
+                              <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">com referência</span>
                             ) : null}
-                            {referenceKey && (
-                              <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                                {referenceBlockSize > 1 ? `bloco de ${referenceBlockSize}` : "bloco único"}
-                              </span>
-                            )}
+                            {referenceKey && <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{referenceBlockSize > 1 ? `bloco de ${referenceBlockSize}` : "bloco único"}</span>}
                           </div>
-                          <div className="text-sm line-clamp-2 [&_p]:m-0 [&_p]:inline">
-                            <RichText text={q.enunciado} />
-                          </div>
-                          {q.alternativas.length > 0 && (
-                            <p className="text-xs text-muted-foreground mt-1">{q.alternativas.length} alternativas{q.resposta ? ` · gabarito: ${q.resposta}` : ""}</p>
-                          )}
+                          <div className="text-sm line-clamp-2 [&_p]:m-0 [&_p]:inline"><RichText text={q.enunciado} /></div>
+                          {q.alternativas.length > 0 && <p className="text-xs text-muted-foreground mt-1">{q.alternativas.length} alternativas{q.resposta ? ` · gabarito: ${q.resposta}` : ""}</p>}
                         </div>
                         <Button size="icon" variant="ghost" onClick={() => remove(q.id)}><X className="size-4" /></Button>
                       </div>
@@ -251,22 +221,31 @@ function Page() {
           <aside className="rounded-xl border bg-card p-4 space-y-3 h-fit lg:sticky lg:top-20">
             <h2 className="font-semibold">Configuração</h2>
             <div><Label>Título</Label><Input value={config.titulo} onChange={(e) => setConfig({ ...config, titulo: e.target.value })} /></div>
-            <div><Label>Instituição</Label><Input value={config.instituicao} onChange={(e) => setConfig({ ...config, instituicao: e.target.value })} /></div>
-            <div className="grid grid-cols-2 gap-2">
-              <div><Label>Disciplina</Label><Input value={config.disciplina} onChange={(e) => setConfig({ ...config, disciplina: e.target.value })} /></div>
-              <div><Label>Professor</Label><Input value={config.professor} onChange={(e) => setConfig({ ...config, professor: e.target.value })} /></div>
-              <div><Label>Turma</Label><Input value={config.turma} onChange={(e) => setConfig({ ...config, turma: e.target.value })} /></div>
-              <div><Label>Data</Label><Input value={config.data} onChange={(e) => setConfig({ ...config, data: e.target.value })} /></div>
+            <div className="space-y-2 rounded-lg border p-3 bg-muted/30">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <Checkbox checked={config.modeloPas} onCheckedChange={(v) => setConfig({ ...config, modeloPas: !!v, fontSize: !!v ? 10 : config.fontSize })} />
+                <span className="text-sm leading-snug">
+                  <strong>Modelo PAS</strong><br />
+                  <span className="text-xs text-muted-foreground">Formatação oficial em duas colunas. Aceita apenas PAS, PAS 1, PAS 2 ou PAS 3.</span>
+                </span>
+              </label>
             </div>
-            <div><Label>Instruções</Label><Textarea rows={3} value={config.instrucoes} onChange={(e) => setConfig({ ...config, instrucoes: e.target.value })} /></div>
+            <div><Label>Instituição</Label><Input value={config.instituicao} onChange={(e) => setConfig({ ...config, instituicao: e.target.value })} disabled={config.modeloPas} /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label>Disciplina</Label><Input value={config.disciplina} onChange={(e) => setConfig({ ...config, disciplina: e.target.value })} disabled={config.modeloPas} /></div>
+              <div><Label>Professor</Label><Input value={config.professor} onChange={(e) => setConfig({ ...config, professor: e.target.value })} disabled={config.modeloPas} /></div>
+              <div><Label>Turma</Label><Input value={config.turma} onChange={(e) => setConfig({ ...config, turma: e.target.value })} disabled={config.modeloPas} /></div>
+              <div><Label>Data</Label><Input value={config.data} onChange={(e) => setConfig({ ...config, data: e.target.value })} disabled={config.modeloPas} /></div>
+            </div>
+            <div><Label>Instruções</Label><Textarea rows={3} value={config.instrucoes} onChange={(e) => setConfig({ ...config, instrucoes: e.target.value })} disabled={config.modeloPas} /></div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <Label>Fonte (pt)</Label>
-                <Input type="number" min={9} max={18} value={config.fontSize} onChange={(e) => setConfig({ ...config, fontSize: +e.target.value || 12 })} />
+                <Input type="number" min={9} max={18} value={config.fontSize} onChange={(e) => setConfig({ ...config, fontSize: +e.target.value || 12 })} disabled={config.modeloPas} />
               </div>
               <div>
                 <Label>Espaço entre questões</Label>
-                <Input type="number" min={120} max={600} step={40} value={config.espacamentoQuestoes} onChange={(e) => setConfig({ ...config, espacamentoQuestoes: +e.target.value || 240 })} />
+                <Input type="number" min={120} max={600} step={40} value={config.espacamentoQuestoes} onChange={(e) => setConfig({ ...config, espacamentoQuestoes: +e.target.value || 240 })} disabled={config.modeloPas} />
               </div>
             </div>
             <div className="space-y-2 border-t pt-3">
@@ -274,7 +253,7 @@ function Page() {
                 <Checkbox checked={config.incluirGabarito} onCheckedChange={(v) => setConfig({ ...config, incluirGabarito: !!v })} />
                 <span className="text-sm">Incluir gabarito</span>
               </label>
-              {config.incluirGabarito && (
+              {config.incluirGabarito && !config.modeloPas && (
                 <label className="flex items-center gap-2 cursor-pointer pl-6">
                   <Checkbox checked={config.gabaritoSeparado} onCheckedChange={(v) => setConfig({ ...config, gabaritoSeparado: !!v })} />
                   <span className="text-sm">Em arquivo separado</span>
@@ -299,21 +278,10 @@ function downloadDocx(base64: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-type DocumentReferenceLike = Pick<DocumentQuestion,
-  "grupo_id" |
-  "referencia_texto" |
-  "referencia_texto_apos" |
-  "referencia_fonte" |
-  "referencia_imagem" |
-  "referencia_imagem_layout"
->;
+type DocumentReferenceLike = Pick<DocumentQuestion, "grupo_id" | "referencia_texto" | "referencia_texto_apos" | "referencia_fonte" | "referencia_imagem" | "referencia_imagem_layout">;
 
 function hasDocumentReference(question: DocumentReferenceLike) {
-  return Boolean(
-    question.referencia_texto?.trim() ||
-    question.referencia_texto_apos?.trim() ||
-    question.referencia_imagem,
-  );
+  return Boolean(question.referencia_texto?.trim() || question.referencia_texto_apos?.trim() || question.referencia_imagem);
 }
 
 function getDocumentReferenceKey(question: DocumentReferenceLike) {
@@ -327,12 +295,7 @@ function documentReferenceFingerprint(question: DocumentReferenceLike) {
   const image = question.referencia_imagem
     ? `${question.referencia_imagem.length}:${question.referencia_imagem.slice(0, 64)}:${question.referencia_imagem.slice(-64)}`
     : "";
-  return [
-    question.referencia_texto?.trim() ?? "",
-    question.referencia_texto_apos?.trim() ?? "",
-    question.referencia_fonte?.trim() ?? "",
-    image,
-  ].join("|");
+  return [question.referencia_texto?.trim() ?? "", question.referencia_texto_apos?.trim() ?? "", question.referencia_fonte?.trim() ?? "", image].join("|");
 }
 
 function countReferenceBlockSize(questions: DocumentQuestion[], index: number) {
@@ -351,23 +314,13 @@ function buildReferenceGroupVisuals(questions: DocumentQuestion[]) {
 
   questions.forEach((question) => {
     const key = getDocumentReferenceKey(question);
-    if (!key) {
-      previousKey = null;
-      return;
-    }
-
+    if (!key) { previousKey = null; return; }
     let visual = map.get(key);
     if (!visual) {
       const index = map.size;
-      visual = {
-        label: `Ref ${referenceLabel(index)}`,
-        color: REFERENCE_GROUP_COLORS[index % REFERENCE_GROUP_COLORS.length],
-        totalItems: 0,
-        blockCount: 0,
-      };
+      visual = { label: `Ref ${referenceLabel(index)}`, color: REFERENCE_GROUP_COLORS[index % REFERENCE_GROUP_COLORS.length], totalItems: 0, blockCount: 0 };
       map.set(key, visual);
     }
-
     visual.totalItems += 1;
     if (key !== previousKey) visual.blockCount += 1;
     previousKey = key;
@@ -384,4 +337,9 @@ function referenceLabel(index: number) {
     n = Math.floor(n / 26) - 1;
   } while (n >= 0);
   return label;
+}
+
+function isPasProof(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+  return normalized === "PAS" || normalized === "PAS 1" || normalized === "PAS 2" || normalized === "PAS 3" || normalized === "PAS1" || normalized === "PAS2" || normalized === "PAS3";
 }
