@@ -50,7 +50,10 @@ export function RichText({ text, className = "" }: Props) {
             <ListTag
               key={index}
               className={`mb-2 ${block.ordered ? "list-decimal" : "list-disc"} pl-6 last:mb-0`}
-              style={{ textAlign: toCssAlign(block.align) }}
+              style={{
+                textAlign: toCssAlign(block.align),
+                listStyleType: block.listStyle === "upper-alpha" ? "upper-alpha" : undefined,
+              }}
             >
               {block.items.map((item, itemIndex) => (
                 <li key={itemIndex}>{renderInlines(item, `${index}-${itemIndex}`)}</li>
@@ -83,6 +86,9 @@ function renderInlines(inlines: RichInline[], prefix: string): ReactNode[] {
       fontWeight: inline.bold ? 700 : undefined,
       fontStyle: inline.italic ? "italic" : undefined,
       textDecoration: inline.underline ? "underline" : undefined,
+      backgroundColor: inline.highlight ? "rgba(250, 204, 21, 0.35)" : undefined,
+      borderRadius: inline.highlight ? 2 : undefined,
+      paddingInline: inline.highlight ? 2 : undefined,
     } as const;
     const content = <span style={style}>{inline.text}</span>;
     if (inline.superscript) return <sup key={`${prefix}-sup-${index}`}>{content}</sup>;
