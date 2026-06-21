@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { AppLayout } from "@/components/AppLayout";
 import { generateDocx } from "@/lib/docx.functions";
+import { RichText } from "@/components/RichText";
 import { fetchDocumentQuestions, type DocumentQuestion } from "@/lib/question-compat";
 import { loadSelectedQuestionIds, saveSelectedQuestionIds } from "@/lib/selection-store";
 import { toast } from "sonner";
@@ -231,7 +232,9 @@ function Page() {
                               </span>
                             )}
                           </div>
-                          <p className="text-sm line-clamp-2">{q.enunciado}</p>
+                          <div className="text-sm line-clamp-2 [&_p]:m-0 [&_p]:inline">
+                            <RichText text={q.enunciado} />
+                          </div>
                           {q.alternativas.length > 0 && (
                             <p className="text-xs text-muted-foreground mt-1">{q.alternativas.length} alternativas{q.resposta ? ` · gabarito: ${q.resposta}` : ""}</p>
                           )}
