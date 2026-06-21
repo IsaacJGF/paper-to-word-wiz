@@ -25,7 +25,7 @@ export function parseRichText(text: string | null | undefined): RichBlock[] {
   if (!normalized.trim()) return [];
 
   const rawBlocks = splitBlocks(normalized);
-  return rawBlocks.flatMap((rawBlock) => {
+  return rawBlocks.flatMap<RichBlock>((rawBlock) => {
     const { align, text: blockText } = extractAlignment(rawBlock);
     const lines = blockText.split("\n").filter((line) => line.trim().length > 0);
     if (lines.length === 0) return [];
