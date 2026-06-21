@@ -1,4 +1,5 @@
 import { AlertTriangle, CheckCircle2, ExternalLink } from "lucide-react";
+import { AnalysisAISummaryPanel } from "@/components/AnalysisAISummaryPanel";
 import { Button } from "@/components/ui/button";
 import type { ProvaAnalysisQuestion, ProvaAnalysisSummary } from "@/lib/prova-analysis";
 
@@ -81,6 +82,8 @@ export function AnalysisDataQualityPanel({ summary }: { summary: ProvaAnalysisSu
           </div>
         </>
       )}
+
+      <AnalysisAISummaryPanel summary={summary} />
     </div>
   );
 }
