@@ -80,6 +80,8 @@ function renderInlines(inlines: RichInline[], prefix: string): ReactNode[] {
     if (inline.type === "math") return <MathExpression key={`${prefix}-m-${index}`} latex={inline.latex} display={inline.display} />;
 
     const style = {
+      backgroundColor: inline.highlight ? "#fef3c7" : undefined,
+      borderRadius: inline.highlight ? "0.125rem" : undefined,
       fontWeight: inline.bold ? 700 : undefined,
       fontStyle: inline.italic ? "italic" : undefined,
       textDecoration: inline.underline ? "underline" : undefined,
