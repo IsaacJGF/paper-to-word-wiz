@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -36,7 +35,7 @@ import {
 import { AppLayout } from "@/components/AppLayout";
 import { ImageCropDialog, type ImageCropSource } from "@/components/ImageCropDialog";
 import { ImageLayoutEditor } from "@/components/ImageLayoutEditor";
-import { RichText } from "@/components/RichText";
+import { RichTextEditor } from "@/components/RichTextEditor";
 import { CatalogSelect, CatalogMultiSelect } from "@/components/CatalogSelect";
 import { loadDraft, clearDraft, LETRAS, reletter, DraftDigitization, DraftQuestion } from "@/lib/draft-store";
 import {
@@ -262,7 +261,7 @@ function Page() {
     );
 
     const accepted = confirm(
-      `${hasManualMetadata ? "Esta questão já possui metadados preenchidos. Revise as sugestões antes de aplicar." : "Sugestões encontradas para esta questão."}\n\n${formatMetadataSuggestion(suggestion)}\n\nDeseja aplicar estas sugestões agora? Você ainda poderá editar tudo antes de salvar.`,
+      `${hasManualMetadata ? "Esta questão já possui classificação preenchida. Revise as sugestões antes de aplicar." : "Sugestões encontradas para esta questão."}\n\n${formatMetadataSuggestion(suggestion)}\n\nDeseja aplicar estas sugestões agora? Você ainda poderá editar tudo antes de salvar.`,
     );
     if (!accepted) return;
 
@@ -274,7 +273,7 @@ function Page() {
       conteudos_relacionados: mergeUnique(q.conteudos_relacionados ?? [], suggestion.conteudos_relacionados),
       tags_livres: mergeUnique(q.tags_livres ?? [], suggestion.tags_livres),
     }));
-    toast.success("Sugestões aplicadas. Revise os metadados antes de salvar.");
+    toast.success("Sugestões aplicadas. Revise a classificação antes de salvar.");
   };
 
   const updateAlt = (i: number, key: "letra" | "texto", v: string) => {
@@ -289,6 +288,14 @@ function Page() {
   const removeAlt = (i: number) => {
     const next = active.alternativas.filter((_, idx) => idx !== i);
     update("alternativas", reletter(next));
+  };
+  const removeCurrentQuestion = () => {
+    if (draft.questoes.length <= 1) return;
+    const label = active.numero ? `item ${active.numero}` : `item ${activeIndex + 1}`;
+    if (!confirm(`Excluir ${label} desta digitalização?`)) return;
+    const questoes = draft.questoes.filter((_, index) => index !== activeIndex);
+    setDraft({ ...draft, questoes });
+    setActiveIndex(Math.min(activeIndex, questoes.length - 1));
   };
 
   const hasIncompleteClassification = draft.questoes.some((q) =>
@@ -447,6 +454,9 @@ function Page() {
                     {q.numero ? `Item ${q.numero}` : `Item ${i + 1}`}
                   </Button>
                 ))}
+                <Button type="button" size="sm" variant="outline" className="gap-1 text-destructive" onClick={removeCurrentQuestion}>
+                  <Trash2 className="size-3.5" /> Excluir item
+                </Button>
               </div>
             )}
 
@@ -495,36 +505,35 @@ function Page() {
                   />
                 </div>
               )}
-              <Textarea
+              <RichTextEditor
                 value={active.enunciado}
-                onChange={(e) => update("enunciado", e.target.value)}
+                onChange={(value) => update("enunciado", value)}
                 rows={8}
+                placeholder="Enunciado"
                 className="font-mono text-sm"
               />
-              <RichPreview text={active.enunciado} />
-              <p className="text-xs text-muted-foreground mt-1">Equações em LaTeX: <code>$x^2$</code>, <code>$\\frac{`{a}`}{`{b}`}$</code></p>
             </div>
 
             {active.tipo === "multipla_escolha" && (
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <Label>Alternativas</Label>
-                  <Button size="sm" variant="outline" onClick={addAlt} className="gap-1"><Plus className="size-3" /> Adicionar</Button>
+                  <Button type="button" size="sm" variant="outline" onClick={addAlt} className="gap-1"><Plus className="size-3" /> Adicionar</Button>
                 </div>
                 <p className="text-xs text-muted-foreground mb-2">Imagens das alternativas são normalizadas para o mesmo tamanho no documento final.</p>
                 <div className="space-y-2">
                   {active.alternativas.map((a, i) => (
-                    <div key={i} className="flex gap-2 items-start">
+                    <div key={i} className="flex gap-2 items-start rounded-md border bg-background p-2">
                       <GripVertical className="size-4 mt-3 text-muted-foreground" />
                       <Input className="w-14 text-center font-bold" value={a.letra} onChange={(e) => updateAlt(i, "letra", e.target.value)} />
-                      <div className="flex-1 space-y-1">
-                        <Textarea
-                          className="text-sm"
-                          rows={2}
+                      <div className="flex-1 space-y-2">
+                        <RichTextEditor
                           value={a.texto}
-                          onChange={(e) => updateAlt(i, "texto", e.target.value)}
+                          onChange={(value) => updateAlt(i, "texto", value)}
+                          rows={2}
+                          placeholder={`Texto da alternativa ${a.letra}`}
+                          className="text-sm"
                         />
-                        <RichPreview text={a.texto} />
                         {a.imagem ? (
                           <div className="flex items-center gap-2 rounded-md border p-1.5 bg-muted/30">
                             <img src={a.imagem} alt={`Imagem ${a.letra}`} className="h-16 object-contain rounded" />
@@ -543,7 +552,7 @@ function Page() {
                           </Button>
                         )}
                       </div>
-                      <Button variant="ghost" size="icon" onClick={() => removeAlt(i)}><Trash2 className="size-4" /></Button>
+                      <Button type="button" variant="ghost" size="icon" onClick={() => removeAlt(i)}><Trash2 className="size-4" /></Button>
                     </div>
                   ))}
                 </div>
@@ -556,10 +565,10 @@ function Page() {
             </div>
 
             <details className="rounded-lg border p-3" open>
-              <summary className="cursor-pointer text-sm font-medium">Metadados opcionais</summary>
+              <summary className="cursor-pointer text-sm font-medium">Classificação pedagógica da questão</summary>
               <div className="mt-3 flex justify-end">
                 <Button type="button" size="sm" variant="outline" className="gap-1" onClick={suggestMetadata}>
-                  <Sparkles className="size-3.5" /> Sugerir metadados
+                  <Sparkles className="size-3.5" /> Sugerir classificação
                 </Button>
               </div>
               <div className="grid gap-4 mt-3">
@@ -637,8 +646,12 @@ function Page() {
 
                 <div>
                   <Label>Observações</Label>
-                  <Textarea rows={2} value={active.observacoes ?? ""} onChange={(e) => update("observacoes", e.target.value)} />
-                  <RichPreview text={active.observacoes} />
+                  <RichTextEditor
+                    value={active.observacoes ?? ""}
+                    onChange={(value) => update("observacoes", value)}
+                    rows={2}
+                    placeholder="Observações, resolução ou comentário"
+                  />
                 </div>
               </div>
             </details>
@@ -687,16 +700,6 @@ function Page() {
         }}
       />
     </AppLayout>
-  );
-}
-
-function RichPreview({ text }: { text: string | null | undefined }) {
-  if (!text?.trim()) return null;
-  return (
-    <div className="mt-2 rounded-md border bg-muted/30 p-2 text-sm">
-      <p className="mb-1 text-xs font-medium text-muted-foreground">Prévia formatada</p>
-      <RichText text={text} className="leading-relaxed" />
-    </div>
   );
 }
 
@@ -758,20 +761,17 @@ function ReferenceEditor({
       </div>
 
       <div className="rounded-lg border bg-background p-3 space-y-3">
-        <Textarea
+        <RichTextEditor
           value={hasImage ? draft.referencia_texto : joinReferenceTextParts(draft.referencia_texto, draft.referencia_texto_apos ?? "")}
-          onChange={(e) => {
-            onTextChange("before", e.target.value);
+          onChange={(value) => {
+            onTextChange("before", value);
             if (!hasImage && draft.referencia_texto_apos) onTextChange("after", "");
           }}
-          onSelect={(e) => rememberCursor("before", e.currentTarget)}
-          onClick={(e) => rememberCursor("before", e.currentTarget)}
-          onKeyUp={(e) => rememberCursor("before", e.currentTarget)}
+          onCursorChange={(target) => rememberCursor("before", target)}
           rows={hasImage ? 4 : 7}
           placeholder="Texto, tabela ou comando geral que vale para todos os itens."
           className="text-sm"
         />
-        <RichPreview text={hasImage ? draft.referencia_texto : joinReferenceTextParts(draft.referencia_texto, draft.referencia_texto_apos ?? "")} />
 
         {!hasImage && (
           <div className="flex justify-end">
@@ -840,19 +840,14 @@ function ReferenceEditor({
         )}
 
         {hasImage && (
-          <>
-            <Textarea
-              value={draft.referencia_texto_apos ?? ""}
-              onChange={(e) => onTextChange("after", e.target.value)}
-              onSelect={(e) => rememberCursor("after", e.currentTarget)}
-              onClick={(e) => rememberCursor("after", e.currentTarget)}
-              onKeyUp={(e) => rememberCursor("after", e.currentTarget)}
-              rows={4}
-              placeholder="Texto depois da imagem."
-              className="text-sm"
-            />
-            <RichPreview text={draft.referencia_texto_apos} />
-          </>
+          <RichTextEditor
+            value={draft.referencia_texto_apos ?? ""}
+            onChange={(value) => onTextChange("after", value)}
+            onCursorChange={(target) => rememberCursor("after", target)}
+            rows={4}
+            placeholder="Texto depois da imagem."
+            className="text-sm"
+          />
         )}
       </div>
     </div>

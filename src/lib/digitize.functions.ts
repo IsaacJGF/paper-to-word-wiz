@@ -73,11 +73,12 @@ REGRAS CRÍTICAS:
 - Preserve a organização visual fiel ao impresso usando as marcações leves abaixo, em todos os campos de texto (referencia_texto, enunciado, alternativas).
 - Alinhamento: envolva blocos claramente alinhados com [left]...[/left], [center]...[/center], [right]...[/right] ou [justify]...[/justify]. Se não houver segurança sobre o alinhamento, use justificado ou deixe sem marcação, pois o sistema usará justificado como padrão.
 - Negrito: **texto**. NUNCA use \\textbf{}. Itálico: *texto*. NUNCA use \\textit{} nem \\emph{}. Sublinhado: __texto__ ou <u>texto</u>. NUNCA use \\underline{} fora de equações.
+- Sombreamento ou destaque visual: use <mark>texto</mark> ou ==texto==.
 - Sobrescrito em texto comum: ^{2} ou <sup>2</sup>. Subscrito em texto comum: _{2} ou <sub>2</sub>. Para fórmulas, prefira LaTeX entre cifrões.
 - Matemática SEMPRE entre cifrões: $x^2 + 2x$ inline, ou $$\\frac{a}{b}$$ em linha separada. Use \\frac, \\sqrt, \\alpha, \\pi, \\Delta etc. APENAS dentro de $...$. Fora dos cifrões, NÃO use comandos LaTeX crus — se vir o resultado bruto (\\textbf, \\frac sem cifrão, etc.) na saída, está errado.
 - Preserve quebras de linha e parágrafos com \\n. Preserve espaçamento entre blocos com linha em branco quando isso existir visualmente.
-- Preserve listas com linhas iniciadas por "- " ou "1. ". Preserve tabelas em formato Markdown com pipes, por exemplo "| Coluna A | Coluna B |" e uma linha separadora "|---|---|".
-- Para títulos ou trechos destacados, use **negrito** e, se visivelmente centralizados, [center]...[/center].
+- Preserve listas com linhas iniciadas por "- ", "1. " ou "A. ". Preserve tabelas em formato Markdown com pipes, por exemplo "| Coluna A | Coluna B |" e uma linha separadora "|---|---|".
+- Para títulos ou trechos destacados, use **negrito**, <mark>destaque</mark> quando houver sombreamento, e, se visivelmente centralizados, [center]...[/center].
 - Separe corretamente o enunciado das alternativas. Cada alternativa em um objeto próprio com letra (A, B, C, D, E) e texto.
 - Se a questão for de certo/errado, use alternativas vazias [] e tipo "certo_errado".
 - Se a questão for discursiva ou numérica, alternativas = [].
