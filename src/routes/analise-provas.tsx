@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BarChart3, FileSearch, Image as ImageIcon, Loader2, TextSearch } from "lucide-react";
+import { BarChart3, FileSearch, FileText, Image as ImageIcon, Loader2, Sigma, TextSearch } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,8 @@ type AnalysisFilters = {
 
 type QuestionRow = {
   id: string;
+  numero: string | null;
+  enunciado: string | null;
   tipo: string | null;
   ano: string | null;
   prova: string | null;
@@ -52,6 +54,7 @@ type AnalysisSummary = {
   withReference: number;
   withImage: number;
   withEquation: number;
+  withAlternatives: number;
 };
 
 const EMPTY_FILTERS: AnalysisFilters = {
@@ -72,8 +75,29 @@ const TYPE_OPTIONS = [
   { value: "discursiva", label: "Discursiva" },
 ];
 
+const ANALYSIS_COLUMNS = [
+  "id",
+  "numero",
+  "enunciado",
+  "tipo",
+  "ano",
+  "prova",
+  "instituicao",
+  "area_geral",
+  "conteudo_principal",
+  "subconteudo_principal",
+  "referencia_texto",
+  "referencia_texto_apos",
+  "referencia_imagem",
+  "enunciado_imagem",
+  "tem_imagem",
+  "tem_equacao",
+  "alternativas",
+].join(",");
+
 function Page() {
   const [filters, setFilters] = useState<AnalysisFilters>(EMPTY_FILTERS);
+  const [appliedFilters, setAppliedFilters] = useState<AnalysisFilters>(EMPTY_FILTERS);
   const [areas, setAreas] = useState<CatalogItem[]>([]);
   const [conteudos, setConteudos] = useState<CatalogItem[]>([]);
   const [subconteudos, setSubconteudos] = useState<CatalogItem[]>([]);
@@ -127,33 +151,31 @@ function Page() {
 
   const clearFilters = () => {
     setFilters(EMPTY_FILTERS);
+    setAppliedFilters(EMPTY_FILTERS);
     setSummary(null);
     setHasAnalyzed(false);
   };
 
   const analyze = async () => {
+    const normalizedFilters = normalizeFilters(filters);
+    if (!isValidYearRange(normalizedFilters)) {
+      toast.error("Confira o intervalo de anos antes de analisar.");
+      return;
+    }
+
     setLoading(true);
     setHasAnalyzed(true);
+    setAppliedFilters(normalizedFilters);
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db = supabase as any;
-      let query = db
-        .from("questions")
-        .select("id,tipo,ano,prova,instituicao,area_geral,conteudo_principal,subconteudo_principal,referencia_texto,referencia_texto_apos,referencia_imagem,enunciado_imagem,tem_imagem,tem_equacao,alternativas");
+      let query = db.from("questions").select(ANALYSIS_COLUMNS);
+      query = applyFiltersToQuery(query, normalizedFilters);
+      const { data, error } = await query.order("ano", { ascending: true }).order("created_at", { ascending: true });
 
-      if (filters.prova) query = query.eq("prova", filters.prova);
-      if (filters.instituicao) query = query.eq("instituicao", filters.instituicao);
-      if (filters.anoInicial.trim()) query = query.gte("ano", filters.anoInicial.trim());
-      if (filters.anoFinal.trim()) query = query.lte("ano", filters.anoFinal.trim());
-      if (filters.areaGeral) query = query.eq("area_geral", filters.areaGeral);
-      if (filters.conteudoPrincipal) query = query.eq("conteudo_principal", filters.conteudoPrincipal);
-      if (filters.subconteudoPrincipal) query = query.eq("subconteudo_principal", filters.subconteudoPrincipal);
-      if (filters.tipo) query = query.eq("tipo", filters.tipo);
-
-      const { data, error } = await query.order("ano", { ascending: true });
       if (error) {
-        console.error(error);
-        toast.error("Falha ao analisar as provas.");
+        console.error("Erro ao consultar questões para análise:", error);
+        toast.error("Não foi possível carregar as questões para análise.");
         setSummary(null);
         return;
       }
@@ -175,7 +197,7 @@ function Page() {
             </p>
           </div>
           <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Versão inicial: filtros e resumo simples
+            Consulta otimizada por filtros no Supabase
           </div>
         </div>
 
@@ -183,7 +205,7 @@ function Page() {
           <div className="mb-4 flex items-center justify-between gap-2">
             <div>
               <h2 className="font-semibold">Filtros da análise</h2>
-              <p className="text-xs text-muted-foreground">Selecione a base de questões que será analisada.</p>
+              <p className="text-xs text-muted-foreground">Selecione a base de questões que será analisada. Os filtros são combinados entre si.</p>
             </div>
             {activeFilterCount > 0 && <span className="rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">{activeFilterCount} filtro{activeFilterCount > 1 ? "s" : ""}</span>}
           </div>
@@ -193,15 +215,15 @@ function Page() {
             <FilterSelect label="Instituição" value={filters.instituicao} onChange={(value) => updateFilter("instituicao", value)} options={instituicoes} placeholder="Todas as instituições" />
             <div className="space-y-1.5">
               <Label>Ano inicial</Label>
-              <Input value={filters.anoInicial} onChange={(event) => updateFilter("anoInicial", event.target.value)} placeholder="Ex.: 2015" inputMode="numeric" />
+              <Input value={filters.anoInicial} onChange={(event) => updateFilter("anoInicial", onlyYearDigits(event.target.value))} placeholder="Ex.: 2018" inputMode="numeric" maxLength={4} />
             </div>
             <div className="space-y-1.5">
               <Label>Ano final</Label>
-              <Input value={filters.anoFinal} onChange={(event) => updateFilter("anoFinal", event.target.value)} placeholder="Ex.: 2024" inputMode="numeric" />
+              <Input value={filters.anoFinal} onChange={(event) => updateFilter("anoFinal", onlyYearDigits(event.target.value))} placeholder="Ex.: 2024" inputMode="numeric" maxLength={4} />
             </div>
             <FilterSelect label="Área geral" value={filters.areaGeral} onChange={(value) => updateFilter("areaGeral", value)} options={areas} placeholder="Todas as áreas" />
-            <FilterSelect label="Conteúdo principal" value={filters.conteudoPrincipal} onChange={(value) => updateFilter("conteudoPrincipal", value)} options={conteudoOptions} placeholder="Todos os conteúdos" disabled={Boolean(filters.areaGeral) && conteudoOptions.length === 0} />
-            <FilterSelect label="Subconteúdo principal" value={filters.subconteudoPrincipal} onChange={(value) => updateFilter("subconteudoPrincipal", value)} options={subconteudoOptions} placeholder="Todos os subconteúdos" disabled={Boolean(filters.conteudoPrincipal) && subconteudoOptions.length === 0} />
+            <FilterSelect label="Conteúdo principal" value={filters.conteudoPrincipal} onChange={(value) => updateFilter("conteudoPrincipal", value)} options={conteudoOptions} placeholder={filters.areaGeral ? "Todos os conteúdos da área" : "Todos os conteúdos"} disabled={Boolean(filters.areaGeral) && conteudoOptions.length === 0} />
+            <FilterSelect label="Subconteúdo principal" value={filters.subconteudoPrincipal} onChange={(value) => updateFilter("subconteudoPrincipal", value)} options={subconteudoOptions} placeholder={filters.conteudoPrincipal ? "Todos os subconteúdos do conteúdo" : "Todos os subconteúdos"} disabled={Boolean(filters.conteudoPrincipal) && subconteudoOptions.length === 0} />
             <div className="space-y-1.5">
               <Label>Tipo de questão</Label>
               <select value={filters.tipo} onChange={(event) => updateFilter("tipo", event.target.value)} className="h-10 w-full rounded-md border bg-card px-3 text-sm">
@@ -215,7 +237,7 @@ function Page() {
             <Button type="button" variant="outline" onClick={clearFilters}>Limpar</Button>
             <Button type="button" onClick={analyze} disabled={loading} className="gap-2">
               {loading ? <Loader2 className="size-4 animate-spin" /> : <FileSearch className="size-4" />}
-              Analisar prova
+              {loading ? "Analisando..." : "Analisar prova"}
             </Button>
           </div>
         </section>
@@ -232,11 +254,11 @@ function Page() {
           )}
 
           {hasAnalyzed && !loading && summary && summary.total === 0 && (
-            <EmptyState text="Nenhuma questão encontrada para os filtros selecionados." />
+            <EmptyState text="Nenhuma questão encontrada para os filtros selecionados. Revise os filtros ou verifique se as questões possuem metadados cadastrados." />
           )}
 
           {hasAnalyzed && !loading && summary && summary.total > 0 && (
-            <AnalysisResult summary={summary} filters={filters} />
+            <AnalysisResult summary={summary} filters={appliedFilters} />
           )}
         </section>
       </div>
@@ -274,24 +296,29 @@ function EmptyState({ text }: { text: string }) {
 }
 
 function AnalysisResult({ summary, filters }: { summary: AnalysisSummary; filters: AnalysisFilters }) {
-  const period = [filters.anoInicial || summary.years[0], filters.anoFinal || summary.years[summary.years.length - 1]].filter(Boolean).join("–") || "Todos os anos";
+  const period = formatPeriod(filters, summary.years);
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <SummaryCard title="Questões analisadas" value={summary.total} icon={<FileSearch className="size-5" />} />
         <SummaryCard title="Anos analisados" value={summary.years.length} description={period} icon={<BarChart3 className="size-5" />} />
         <SummaryCard title="Com referência" value={summary.withReference} description={percentage(summary.withReference, summary.total)} icon={<TextSearch className="size-5" />} />
         <SummaryCard title="Com imagem" value={summary.withImage} description={percentage(summary.withImage, summary.total)} icon={<ImageIcon className="size-5" />} />
+        <SummaryCard title="Com equação" value={summary.withEquation} description={percentage(summary.withEquation, summary.total)} icon={<Sigma className="size-5" />} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
         <div className="rounded-xl border bg-card p-4">
-          <h2 className="font-semibold">Resumo da base analisada</h2>
+          <h2 className="font-semibold">Resumo da busca</h2>
           <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
             <Info label="Prova" value={filters.prova || "Todas"} />
             <Info label="Instituição" value={filters.instituicao || "Todas"} />
             <Info label="Período" value={period} />
-            <Info label="Questões com equação" value={`${summary.withEquation} (${percentage(summary.withEquation, summary.total)})`} />
+            <Info label="Área geral" value={filters.areaGeral || "Todas"} />
+            <Info label="Conteúdo principal" value={filters.conteudoPrincipal || "Todos"} />
+            <Info label="Subconteúdo principal" value={filters.subconteudoPrincipal || "Todos"} />
+            <Info label="Tipo de questão" value={filters.tipo ? formatType(filters.tipo) : "Todos"} />
+            <Info label="Com alternativas" value={`${summary.withAlternatives} (${percentage(summary.withAlternatives, summary.total)})`} />
           </div>
         </div>
 
@@ -308,12 +335,7 @@ function AnalysisResult({ summary, filters }: { summary: AnalysisSummary; filter
         </div>
       </div>
 
-      <div className="rounded-xl border bg-card p-4">
-        <h2 className="font-semibold">Próximas análises</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Esta primeira versão prepara a base da aba. Os próximos PRs podem adicionar conteúdos mais cobrados, tabelas com porcentagem, gráficos, análise de termos, comandos frequentes, referências/textos-base, cruzamentos e resumo inteligente com IA.
-        </p>
-      </div>
+      <QuestionList questions={summary.questions} />
     </div>
   );
 }
@@ -340,12 +362,50 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
+function QuestionList({ questions }: { questions: QuestionRow[] }) {
+  const visible = questions.slice(0, 80);
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="font-semibold">Questões usadas na análise</h2>
+          <p className="text-xs text-muted-foreground">Lista compacta para conferir se a busca retornou a base correta.</p>
+        </div>
+        {questions.length > visible.length && (
+          <span className="text-xs text-muted-foreground">Mostrando {visible.length} de {questions.length}</span>
+        )}
+      </div>
+      <div className="space-y-2">
+        {visible.map((question) => (
+          <div key={question.id} className="rounded-lg border bg-background p-3">
+            <div className="mb-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="rounded-md bg-muted px-1.5 py-0.5">{question.prova || "Prova não informada"}</span>
+              <span className="rounded-md bg-muted px-1.5 py-0.5">{question.instituicao || "Instituição não informada"}</span>
+              <span className="rounded-md bg-muted px-1.5 py-0.5">{question.ano || "Ano não informado"}</span>
+              <span className="rounded-md bg-muted px-1.5 py-0.5">{formatType(question.tipo || "sem_tipo")}</span>
+            </div>
+            <div className="mb-1 flex flex-wrap gap-1.5 text-xs">
+              <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-primary">{question.area_geral || "Sem área"}</span>
+              <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-primary">{question.conteudo_principal || "Sem conteúdo"}</span>
+              <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-primary">{question.subconteudo_principal || "Sem subconteúdo"}</span>
+            </div>
+            <p className="line-clamp-2 text-sm text-foreground/90">
+              {question.numero ? `Item ${question.numero}. ` : ""}{plainText(question.enunciado) || "Sem enunciado cadastrado."}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function buildSummary(questions: QuestionRow[]): AnalysisSummary {
   const years = Array.from(new Set(questions.map((q) => q.ano?.trim()).filter((ano): ano is string => Boolean(ano)))).sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true }));
   const typeMap = new Map<string, number>();
   let withReference = 0;
   let withImage = 0;
   let withEquation = 0;
+  let withAlternatives = 0;
 
   for (const question of questions) {
     const type = question.tipo?.trim() || "sem_tipo";
@@ -353,6 +413,7 @@ function buildSummary(questions: QuestionRow[]): AnalysisSummary {
     if (hasReference(question)) withReference += 1;
     if (hasImage(question)) withImage += 1;
     if (question.tem_equacao) withEquation += 1;
+    if (Array.isArray(question.alternativas) && question.alternativas.length > 0) withAlternatives += 1;
   }
 
   return {
@@ -365,7 +426,43 @@ function buildSummary(questions: QuestionRow[]): AnalysisSummary {
     withReference,
     withImage,
     withEquation,
+    withAlternatives,
   };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyFiltersToQuery(query: any, filters: AnalysisFilters) {
+  if (filters.prova) query = query.eq("prova", filters.prova);
+  if (filters.instituicao) query = query.eq("instituicao", filters.instituicao);
+  if (filters.anoInicial) query = query.gte("ano", filters.anoInicial);
+  if (filters.anoFinal) query = query.lte("ano", filters.anoFinal);
+  if (filters.areaGeral) query = query.eq("area_geral", filters.areaGeral);
+  if (filters.conteudoPrincipal) query = query.eq("conteudo_principal", filters.conteudoPrincipal);
+  if (filters.subconteudoPrincipal) query = query.eq("subconteudo_principal", filters.subconteudoPrincipal);
+  if (filters.tipo) query = query.eq("tipo", filters.tipo);
+  return query;
+}
+
+function normalizeFilters(filters: AnalysisFilters): AnalysisFilters {
+  return {
+    prova: filters.prova.trim(),
+    instituicao: filters.instituicao.trim(),
+    anoInicial: filters.anoInicial.trim(),
+    anoFinal: filters.anoFinal.trim(),
+    areaGeral: filters.areaGeral.trim(),
+    conteudoPrincipal: filters.conteudoPrincipal.trim(),
+    subconteudoPrincipal: filters.subconteudoPrincipal.trim(),
+    tipo: filters.tipo.trim(),
+  };
+}
+
+function isValidYearRange(filters: AnalysisFilters) {
+  const start = filters.anoInicial ? Number(filters.anoInicial) : null;
+  const end = filters.anoFinal ? Number(filters.anoFinal) : null;
+  if (filters.anoInicial && (!Number.isFinite(start) || filters.anoInicial.length !== 4)) return false;
+  if (filters.anoFinal && (!Number.isFinite(end) || filters.anoFinal.length !== 4)) return false;
+  if (start && end && start > end) return false;
+  return true;
 }
 
 function hasReference(question: QuestionRow) {
@@ -384,6 +481,26 @@ function hasImage(question: QuestionRow) {
 function percentage(value: number, total: number) {
   if (total === 0) return "0%";
   return `${Math.round((value / total) * 100)}%`;
+}
+
+function formatPeriod(filters: AnalysisFilters, years: string[]) {
+  if (filters.anoInicial && filters.anoFinal) return `${filters.anoInicial}–${filters.anoFinal}`;
+  if (filters.anoInicial) return `A partir de ${filters.anoInicial}`;
+  if (filters.anoFinal) return `Até ${filters.anoFinal}`;
+  if (years.length > 0) return `${years[0]}–${years[years.length - 1]}`;
+  return "Todos os anos";
+}
+
+function onlyYearDigits(value: string) {
+  return value.replace(/\D/g, "").slice(0, 4);
+}
+
+function plainText(value: string | null | undefined) {
+  return (value ?? "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\$+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function formatType(tipo: string) {
