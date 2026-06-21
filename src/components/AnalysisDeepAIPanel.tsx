@@ -1,10 +1,24 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, BrainCircuit, ClipboardCopy, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { generateDeepProvaAnalysis } from "@/lib/prova-deep-analysis.functions";
+import { supabase } from "@/integrations/supabase/client";
 import { buildDeepAnalysisPayload, deepAnalysisPayloadToText, type DeepAnalysisFilters, type DeepAnalysisReport, type DeepPattern } from "@/lib/prova-deep-analysis";
 import type { ProvaAnalysisSummary } from "@/lib/prova-analysis";
 import { toast } from "sonner";
+
+type DeepAnalysisSuccess = {
+  ok: true;
+  report: DeepAnalysisReport;
+  model: string;
+};
+
+type DeepAnalysisFailure = {
+  ok: false;
+  errorCode?: string;
+  message: string;
+};
+
+type DeepAnalysisResponse = DeepAnalysisSuccess | DeepAnalysisFailure;
 
 export function AnalysisDeepAIPanel({ summary, filters }: { summary: ProvaAnalysisSummary; filters: DeepAnalysisFilters }) {
   const [loading, setLoading] = useState(false);
@@ -17,14 +31,33 @@ export function AnalysisDeepAIPanel({ summary, filters }: { summary: ProvaAnalys
     setLoading(true);
     setError("");
     try {
-      const result = await generateDeepProvaAnalysis({ data: { payload } });
-      if (!result.ok) {
-        setError(result.message);
-        toast.error(result.message);
+      const { data, error: invokeError } = await supabase.functions.invoke<DeepAnalysisResponse>("openai-deep-analysis", {
+        body: { payload },
+      });
+
+      if (invokeError) {
+        console.error("Erro ao chamar Edge Function openai-deep-analysis:", invokeError);
+        const message = invokeError.message || "Falha ao chamar a função de análise profunda por IA.";
+        setError(message);
+        toast.error(message);
         return;
       }
-      setReport(result.report);
-      setModel(result.model);
+
+      if (!data) {
+        const message = "A função de análise profunda não retornou dados.";
+        setError(message);
+        toast.error(message);
+        return;
+      }
+
+      if (!data.ok) {
+        setError(data.message);
+        toast.error(data.message);
+        return;
+      }
+
+      setReport(data.report);
+      setModel(data.model);
       toast.success("Análise profunda gerada.");
     } catch (err) {
       console.error("Erro ao gerar análise profunda:", err);
@@ -73,7 +106,7 @@ export function AnalysisDeepAIPanel({ summary, filters }: { summary: ProvaAnalys
       </div>
 
       <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-        Essa análise pode demorar um pouco mais, pois usa a API da OpenAI e os textos das questões analisadas.
+        Essa análise pode demorar um pouco mais, pois usa uma Supabase Edge Function segura para chamar a API da OpenAI. A chave da OpenAI não fica no navegador.
       </div>
 
       {payload.amostra.usou_amostra_representativa && (
