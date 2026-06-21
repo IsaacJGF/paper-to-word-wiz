@@ -201,6 +201,13 @@ function findFirstStyleToken(text: string): StyleToken | null {
     tagToken(text, "u", { underline: true }),
     tagToken(text, "sup", { superscript: true }),
     tagToken(text, "sub", { subscript: true }),
+    latexCommandToken(text, "textbf", { bold: true }),
+    latexCommandToken(text, "textit", { italic: true }),
+    latexCommandToken(text, "emph", { italic: true }),
+    latexCommandToken(text, "underline", { underline: true }),
+    latexCommandToken(text, "uline", { underline: true }),
+    latexCommandToken(text, "textsuperscript", { superscript: true }),
+    latexCommandToken(text, "textsubscript", { subscript: true }),
     wrappedToken(text, "**", "**", { bold: true }),
     wrappedToken(text, "__", "__", { underline: true }),
     wrappedToken(text, "*", "*", { italic: true }),
@@ -211,6 +218,23 @@ function findFirstStyleToken(text: string): StyleToken | null {
 
   tokens.sort((a, b) => a.start - b.start || a.end - b.end);
   return tokens[0] ?? null;
+}
+
+function latexCommandToken(text: string, command: string, style: InlineStyle): StyleToken | null {
+  const marker = `\\${command}{`;
+  const start = text.indexOf(marker);
+  if (start === -1) return null;
+  const innerStart = start + marker.length;
+  let depth = 1;
+  let i = innerStart;
+  while (i < text.length && depth > 0) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") depth--;
+    if (depth === 0) break;
+    i++;
+  }
+  if (depth !== 0) return null;
+  return { start, end: i + 1, innerStart, innerEnd: i, style };
 }
 
 function tagToken(text: string, tag: string, style: InlineStyle): StyleToken | null {
