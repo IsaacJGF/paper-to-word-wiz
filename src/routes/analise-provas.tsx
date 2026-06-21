@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BarChart3, BookOpenCheck, FileSearch, Image as ImageIcon, Layers, ListChecks, Loader2, Sigma, Tags, TextSearch } from "lucide-react";
+import { AlertTriangle, BarChart3, BookOpenCheck, FileSearch, Image as ImageIcon, Layers, ListChecks, Loader2, Sigma, Tags, TextSearch } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,8 @@ type AnalysisFilters = {
 };
 
 type QuestionRow = ProvaAnalysisQuestion;
+
+type MatrixRow = { content: string; byYear: Record<string, number>; total: number };
 
 const EMPTY_FILTERS: AnalysisFilters = {
   prova: "",
@@ -70,6 +72,8 @@ const ANALYSIS_COLUMNS = [
   "alternativas",
 ].join(",");
 
+const DONUT_COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2", "#64748b"];
+
 function Page() {
   const [filters, setFilters] = useState<AnalysisFilters>(EMPTY_FILTERS);
   const [appliedFilters, setAppliedFilters] = useState<AnalysisFilters>(EMPTY_FILTERS);
@@ -102,13 +106,9 @@ function Page() {
   }, []);
 
   const selectedArea = areas.find((item) => item.nome === filters.areaGeral);
-  const conteudoOptions = selectedArea
-    ? conteudos.filter((item) => item.area_id === selectedArea.id)
-    : conteudos;
+  const conteudoOptions = selectedArea ? conteudos.filter((item) => item.area_id === selectedArea.id) : conteudos;
   const selectedConteudo = conteudoOptions.find((item) => item.nome === filters.conteudoPrincipal);
-  const subconteudoOptions = selectedConteudo
-    ? subconteudos.filter((item) => item.conteudo_id === selectedConteudo.id)
-    : subconteudos;
+  const subconteudoOptions = selectedConteudo ? subconteudos.filter((item) => item.conteudo_id === selectedConteudo.id) : subconteudos;
 
   const activeFilterCount = useMemo(() => Object.values(filters).filter(Boolean).length, [filters]);
 
@@ -172,7 +172,7 @@ function Page() {
             </p>
           </div>
           <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Painel visual com cards e tabelas
+            Gráficos principais
           </div>
         </div>
 
@@ -218,9 +218,7 @@ function Page() {
         </section>
 
         <section className="mt-4">
-          {!hasAnalyzed && (
-            <EmptyState text="Selecione os filtros e clique em Analisar prova para visualizar os padrões da prova." />
-          )}
+          {!hasAnalyzed && <EmptyState text="Selecione os filtros e clique em Analisar prova para visualizar os padrões da prova." />}
 
           {hasAnalyzed && loading && (
             <div className="flex items-center justify-center rounded-xl border bg-card py-16 text-muted-foreground">
@@ -232,9 +230,7 @@ function Page() {
             <EmptyState text="Nenhuma questão encontrada para os filtros selecionados. Revise os filtros ou verifique se as questões possuem metadados cadastrados." />
           )}
 
-          {hasAnalyzed && !loading && summary && summary.total > 0 && (
-            <AnalysisResult summary={summary} filters={appliedFilters} />
-          )}
+          {hasAnalyzed && !loading && summary && summary.total > 0 && <AnalysisResult summary={summary} filters={appliedFilters} />}
         </section>
       </div>
     </AppLayout>
@@ -274,6 +270,7 @@ function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; f
   const period = formatPeriod(filters, summary.years);
   return (
     <div className="space-y-4">
+      {summary.total < 10 && <SmallSampleAlert total={summary.total} />}
       <SummaryCards summary={summary} period={period} />
 
       <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
@@ -283,6 +280,8 @@ function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; f
         </div>
         <TypeBreakdownCard summary={summary} />
       </div>
+
+      <ChartsPanel summary={summary} />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <VisualFrequencyTable title="Conteúdos mais cobrados" rows={summary.contentFrequency} total={summary.total} highlightFirst />
@@ -295,6 +294,17 @@ function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; f
 
       <MetadataQuality summary={summary} />
       <QuestionList questions={summary.questions} />
+    </div>
+  );
+}
+
+function SmallSampleAlert({ total }: { total: number }) {
+  return (
+    <div className="flex gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+      <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+      <div>
+        <strong>Amostra pequena:</strong> a análise foi feita com {total} questão{total === 1 ? "" : "ões"}. As visualizações podem indicar tendências, mas ainda não representam um padrão sólido da prova.
+      </div>
     </div>
   );
 }
@@ -382,6 +392,137 @@ function TypeBreakdownCard({ summary }: { summary: ProvaAnalysisSummary }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function ChartsPanel({ summary }: { summary: ProvaAnalysisSummary }) {
+  const matrix = buildContentYearMatrix(summary);
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      <HorizontalBarChart title="Barras horizontais: conteúdos mais cobrados" rows={summary.contentFrequency} emptyText="Nenhum conteúdo principal encontrado." />
+      <VerticalBarChart title="Barras verticais: questões por ano" rows={summary.questionsByYear} />
+      <DonutChart title="Distribuição por área geral" rows={summary.areaFrequency} total={summary.total} />
+      <HeatmapChart title="Mapa simples Ano × Conteúdo" years={matrix.years} rows={matrix.rows} />
+    </div>
+  );
+}
+
+function HorizontalBarChart({ title, rows, emptyText }: { title: string; rows: FrequencyRow[]; emptyText: string }) {
+  const visible = rows.filter((row) => row.count > 0).slice(0, 10);
+  const max = Math.max(...visible.map((row) => row.count), 0);
+  return (
+    <ChartCard title={title} description="Mostra os conteúdos com maior presença na base filtrada.">
+      {visible.length === 0 ? <p className="text-sm text-muted-foreground">{emptyText}</p> : (
+        <div className="space-y-3">
+          {visible.map((row) => (
+            <div key={row.value} className="grid gap-2 sm:grid-cols-[180px_1fr_72px] sm:items-center">
+              <span className="line-clamp-1 text-sm font-medium" title={row.value}>{row.value}</span>
+              <ProgressBar percent={max > 0 ? (row.count / max) * 100 : 0} />
+              <span className="text-right text-xs text-muted-foreground">{row.count} · {formatPercent(row.percent)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </ChartCard>
+  );
+}
+
+function VerticalBarChart({ title, rows }: { title: string; rows: Array<{ year: string; count: number }> }) {
+  const visible = rows.filter((row) => row.count > 0).slice(-12);
+  const max = Math.max(...visible.map((row) => row.count), 0);
+  return (
+    <ChartCard title={title} description="Mostra a distribuição temporal das questões analisadas.">
+      {visible.length === 0 ? <p className="text-sm text-muted-foreground">Nenhum ano informado nas questões analisadas.</p> : (
+        <div className="flex h-64 items-end gap-2 overflow-x-auto rounded-lg bg-muted/30 p-3">
+          {visible.map((row) => (
+            <div key={row.year} className="flex min-w-12 flex-1 flex-col items-center justify-end gap-2">
+              <span className="text-xs font-semibold">{row.count}</span>
+              <div className="w-full rounded-t-md bg-primary/70" style={{ height: `${Math.max(8, max > 0 ? (row.count / max) * 180 : 0)}px` }} />
+              <span className="text-xs text-muted-foreground">{row.year}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </ChartCard>
+  );
+}
+
+function DonutChart({ title, rows, total }: { title: string; rows: FrequencyRow[]; total: number }) {
+  const visible = rows.filter((row) => row.count > 0).slice(0, 6);
+  const gradient = buildDonutGradient(visible, total);
+  return (
+    <ChartCard title={title} description="Mostra a participação das áreas gerais na base analisada.">
+      {visible.length === 0 ? <p className="text-sm text-muted-foreground">Nenhuma área geral encontrada.</p> : (
+        <div className="grid gap-4 sm:grid-cols-[180px_1fr] sm:items-center">
+          <div className="relative mx-auto size-40 rounded-full" style={{ background: gradient }}>
+            <div className="absolute inset-10 flex flex-col items-center justify-center rounded-full bg-card text-center">
+              <strong className="text-2xl">{total}</strong>
+              <span className="text-[10px] text-muted-foreground">questões</span>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {visible.map((row, index) => (
+              <div key={row.value} className="flex items-center justify-between gap-2 text-sm">
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <span className="size-3 shrink-0 rounded-full" style={{ backgroundColor: DONUT_COLORS[index % DONUT_COLORS.length] }} />
+                  <span className="line-clamp-1">{row.value}</span>
+                </span>
+                <strong>{formatPercent(row.percent)}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </ChartCard>
+  );
+}
+
+function HeatmapChart({ title, years, rows }: { title: string; years: string[]; rows: MatrixRow[] }) {
+  const max = Math.max(...rows.flatMap((row) => Object.values(row.byYear)), 0);
+  return (
+    <ChartCard title={title} description="Cruzamento visual simples entre ano e conteúdo principal.">
+      {years.length === 0 || rows.length === 0 ? <p className="text-sm text-muted-foreground">Não há anos ou conteúdos suficientes para montar o mapa.</p> : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
+            <thead>
+              <tr className="border-b text-xs text-muted-foreground">
+                <th className="sticky left-0 bg-card py-2 pr-2 text-left font-medium">Conteúdo</th>
+                {years.map((year) => <th key={year} className="px-2 py-2 text-center font-medium">{year}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.content} className="border-b last:border-0">
+                  <td className="sticky left-0 max-w-52 bg-card py-2 pr-2 font-medium"><span className="line-clamp-1" title={row.content}>{row.content}</span></td>
+                  {years.map((year) => {
+                    const value = row.byYear[year] ?? 0;
+                    return (
+                      <td key={year} className="p-1 text-center">
+                        <span className="inline-flex h-8 w-full items-center justify-center rounded-md text-xs font-semibold" style={{ backgroundColor: heatmapCellColor(value, max) }}>
+                          {value || ""}
+                        </span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ChartCard>
+  );
+}
+
+function ChartCard({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="mb-4">
+        <h2 className="font-semibold">{title}</h2>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      {children}
     </div>
   );
 }
@@ -491,9 +632,7 @@ function QuestionList({ questions }: { questions: ProvaAnalysisQuestion[] }) {
           <h2 className="font-semibold">Questões usadas na análise</h2>
           <p className="text-xs text-muted-foreground">Lista compacta para conferir se a busca retornou a base correta.</p>
         </div>
-        {questions.length > visible.length && (
-          <span className="text-xs text-muted-foreground">Mostrando {visible.length} de {questions.length}</span>
-        )}
+        {questions.length > visible.length && <span className="text-xs text-muted-foreground">Mostrando {visible.length} de {questions.length}</span>}
       </div>
       <div className="space-y-2">
         {visible.map((question) => (
@@ -552,6 +691,45 @@ function isValidYearRange(filters: AnalysisFilters) {
   if (filters.anoFinal && (!Number.isFinite(end) || filters.anoFinal.length !== 4)) return false;
   if (start && end && start > end) return false;
   return true;
+}
+
+function buildContentYearMatrix(summary: ProvaAnalysisSummary) {
+  const years = summary.years.slice(-10);
+  const topContents = summary.contentFrequency.slice(0, 8).map((row) => row.value);
+  const rows = topContents.map((content) => ({ content, byYear: {} as Record<string, number>, total: 0 }));
+  const rowMap = new Map(rows.map((row) => [row.content, row]));
+
+  for (const question of summary.questions) {
+    const content = question.conteudo_principal || "Sem conteúdo principal";
+    const year = question.ano;
+    if (!year || !years.includes(year)) continue;
+    const row = rowMap.get(content);
+    if (!row) continue;
+    row.byYear[year] = (row.byYear[year] ?? 0) + 1;
+    row.total += 1;
+  }
+
+  return { years, rows: rows.filter((row) => row.total > 0) };
+}
+
+function buildDonutGradient(rows: FrequencyRow[], total: number) {
+  if (rows.length === 0 || total === 0) return "#e5e7eb";
+  let current = 0;
+  const parts: string[] = [];
+  rows.forEach((row, index) => {
+    const start = current;
+    const end = current + (row.count / total) * 100;
+    parts.push(`${DONUT_COLORS[index % DONUT_COLORS.length]} ${start}% ${end}%`);
+    current = end;
+  });
+  if (current < 100) parts.push(`#e5e7eb ${current}% 100%`);
+  return `conic-gradient(${parts.join(", ")})`;
+}
+
+function heatmapCellColor(value: number, max: number) {
+  if (!value || !max) return "hsl(var(--muted))";
+  const opacity = 0.15 + (value / max) * 0.65;
+  return `rgba(37, 99, 235, ${opacity})`;
 }
 
 function percentage(value: number, total: number) {
