@@ -12,21 +12,23 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
+const DOCUMENT_SELECTION_KEY = "digitalizador.selecionadas";
+
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
+        <h2 className="mt-4 text-xl font-semibold text-foreground">Página não encontrada</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          The page you're looking for doesn't exist or has been moved.
+          A página que você está procurando não existe ou foi movida.
         </p>
         <div className="mt-6">
           <Link
             to="/"
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Go home
+            Voltar ao início
           </Link>
         </div>
       </div>
@@ -37,34 +39,61 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
+  const isDocumentPage = typeof window !== "undefined" && window.location.pathname === "/documento";
+
   useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
+    reportLovableError(error, {
+      boundary: "tanstack_root_error_component",
+      pathname: typeof window !== "undefined" ? window.location.pathname : "unknown",
+    });
   }, [error]);
+
+  const retry = () => {
+    router.invalidate();
+    reset();
+  };
+
+  const clearSelectionAndGoToQuestions = () => {
+    clearDocumentSelection();
+    window.location.href = "/questoes";
+  };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
+      <div className="max-w-lg text-center">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
+          {isDocumentPage ? "Não foi possível carregar a criação do documento" : "Esta página não carregou"}
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
+          {isDocumentPage
+            ? "Isso pode acontecer quando a seleção de questões ficou incompatível, antiga ou com algum dado malformado. Tente novamente ou limpe a seleção e escolha as questões de novo."
+            : "Algo deu errado ao carregar esta página. Você pode tentar novamente ou voltar ao início."}
         </p>
+        {isDocumentPage && (
+          <div className="mt-4 rounded-lg border bg-muted/30 p-3 text-left text-xs text-muted-foreground">
+            <strong className="text-foreground">Dica:</strong> a aba Criar documento depende das questões selecionadas em “Questões salvas”. Se uma questão foi apagada, alterada ou veio com dados antigos, limpar a seleção costuma resolver.
+          </div>
+        )}
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
-            onClick={() => {
-              router.invalidate();
-              reset();
-            }}
+            onClick={retry}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Try again
+            Tentar novamente
           </button>
+          {isDocumentPage && (
+            <button
+              onClick={clearSelectionAndGoToQuestions}
+              className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            >
+              Limpar seleção
+            </button>
+          )}
           <a
             href="/"
             className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
-            Go home
+            Ir para o início
           </a>
         </div>
       </div>
@@ -105,7 +134,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="pt-BR">
       <head>
         <HeadContent />
       </head>
@@ -126,4 +155,13 @@ function RootComponent() {
       <Outlet />
     </QueryClientProvider>
   );
+}
+
+function clearDocumentSelection() {
+  try {
+    window.localStorage.removeItem(DOCUMENT_SELECTION_KEY);
+    window.sessionStorage.removeItem(DOCUMENT_SELECTION_KEY);
+  } catch (error) {
+    console.error("Erro ao limpar seleção do documento:", error);
+  }
 }
