@@ -1,6 +1,4 @@
 import { AlertTriangle, CheckCircle2, ExternalLink } from "lucide-react";
-import { AnalysisAISummaryPanel } from "@/components/AnalysisAISummaryPanel";
-import { AnalysisSimulationSuggestionPanel } from "@/components/AnalysisSimulationSuggestionPanel";
 import { Button } from "@/components/ui/button";
 import type { ProvaAnalysisQuestion, ProvaAnalysisSummary } from "@/lib/prova-analysis";
 
@@ -84,8 +82,6 @@ export function AnalysisDataQualityPanel({ summary }: { summary: ProvaAnalysisSu
         </>
       )}
 
-      <AnalysisAISummaryPanel summary={summary} />
-      <AnalysisSimulationSuggestionPanel summary={summary} />
     </div>
   );
 }
@@ -161,7 +157,7 @@ function buildQualityReport(questions: ProvaAnalysisQuestion[]) {
 
 function getQuestionIssues(question: ProvaAnalysisQuestion): QualityIssueKey[] {
   const issues: QualityIssueKey[] = [];
-  const answer = (question as ProvaAnalysisQuestion & { resposta?: string | null }).resposta;
+  const answer = question.resposta;
 
   if (!question.area_geral) issues.push("area");
   if (!question.conteudo_principal) issues.push("content");

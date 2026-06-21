@@ -4,8 +4,11 @@ import { AlertTriangle, BarChart3, BookOpenCheck, FileSearch, Image as ImageIcon
 import { AppLayout } from "@/components/AppLayout";
 import { AnalysisCrossPanel } from "@/components/AnalysisCrossPanel";
 import { AnalysisDataQualityPanel } from "@/components/AnalysisDataQualityPanel";
+import { AnalysisDeepAIPanel } from "@/components/AnalysisDeepAIPanel";
+import { AnalysisGeneralSummaryPanel } from "@/components/AnalysisAISummaryPanel";
 import { AnalysisLanguagePanel } from "@/components/AnalysisLanguagePanel";
 import { AnalysisReferencePanel } from "@/components/AnalysisReferencePanel";
+import { AnalysisSimulationSuggestionPanel } from "@/components/AnalysisSimulationSuggestionPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -279,6 +282,9 @@ function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; f
       {summary.total < 10 && <SmallSampleAlert total={summary.total} />}
       <SummaryCards summary={summary} period={period} />
       <AnalysisDataQualityPanel summary={summary} />
+      <AnalysisGeneralSummaryPanel summary={summary} />
+      <AnalysisSimulationSuggestionPanel summary={summary} />
+      <AnalysisDeepAIPanel summary={summary} filters={filters} />
 
       <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
         <div className="space-y-4">
