@@ -13,6 +13,7 @@ import { Route as RevisarRouteImport } from './routes/revisar'
 import { Route as QuestoesRouteImport } from './routes/questoes'
 import { Route as DocumentoRouteImport } from './routes/documento'
 import { Route as CatalogosRouteImport } from './routes/catalogos'
+import { Route as AnaliseProvasRouteImport } from './routes/analise-provas'
 import { Route as IndexRouteImport } from './routes/index'
 
 const RevisarRoute = RevisarRouteImport.update({
@@ -35,6 +36,11 @@ const CatalogosRoute = CatalogosRouteImport.update({
   path: '/catalogos',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AnaliseProvasRoute = AnaliseProvasRouteImport.update({
+  id: '/analise-provas',
+  path: '/analise-provas',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -43,6 +49,7 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/analise-provas': typeof AnaliseProvasRoute
   '/catalogos': typeof CatalogosRoute
   '/documento': typeof DocumentoRoute
   '/questoes': typeof QuestoesRoute
@@ -50,6 +57,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/analise-provas': typeof AnaliseProvasRoute
   '/catalogos': typeof CatalogosRoute
   '/documento': typeof DocumentoRoute
   '/questoes': typeof QuestoesRoute
@@ -58,6 +66,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/analise-provas': typeof AnaliseProvasRoute
   '/catalogos': typeof CatalogosRoute
   '/documento': typeof DocumentoRoute
   '/questoes': typeof QuestoesRoute
@@ -65,14 +74,15 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/catalogos' | '/documento' | '/questoes' | '/revisar'
+  fullPaths: '/' | '/analise-provas' | '/catalogos' | '/documento' | '/questoes' | '/revisar'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/catalogos' | '/documento' | '/questoes' | '/revisar'
-  id: '__root__' | '/' | '/catalogos' | '/documento' | '/questoes' | '/revisar'
+  to: '/' | '/analise-provas' | '/catalogos' | '/documento' | '/questoes' | '/revisar'
+  id: '__root__' | '/' | '/analise-provas' | '/catalogos' | '/documento' | '/questoes' | '/revisar'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AnaliseProvasRoute: typeof AnaliseProvasRoute
   CatalogosRoute: typeof CatalogosRoute
   DocumentoRoute: typeof DocumentoRoute
   QuestoesRoute: typeof QuestoesRoute
@@ -109,6 +119,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CatalogosRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/analise-provas': {
+      id: '/analise-provas'
+      path: '/analise-provas'
+      fullPath: '/analise-provas'
+      preLoaderRoute: typeof AnaliseProvasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -121,6 +138,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AnaliseProvasRoute: AnaliseProvasRoute,
   CatalogosRoute: CatalogosRoute,
   DocumentoRoute: DocumentoRoute,
   QuestoesRoute: QuestoesRoute,
