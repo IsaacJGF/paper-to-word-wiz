@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { ClipboardCopy, FileText, Layers, ListChecks, WandSparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -91,7 +91,7 @@ export function AnalysisSimulationSuggestionPanel({ summary }: { summary: ProvaA
   );
 }
 
-function SuggestionTable({ title, icon, rows, emptyText }: { title: string; icon: React.ReactNode; rows: SimulationAllocationRow[]; emptyText: string }) {
+function SuggestionTable({ title, icon, rows, emptyText }: { title: string; icon: ReactNode; rows: SimulationAllocationRow[]; emptyText: string }) {
   return (
     <div className="rounded-lg border bg-background p-3">
       <div className="mb-3 flex items-center gap-2">
