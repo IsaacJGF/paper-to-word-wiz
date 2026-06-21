@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
+import { analyzeProvaQuestions, type FrequencyRow, type ProvaAnalysisQuestion, type ProvaAnalysisSummary } from "@/lib/prova-analysis";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/analise-provas")({
@@ -26,36 +27,7 @@ type AnalysisFilters = {
   tipo: string;
 };
 
-type QuestionRow = {
-  id: string;
-  numero: string | null;
-  enunciado: string | null;
-  tipo: string | null;
-  ano: string | null;
-  prova: string | null;
-  instituicao: string | null;
-  area_geral: string | null;
-  conteudo_principal: string | null;
-  subconteudo_principal: string | null;
-  referencia_texto: string | null;
-  referencia_texto_apos: string | null;
-  referencia_imagem: string | null;
-  enunciado_imagem: string | null;
-  tem_imagem: boolean | null;
-  tem_equacao: boolean | null;
-  alternativas: { letra?: string; texto?: string; imagem?: string | null }[] | null;
-};
-
-type AnalysisSummary = {
-  questions: QuestionRow[];
-  total: number;
-  years: string[];
-  typeCounts: Array<{ tipo: string; quantidade: number }>;
-  withReference: number;
-  withImage: number;
-  withEquation: number;
-  withAlternatives: number;
-};
+type QuestionRow = ProvaAnalysisQuestion;
 
 const EMPTY_FILTERS: AnalysisFilters = {
   prova: "",
@@ -86,6 +58,9 @@ const ANALYSIS_COLUMNS = [
   "area_geral",
   "conteudo_principal",
   "subconteudo_principal",
+  "conteudos_relacionados",
+  "tags_livres",
+  "tags",
   "referencia_texto",
   "referencia_texto_apos",
   "referencia_imagem",
@@ -104,7 +79,7 @@ function Page() {
   const [provas, setProvas] = useState<CatalogItem[]>([]);
   const [instituicoes, setInstituicoes] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [summary, setSummary] = useState<AnalysisSummary | null>(null);
+  const [summary, setSummary] = useState<ProvaAnalysisSummary | null>(null);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
 
   useEffect(() => {
@@ -180,7 +155,7 @@ function Page() {
         return;
       }
 
-      setSummary(buildSummary((data ?? []) as QuestionRow[]));
+      setSummary(analyzeProvaQuestions((data ?? []) as QuestionRow[]));
     } finally {
       setLoading(false);
     }
@@ -197,7 +172,7 @@ function Page() {
             </p>
           </div>
           <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Consulta otimizada por filtros no Supabase
+            Motor estatístico inicial
           </div>
         </div>
 
@@ -295,7 +270,7 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
-function AnalysisResult({ summary, filters }: { summary: AnalysisSummary; filters: AnalysisFilters }) {
+function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; filters: AnalysisFilters }) {
   const period = formatPeriod(filters, summary.years);
   return (
     <div className="space-y-4">
@@ -324,17 +299,20 @@ function AnalysisResult({ summary, filters }: { summary: AnalysisSummary; filter
 
         <div className="rounded-xl border bg-card p-4">
           <h2 className="font-semibold">Quantidade por tipo</h2>
-          <div className="mt-3 space-y-2">
-            {summary.typeCounts.map((item) => (
-              <div key={item.tipo} className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-sm">
-                <span>{formatType(item.tipo)}</span>
-                <strong>{item.quantidade}</strong>
-              </div>
-            ))}
-          </div>
+          <FrequencyList rows={summary.typeCounts} formatValue={formatType} />
         </div>
       </div>
 
+      <div className="grid gap-4 xl:grid-cols-2">
+        <FrequencyTable title="Questões por ano" rows={summary.questionsByYear.map((row) => ({ value: row.year, count: row.count, percent: summary.total > 0 ? Math.round((row.count / summary.total) * 1000) / 10 : 0, years: [row.year] }))} total={summary.total} />
+        <FrequencyTable title="Áreas gerais mais frequentes" rows={summary.areaFrequency} total={summary.total} />
+        <FrequencyTable title="Conteúdos principais mais frequentes" rows={summary.contentFrequency} total={summary.total} />
+        <FrequencyTable title="Subconteúdos principais mais frequentes" rows={summary.subcontentFrequency} total={summary.total} />
+        <FrequencyTable title="Conteúdos relacionados mais frequentes" rows={summary.relatedContentFrequency} total={summary.total} emptyText="Nenhum conteúdo relacionado cadastrado nas questões analisadas." />
+        <FrequencyTable title="Tags mais frequentes" rows={summary.tagFrequency} total={summary.total} emptyText="Nenhuma tag cadastrada nas questões analisadas." />
+      </div>
+
+      <MetadataQuality summary={summary} />
       <QuestionList questions={summary.questions} />
     </div>
   );
@@ -362,7 +340,78 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
-function QuestionList({ questions }: { questions: QuestionRow[] }) {
+function FrequencyList({ rows, formatValue }: { rows: FrequencyRow[]; formatValue?: (value: string) => string }) {
+  if (rows.length === 0) return <p className="mt-3 text-sm text-muted-foreground">Sem dados suficientes.</p>;
+  return (
+    <div className="mt-3 space-y-2">
+      {rows.map((item) => (
+        <div key={item.value} className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-sm">
+          <span>{formatValue ? formatValue(item.value) : item.value}</span>
+          <strong>{item.count}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FrequencyTable({ title, rows, total, emptyText = "Sem dados suficientes." }: { title: string; rows: FrequencyRow[]; total: number; emptyText?: string }) {
+  const visible = rows.slice(0, 12);
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-semibold">{title}</h2>
+        <span className="text-xs text-muted-foreground">Base: {total} questão{total === 1 ? "" : "ões"}</span>
+      </div>
+      {visible.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{emptyText}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-left text-xs text-muted-foreground">
+              <tr className="border-b">
+                <th className="py-2 pr-2 font-medium">Item</th>
+                <th className="py-2 pr-2 text-right font-medium">Qtd.</th>
+                <th className="py-2 pr-2 text-right font-medium">%</th>
+                <th className="py-2 font-medium">Anos</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((row) => (
+                <tr key={row.value} className="border-b last:border-0">
+                  <td className="py-2 pr-2">{row.value}</td>
+                  <td className="py-2 pr-2 text-right font-semibold">{row.count}</td>
+                  <td className="py-2 pr-2 text-right">{row.percent}%</td>
+                  <td className="py-2 text-xs text-muted-foreground">{row.years.length > 0 ? row.years.join(", ") : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetadataQuality({ summary }: { summary: ProvaAnalysisSummary }) {
+  const missing = summary.missingMetadata;
+  const totalMissing = missing.area + missing.content + missing.subcontent + missing.year + missing.type;
+  if (totalMissing === 0) return null;
+  return (
+    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+      <h2 className="font-semibold">Qualidade dos dados</h2>
+      <p className="mt-1 text-sm">Algumas questões estão incompletas. Isso pode reduzir a precisão da análise.</p>
+      <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-5">
+        <Info label="Sem área" value={String(missing.area)} />
+        <Info label="Sem conteúdo" value={String(missing.content)} />
+        <Info label="Sem subconteúdo" value={String(missing.subcontent)} />
+        <Info label="Sem ano" value={String(missing.year)} />
+        <Info label="Sem tipo" value={String(missing.type)} />
+      </div>
+    </div>
+  );
+}
+
+function QuestionList({ questions }: { questions: ProvaAnalysisQuestion[] }) {
   const visible = questions.slice(0, 80);
   return (
     <div className="rounded-xl border bg-card p-4">
@@ -382,7 +431,7 @@ function QuestionList({ questions }: { questions: QuestionRow[] }) {
               <span className="rounded-md bg-muted px-1.5 py-0.5">{question.prova || "Prova não informada"}</span>
               <span className="rounded-md bg-muted px-1.5 py-0.5">{question.instituicao || "Instituição não informada"}</span>
               <span className="rounded-md bg-muted px-1.5 py-0.5">{question.ano || "Ano não informado"}</span>
-              <span className="rounded-md bg-muted px-1.5 py-0.5">{formatType(question.tipo || "sem_tipo")}</span>
+              <span className="rounded-md bg-muted px-1.5 py-0.5">{formatType(question.tipo || "Sem tipo")}</span>
             </div>
             <div className="mb-1 flex flex-wrap gap-1.5 text-xs">
               <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-primary">{question.area_geral || "Sem área"}</span>
@@ -397,37 +446,6 @@ function QuestionList({ questions }: { questions: QuestionRow[] }) {
       </div>
     </div>
   );
-}
-
-function buildSummary(questions: QuestionRow[]): AnalysisSummary {
-  const years = Array.from(new Set(questions.map((q) => q.ano?.trim()).filter((ano): ano is string => Boolean(ano)))).sort((a, b) => a.localeCompare(b, "pt-BR", { numeric: true }));
-  const typeMap = new Map<string, number>();
-  let withReference = 0;
-  let withImage = 0;
-  let withEquation = 0;
-  let withAlternatives = 0;
-
-  for (const question of questions) {
-    const type = question.tipo?.trim() || "sem_tipo";
-    typeMap.set(type, (typeMap.get(type) ?? 0) + 1);
-    if (hasReference(question)) withReference += 1;
-    if (hasImage(question)) withImage += 1;
-    if (question.tem_equacao) withEquation += 1;
-    if (Array.isArray(question.alternativas) && question.alternativas.length > 0) withAlternatives += 1;
-  }
-
-  return {
-    questions,
-    total: questions.length,
-    years,
-    typeCounts: Array.from(typeMap.entries())
-      .map(([tipo, quantidade]) => ({ tipo, quantidade }))
-      .sort((a, b) => b.quantidade - a.quantidade),
-    withReference,
-    withImage,
-    withEquation,
-    withAlternatives,
-  };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -465,19 +483,6 @@ function isValidYearRange(filters: AnalysisFilters) {
   return true;
 }
 
-function hasReference(question: QuestionRow) {
-  return Boolean(question.referencia_texto?.trim() || question.referencia_texto_apos?.trim() || question.referencia_imagem);
-}
-
-function hasImage(question: QuestionRow) {
-  return Boolean(
-    question.tem_imagem ||
-    question.referencia_imagem ||
-    question.enunciado_imagem ||
-    question.alternativas?.some((alt) => alt.imagem),
-  );
-}
-
 function percentage(value: number, total: number) {
   if (total === 0) return "0%";
   return `${Math.round((value / total) * 100)}%`;
@@ -509,7 +514,7 @@ function formatType(tipo: string) {
     certo_errado: "Certo ou errado",
     numerica: "Numérica",
     discursiva: "Discursiva",
-    sem_tipo: "Sem tipo",
+    "Sem tipo": "Sem tipo",
   };
   return labels[tipo] ?? tipo;
 }
