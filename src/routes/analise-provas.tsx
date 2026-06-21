@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, BarChart3, BookOpenCheck, FileSearch, Image as ImageIcon, Layers, ListChecks, Loader2, Sigma, Tags, TextSearch } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
 import { AnalysisLanguagePanel } from "@/components/AnalysisLanguagePanel";
+import { AnalysisReferencePanel } from "@/components/AnalysisReferencePanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,6 +65,7 @@ const ANALYSIS_COLUMNS = [
   "conteudos_relacionados",
   "tags_livres",
   "tags",
+  "grupo_id",
   "referencia_texto",
   "referencia_texto_apos",
   "referencia_imagem",
@@ -173,7 +175,7 @@ function Page() {
             </p>
           </div>
           <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Termos e comandos
+            Referências/textos-base
           </div>
         </div>
 
@@ -283,6 +285,7 @@ function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; f
       </div>
 
       <ChartsPanel summary={summary} />
+      <AnalysisReferencePanel summary={summary} />
       <AnalysisLanguagePanel summary={summary} />
 
       <div className="grid gap-4 xl:grid-cols-2">
