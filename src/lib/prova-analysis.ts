@@ -76,6 +76,38 @@ export type ReferenceAnalysisSummary = {
   topReferences: ReferenceAnalysisRow[];
 };
 
+export type CrossCell = {
+  column: string;
+  count: number;
+  percent: number;
+};
+
+export type CrossMatrixRow = {
+  row: string;
+  total: number;
+  cells: CrossCell[];
+};
+
+export type CrossMatrix = {
+  columns: string[];
+  rows: CrossMatrixRow[];
+};
+
+export type CrossInsight = {
+  title: string;
+  description: string;
+  evidence: string;
+};
+
+export type CrossAnalysisSummary = {
+  contentByYear: CrossMatrix;
+  contentByType: CrossMatrix;
+  provaByContent: CrossMatrix;
+  contentByTerms: CrossMatrix;
+  contentByCommands: CrossMatrix;
+  insights: CrossInsight[];
+};
+
 export type ProvaAnalysisSummary = {
   questions: ProvaAnalysisQuestion[];
   total: number;
@@ -91,6 +123,7 @@ export type ProvaAnalysisSummary = {
   physicsTermFrequency: TermFrequencyRow[];
   commandFrequency: TermFrequencyRow[];
   referenceAnalysis: ReferenceAnalysisSummary;
+  crossAnalysis: CrossAnalysisSummary;
   withReference: number;
   withImage: number;
   withEquation: number;
@@ -110,6 +143,7 @@ const EMPTY_LABELS = {
   subcontent: "Sem subconteúdo principal",
   type: "Sem tipo",
   year: "Sem ano",
+  prova: "Sem prova",
 } as const;
 
 const GENERAL_TERMS = [
@@ -158,6 +192,10 @@ const COMMAND_PATTERNS = [
   "Conclui-se que",
 ];
 
+const CROSS_MIN_ROW_TOTAL = 3;
+const CROSS_MIN_TOP_COUNT = 2;
+const CROSS_STRONG_PERCENT = 50;
+
 export function analyzeProvaQuestions(questions: ProvaAnalysisQuestion[]): ProvaAnalysisSummary {
   const normalized = questions.map(normalizeQuestionForAnalysis);
   const total = normalized.length;
@@ -177,6 +215,7 @@ export function analyzeProvaQuestions(questions: ProvaAnalysisQuestion[]): Prova
     physicsTermFrequency: analyzeTerms(normalized, PHYSICS_TERMS),
     commandFrequency: analyzeTerms(normalized, COMMAND_PATTERNS),
     referenceAnalysis: analyzeReferences(normalized),
+    crossAnalysis: analyzeCrossData(normalized),
     withReference: normalized.filter(hasReference).length,
     withImage: normalized.filter(hasImage).length,
     withEquation: normalized.filter((q) => Boolean(q.tem_equacao)).length,
@@ -361,6 +400,134 @@ function buildReferencePreview(question: ProvaAnalysisQuestion) {
     .join(" ") || "Referência sem texto cadastrado.";
   const clean = plainText(text);
   return clean.length > 220 ? `${clean.slice(0, 217)}...` : clean;
+}
+
+function analyzeCrossData(questions: ProvaAnalysisQuestion[]): CrossAnalysisSummary {
+  const contentByYear = buildCrossMatrix(
+    questions,
+    (q) => q.conteudo_principal || EMPTY_LABELS.content,
+    (q) => [q.ano || EMPTY_LABELS.year],
+    { rowLimit: 10, columnLimit: 12 },
+  );
+  const contentByType = buildCrossMatrix(
+    questions,
+    (q) => q.conteudo_principal || EMPTY_LABELS.content,
+    (q) => [q.tipo || EMPTY_LABELS.type],
+    { rowLimit: 10, columnLimit: 8 },
+  );
+  const provaByContent = buildCrossMatrix(
+    questions,
+    (q) => q.prova || EMPTY_LABELS.prova,
+    (q) => [q.conteudo_principal || EMPTY_LABELS.content],
+    { rowLimit: 8, columnLimit: 10 },
+  );
+  const contentByTerms = buildCrossMatrix(
+    questions,
+    (q) => q.conteudo_principal || EMPTY_LABELS.content,
+    (q) => getMatchedTerms(q, [...GENERAL_TERMS, ...PHYSICS_TERMS]),
+    { rowLimit: 10, columnLimit: 12 },
+  );
+  const contentByCommands = buildCrossMatrix(
+    questions,
+    (q) => q.conteudo_principal || EMPTY_LABELS.content,
+    (q) => getMatchedTerms(q, COMMAND_PATTERNS),
+    { rowLimit: 10, columnLimit: 10 },
+  );
+
+  return {
+    contentByYear,
+    contentByType,
+    provaByContent,
+    contentByTerms,
+    contentByCommands,
+    insights: buildCrossInsights(contentByType, contentByTerms, contentByCommands),
+  };
+}
+
+function buildCrossMatrix(
+  questions: ProvaAnalysisQuestion[],
+  rowGetter: (question: ProvaAnalysisQuestion) => string,
+  columnGetter: (question: ProvaAnalysisQuestion) => string[],
+  options: { rowLimit: number; columnLimit: number },
+): CrossMatrix {
+  const matrix = new Map<string, Map<string, number>>();
+  const rowTotals = new Map<string, number>();
+  const columnTotals = new Map<string, number>();
+
+  for (const question of questions) {
+    const row = rowGetter(question);
+    const columns = uniqueText(columnGetter(question).map((value) => normalizeNullableText(value)).filter((value): value is string => Boolean(value)));
+    if (columns.length === 0) continue;
+
+    rowTotals.set(row, (rowTotals.get(row) ?? 0) + 1);
+    const rowMap = matrix.get(row) ?? new Map<string, number>();
+    for (const column of columns) {
+      rowMap.set(column, (rowMap.get(column) ?? 0) + 1);
+      columnTotals.set(column, (columnTotals.get(column) ?? 0) + 1);
+    }
+    matrix.set(row, rowMap);
+  }
+
+  const rowsByTotal = Array.from(rowTotals.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "pt-BR"));
+  const selectedRows = new Set(rowsByTotal.slice(0, options.rowLimit).map(([row]) => row));
+  const selectedColumns = Array.from(columnTotals.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "pt-BR", { numeric: true }))
+    .slice(0, options.columnLimit)
+    .map(([column]) => column);
+
+  const rows: CrossMatrixRow[] = Array.from(selectedRows).map((row) => {
+    const rowMap = matrix.get(row) ?? new Map<string, number>();
+    const total = rowTotals.get(row) ?? 0;
+    return {
+      row,
+      total,
+      cells: selectedColumns.map((column) => {
+        const count = rowMap.get(column) ?? 0;
+        return {
+          column,
+          count,
+          percent: total > 0 ? Math.round((count / total) * 1000) / 10 : 0,
+        };
+      }),
+    };
+  });
+
+  return { columns: selectedColumns, rows };
+}
+
+function buildCrossInsights(...matrices: CrossMatrix[]): CrossInsight[] {
+  const insights: CrossInsight[] = [];
+
+  for (const matrix of matrices) {
+    for (const row of matrix.rows) {
+      const top = row.cells.slice().sort((a, b) => b.count - a.count)[0];
+      if (!top) continue;
+      if (row.total < CROSS_MIN_ROW_TOTAL || top.count < CROSS_MIN_TOP_COUNT || top.percent < CROSS_STRONG_PERCENT) continue;
+
+      insights.push({
+        title: row.row,
+        description: `${row.row} aparece principalmente associado a “${top.column}”.`,
+        evidence: `${top.count} de ${row.total} questões (${top.percent}%).`,
+      });
+    }
+  }
+
+  return dedupeInsights(insights).slice(0, 8);
+}
+
+function dedupeInsights(insights: CrossInsight[]) {
+  const seen = new Set<string>();
+  return insights.filter((insight) => {
+    const key = `${insight.title}|${insight.description}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function getMatchedTerms(question: ProvaAnalysisQuestion, terms: string[]) {
+  const text = getSearchableQuestionText(question);
+  return terms.filter((term) => countOccurrences(text, normalizeForSearch(term)) > 0);
 }
 
 function countYears(questions: ProvaAnalysisQuestion[]): YearCountRow[] {
