@@ -33,6 +33,23 @@ export type YearCountRow = {
   count: number;
 };
 
+export type TermExample = {
+  questionId: string;
+  numero?: string | null;
+  prova?: string | null;
+  ano?: string | null;
+  preview: string;
+};
+
+export type TermFrequencyRow = {
+  term: string;
+  count: number;
+  questionCount: number;
+  percent: number;
+  years: string[];
+  examples: TermExample[];
+};
+
 export type ProvaAnalysisSummary = {
   questions: ProvaAnalysisQuestion[];
   total: number;
@@ -44,6 +61,9 @@ export type ProvaAnalysisSummary = {
   relatedContentFrequency: FrequencyRow[];
   tagFrequency: FrequencyRow[];
   typeCounts: FrequencyRow[];
+  generalTermFrequency: TermFrequencyRow[];
+  physicsTermFrequency: TermFrequencyRow[];
+  commandFrequency: TermFrequencyRow[];
   withReference: number;
   withImage: number;
   withEquation: number;
@@ -65,6 +85,52 @@ const EMPTY_LABELS = {
   year: "Sem ano",
 } as const;
 
+const GENERAL_TERMS = [
+  "considere",
+  "julgue",
+  "assinale",
+  "correto",
+  "incorreto",
+  "de acordo com",
+  "com base no texto",
+  "sabendo que",
+  "despreze",
+  "determine",
+  "calcule",
+  "conclui-se",
+];
+
+const PHYSICS_TERMS = [
+  "velocidade",
+  "força",
+  "energia",
+  "aceleração",
+  "campo",
+  "pressão",
+  "corrente",
+  "calor",
+  "onda",
+  "frequência",
+  "massa",
+  "equilíbrio",
+  "deslocamento",
+  "potência",
+  "resistência",
+  "temperatura",
+];
+
+const COMMAND_PATTERNS = [
+  "Considerando o texto acima",
+  "Julgue os itens",
+  "É correto afirmar que",
+  "Com base na figura",
+  "De acordo com o texto",
+  "Desprezando a resistência do ar",
+  "Sabendo que",
+  "Assinale a alternativa correta",
+  "Conclui-se que",
+];
+
 export function analyzeProvaQuestions(questions: ProvaAnalysisQuestion[]): ProvaAnalysisSummary {
   const normalized = questions.map(normalizeQuestionForAnalysis);
   const total = normalized.length;
@@ -80,6 +146,9 @@ export function analyzeProvaQuestions(questions: ProvaAnalysisQuestion[]): Prova
     relatedContentFrequency: frequencyFromArrayField(normalized, (q) => q.conteudos_relacionados ?? []),
     tagFrequency: frequencyFromArrayField(normalized, (q) => q.tags_livres?.length ? q.tags_livres : q.tags ?? []),
     typeCounts: frequencyFromSingleField(normalized, (q) => q.tipo, EMPTY_LABELS.type),
+    generalTermFrequency: analyzeTerms(normalized, GENERAL_TERMS),
+    physicsTermFrequency: analyzeTerms(normalized, PHYSICS_TERMS),
+    commandFrequency: analyzeTerms(normalized, COMMAND_PATTERNS),
     withReference: normalized.filter(hasReference).length,
     withImage: normalized.filter(hasImage).length,
     withEquation: normalized.filter((q) => Boolean(q.tem_equacao)).length,
@@ -161,6 +230,38 @@ function frequencyFromArrayField(
   return toFrequencyRows(map, questions.length);
 }
 
+function analyzeTerms(questions: ProvaAnalysisQuestion[], terms: string[]): TermFrequencyRow[] {
+  const total = questions.length;
+  return terms
+    .map((term) => {
+      let count = 0;
+      const years = new Set<string>();
+      const examples: TermExample[] = [];
+      const normalizedTerm = normalizeForSearch(term);
+
+      for (const question of questions) {
+        const text = getSearchableQuestionText(question);
+        const occurrences = countOccurrences(text, normalizedTerm);
+        if (occurrences === 0) continue;
+
+        count += occurrences;
+        if (question.ano) years.add(question.ano);
+        if (examples.length < 3) examples.push(buildTermExample(question));
+      }
+
+      return {
+        term,
+        count,
+        questionCount: examples.length === 0 ? 0 : questions.filter((question) => countOccurrences(getSearchableQuestionText(question), normalizedTerm) > 0).length,
+        percent: total > 0 ? Math.round((examples.length === 0 ? 0 : questions.filter((question) => countOccurrences(getSearchableQuestionText(question), normalizedTerm) > 0).length / total) * 1000) / 10 : 0,
+        years: Array.from(years).sort(compareNumericText),
+        examples,
+      };
+    })
+    .filter((row) => row.count > 0)
+    .sort((a, b) => b.count - a.count || a.term.localeCompare(b.term, "pt-BR"));
+}
+
 function countYears(questions: ProvaAnalysisQuestion[]): YearCountRow[] {
   const map = new Map<string, number>();
   for (const question of questions) {
@@ -193,6 +294,54 @@ function toFrequencyRows(map: Map<string, { count: number; years: Set<string> }>
       years: Array.from(data.years).sort(compareNumericText),
     }))
     .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "pt-BR"));
+}
+
+function getSearchableQuestionText(question: ProvaAnalysisQuestion) {
+  return normalizeForSearch([
+    question.referencia_texto,
+    question.referencia_texto_apos,
+    question.enunciado,
+    ...(question.alternativas ?? []).map((alt) => alt.texto),
+  ].filter(Boolean).join("\n"));
+}
+
+function countOccurrences(text: string, normalizedTerm: string) {
+  if (!text || !normalizedTerm) return 0;
+  const pattern = new RegExp(`(^|\\W)${escapeRegExp(normalizedTerm)}(?=\\W|$)`, "g");
+  return text.match(pattern)?.length ?? 0;
+}
+
+function buildTermExample(question: ProvaAnalysisQuestion): TermExample {
+  return {
+    questionId: question.id,
+    numero: question.numero,
+    prova: question.prova,
+    ano: question.ano,
+    preview: buildPreview(question),
+  };
+}
+
+function buildPreview(question: ProvaAnalysisQuestion) {
+  const text = [question.enunciado, question.referencia_texto, question.referencia_texto_apos]
+    .map((value) => value ?? "")
+    .find((value) => value.trim().length > 0) ?? "Sem texto cadastrado.";
+  const clean = text.replace(/<[^>]+>/g, " ").replace(/\$+/g, "").replace(/\s+/g, " ").trim();
+  return clean.length > 180 ? `${clean.slice(0, 177)}...` : clean;
+}
+
+function normalizeForSearch(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function normalizeNullableText(value: string | null | undefined) {

@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, BarChart3, BookOpenCheck, FileSearch, Image as ImageIcon, Layers, ListChecks, Loader2, Sigma, Tags, TextSearch } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
+import { AnalysisLanguagePanel } from "@/components/AnalysisLanguagePanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -172,7 +173,7 @@ function Page() {
             </p>
           </div>
           <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Gráficos principais
+            Termos e comandos
           </div>
         </div>
 
@@ -282,6 +283,7 @@ function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; f
       </div>
 
       <ChartsPanel summary={summary} />
+      <AnalysisLanguagePanel summary={summary} />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <VisualFrequencyTable title="Conteúdos mais cobrados" rows={summary.contentFrequency} total={summary.total} highlightFirst />
