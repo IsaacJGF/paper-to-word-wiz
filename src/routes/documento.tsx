@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, FileText, Loader2, GripVertical, X, Download, Link2 } from "lucide-react";
+import { ArrowLeft, FileText, Loader2, GripVertical, X, Download, Link2, Move } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -30,11 +30,16 @@ const REFERENCE_GROUP_COLORS = [
 
 type ReferenceGroupColor = typeof REFERENCE_GROUP_COLORS[number];
 type ReferenceGroupVisual = { label: string; color: ReferenceGroupColor; totalItems: number; blockCount: number };
+type DragState =
+  | { type: "item"; id: string }
+  | { type: "block"; referenceKey: string; startIndex: number };
 
 function Page() {
   const [questions, setQuestions] = useState<DocumentQuestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [config, setConfig] = useState({
     titulo: "Avaliação",
     instituicao: "",
@@ -70,20 +75,38 @@ function Page() {
   }, []);
 
   const referenceGroupVisuals = useMemo(() => buildReferenceGroupVisuals(questions), [questions]);
+  const splitReferenceGroups = useMemo(
+    () => Array.from(referenceGroupVisuals.values()).filter((group) => group.totalItems > 1 && group.blockCount > 1),
+    [referenceGroupVisuals],
+  );
+
+  const updateOrder = (next: DocumentQuestion[], showSplitAlert = true) => {
+    setQuestions(next);
+    saveSelectedQuestionIds(next.map((x) => x.id));
+    if (showSplitAlert) warnAboutSplitReferences(next);
+  };
 
   const move = (i: number, dir: -1 | 1) => {
     const j = i + dir;
     if (j < 0 || j >= questions.length) return;
     const next = [...questions];
     [next[i], next[j]] = [next[j], next[i]];
-    setQuestions(next);
-    saveSelectedQuestionIds(next.map((x) => x.id));
+    updateOrder(next);
+  };
+
+  const handleDropAt = (targetIndex: number) => {
+    if (!dragState) return;
+    const next = dragState.type === "item"
+      ? moveQuestionToIndex(questions, dragState.id, targetIndex)
+      : moveReferenceBlockToIndex(questions, dragState.referenceKey, dragState.startIndex, targetIndex);
+    if (next && next !== questions) updateOrder(next);
+    setDragState(null);
+    setDragOverIndex(null);
   };
 
   const remove = (id: string) => {
     const next = questions.filter((q) => q.id !== id);
-    setQuestions(next);
-    saveSelectedQuestionIds(next.map((x) => x.id));
+    updateOrder(next, false);
   };
 
   const onGenerate = async () => {
@@ -152,7 +175,17 @@ function Page() {
           <div className="space-y-3">
             <div className="rounded-xl border bg-card p-4">
               <h2 className="font-semibold mb-2">Questões ({questions.length})</h2>
-              <p className="text-xs text-muted-foreground mb-3">Use as setas para reorganizar a ordem. Itens consecutivos da mesma referência serão agrupados no Word.</p>
+              <p className="text-xs text-muted-foreground mb-3">
+                Arraste o ícone da questão para reordenar itens individuais. Arraste a faixa da referência para mover o bloco inteiro. Solte sobre um card para posicionar antes dele, ou no fim da lista para mandar para o final.
+              </p>
+
+              {splitReferenceGroups.length > 0 && (
+                <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                  <strong>Atenção:</strong> há {splitReferenceGroups.length} grupo{splitReferenceGroups.length > 1 ? "s" : ""} de mesma referência separado{splitReferenceGroups.length > 1 ? "s" : ""}. Na exportação, o texto-base será repetido quando a referência aparecer novamente.
+                </div>
+              )}
+
+              <DropMarker active={dragOverIndex === 0} onDrop={() => handleDropAt(0)} onDragOver={() => setDragOverIndex(0)} onDragLeave={() => setDragOverIndex(null)} />
               <div className="space-y-2">
                 {questions.map((q, i) => {
                   const referenceKey = getDocumentReferenceKey(q);
@@ -170,17 +203,38 @@ function Page() {
                   return (
                     <div key={q.id} className="space-y-2">
                       {startsReferenceBlock && groupVisual && (
-                        <div className={`rounded-lg border px-3 py-2 text-xs font-medium ${showGroupVisual ? groupVisual.color.banner : "border-primary/30 bg-primary/5 text-primary"}`}>
+                        <div
+                          draggable
+                          onDragStart={(event) => {
+                            if (!referenceKey) return;
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData("text/plain", referenceKey);
+                            setDragState({ type: "block", referenceKey, startIndex: i });
+                          }}
+                          onDragEnd={() => { setDragState(null); setDragOverIndex(null); }}
+                          className={`cursor-grab rounded-lg border px-3 py-2 text-xs font-medium active:cursor-grabbing ${showGroupVisual ? groupVisual.color.banner : "border-primary/30 bg-primary/5 text-primary"}`}
+                          title="Arraste esta faixa para mover o bloco inteiro da referência"
+                        >
                           <div className="flex items-center justify-between gap-2 flex-wrap">
                             <span className="inline-flex items-center gap-2">
+                              <Move className="size-3.5" />
                               {showGroupVisual && <span className={`size-2.5 rounded-full ${groupVisual.color.bar}`} />}
                               {showGroupVisual ? groupVisual.label : "Referência"}: {referenceBlockSize} item{referenceBlockSize === 1 ? "" : "s"} neste bloco
                             </span>
-                            {splitGroup && <span className="inline-flex items-center gap-1"><Link2 className="size-3" /> também aparece em outro bloco</span>}
+                            <span className="inline-flex items-center gap-2">
+                              <span>arraste para mover o bloco</span>
+                              {splitGroup && <span className="inline-flex items-center gap-1"><Link2 className="size-3" /> também aparece em outro bloco</span>}
+                            </span>
                           </div>
                         </div>
                       )}
-                      <div className={`relative flex gap-2 items-start overflow-hidden rounded-lg border bg-background p-3 ${showGroupVisual && groupVisual ? groupVisual.color.border : referenceKey ? "border-primary/30" : ""}`} title={groupTitle}>
+                      <div
+                        onDragOver={(event) => { event.preventDefault(); setDragOverIndex(i); }}
+                        onDrop={(event) => { event.preventDefault(); handleDropAt(i); }}
+                        onDragLeave={() => setDragOverIndex(null)}
+                        className={`relative flex gap-2 items-start overflow-hidden rounded-lg border bg-background p-3 transition-all ${dragOverIndex === i ? "ring-2 ring-primary/60" : ""} ${showGroupVisual && groupVisual ? groupVisual.color.border : referenceKey ? "border-primary/30" : ""}`}
+                        title={groupTitle}
+                      >
                         {showGroupVisual && groupVisual && (
                           <div className="absolute inset-y-0 left-0 flex w-4 justify-center">
                             <div className={`w-1.5 ${groupVisual.color.bar} ${startsReferenceBlock ? "rounded-t-full" : ""} ${endsReferenceBlock ? "rounded-b-full" : ""}`} />
@@ -188,7 +242,19 @@ function Page() {
                         )}
                         <div className={`flex flex-col ${showGroupVisual ? "ml-3" : ""}`}>
                           <button onClick={() => move(i, -1)} disabled={i === 0} className="text-xs px-1 disabled:opacity-30">▲</button>
-                          <GripVertical className="size-4 text-muted-foreground" />
+                          <div
+                            draggable
+                            onDragStart={(event) => {
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData("text/plain", q.id);
+                              setDragState({ type: "item", id: q.id });
+                            }}
+                            onDragEnd={() => { setDragState(null); setDragOverIndex(null); }}
+                            className="rounded p-1 text-muted-foreground cursor-grab active:cursor-grabbing hover:bg-muted"
+                            title="Arraste para mover este item individual"
+                          >
+                            <GripVertical className="size-4" />
+                          </div>
                           <button onClick={() => move(i, 1)} disabled={i === questions.length - 1} className="text-xs px-1 disabled:opacity-30">▼</button>
                         </div>
                         <div className="flex-1 min-w-0">
@@ -211,6 +277,7 @@ function Page() {
                         </div>
                         <Button size="icon" variant="ghost" onClick={() => remove(q.id)}><X className="size-4" /></Button>
                       </div>
+                      <DropMarker active={dragOverIndex === i + 1} onDrop={() => handleDropAt(i + 1)} onDragOver={() => setDragOverIndex(i + 1)} onDragLeave={() => setDragOverIndex(null)} />
                     </div>
                   );
                 })}
@@ -267,6 +334,18 @@ function Page() {
   );
 }
 
+function DropMarker({ active, onDrop, onDragOver, onDragLeave }: { active: boolean; onDrop: () => void; onDragOver: () => void; onDragLeave: () => void }) {
+  return (
+    <div
+      onDragOver={(event) => { event.preventDefault(); onDragOver(); }}
+      onDrop={(event) => { event.preventDefault(); onDrop(); }}
+      onDragLeave={onDragLeave}
+      className={`h-3 rounded-md transition-colors ${active ? "bg-primary/30 ring-2 ring-primary/40" : "bg-transparent"}`}
+      aria-hidden="true"
+    />
+  );
+}
+
 function downloadDocx(base64: string, filename: string) {
   const bin = atob(base64);
   const bytes = new Uint8Array(bin.length);
@@ -306,6 +385,49 @@ function countReferenceBlockSize(questions: DocumentQuestion[], index: number) {
   let end = index;
   while (end + 1 < questions.length && getDocumentReferenceKey(questions[end + 1]) === key) end++;
   return end - start + 1;
+}
+
+function getReferenceBlockRange(questions: DocumentQuestion[], referenceKey: string, startIndex: number) {
+  if (getDocumentReferenceKey(questions[startIndex]) !== referenceKey) {
+    const fallbackIndex = questions.findIndex((question) => getDocumentReferenceKey(question) === referenceKey);
+    startIndex = fallbackIndex === -1 ? startIndex : fallbackIndex;
+  }
+  let start = startIndex;
+  while (start > 0 && getDocumentReferenceKey(questions[start - 1]) === referenceKey) start--;
+  let end = startIndex;
+  while (end + 1 < questions.length && getDocumentReferenceKey(questions[end + 1]) === referenceKey) end++;
+  return { start, end };
+}
+
+function moveQuestionToIndex(questions: DocumentQuestion[], questionId: string, targetIndex: number) {
+  const fromIndex = questions.findIndex((question) => question.id === questionId);
+  if (fromIndex === -1) return null;
+  const next = [...questions];
+  const [moved] = next.splice(fromIndex, 1);
+  let insertIndex = Math.max(0, Math.min(targetIndex, questions.length));
+  if (fromIndex < insertIndex) insertIndex -= 1;
+  if (fromIndex === insertIndex) return null;
+  next.splice(insertIndex, 0, moved);
+  return next;
+}
+
+function moveReferenceBlockToIndex(questions: DocumentQuestion[], referenceKey: string, startIndex: number, targetIndex: number) {
+  const { start, end } = getReferenceBlockRange(questions, referenceKey, startIndex);
+  if (start < 0 || end < start) return null;
+  if (targetIndex >= start && targetIndex <= end + 1) return null;
+
+  const next = [...questions];
+  const block = next.splice(start, end - start + 1);
+  let insertIndex = Math.max(0, Math.min(targetIndex, questions.length));
+  if (start < insertIndex) insertIndex -= block.length;
+  next.splice(insertIndex, 0, ...block);
+  return next;
+}
+
+function warnAboutSplitReferences(questions: DocumentQuestion[]) {
+  const split = Array.from(buildReferenceGroupVisuals(questions).values()).filter((group) => group.totalItems > 1 && group.blockCount > 1);
+  if (split.length === 0) return;
+  toast.warning("Há itens da mesma referência separados. No Word, a referência será repetida quando esse grupo aparecer novamente.");
 }
 
 function buildReferenceGroupVisuals(questions: DocumentQuestion[]) {
