@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, BrainCircuit, ClipboardCopy, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { generateDeepAnalysis } from "@/lib/prova-deep-analysis.functions";
-import { buildDeepAnalysisPayload, deepAnalysisPayloadToText, type DeepAnalysisFilters, type DeepAnalysisReport, type DeepPattern } from "@/lib/prova-deep-analysis";
+import { buildDeepAnalysisPayload, type DeepAnalysisFilters, type DeepAnalysisReport, type DeepPattern } from "@/lib/prova-deep-analysis";
 import type { ProvaAnalysisSummary } from "@/lib/prova-analysis";
 import { toast } from "sonner";
 
@@ -88,8 +88,11 @@ export function AnalysisDeepAIPanel({ summary, filters }: { summary: ProvaAnalys
         </div>
       </div>
 
-      <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-        Essa análise usa a mesma configuração da digitalização por IA, sem depender da OpenAI API. Ela utiliza a chave <strong>LOVABLE_API_KEY</strong> já usada no reconhecimento das questões.
+      <div className="grid gap-3 rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground md:grid-cols-4">
+        <p><strong className="text-foreground">Base:</strong> {payload.total_questoes} questão{payload.total_questoes === 1 ? "" : "ões"}</p>
+        <p><strong className="text-foreground">Enviado à IA:</strong> {payload.amostra.quantidade_enviada} questão{payload.amostra.quantidade_enviada === 1 ? "" : "ões"}</p>
+        <p><strong className="text-foreground">Amostra:</strong> {payload.amostra.usou_amostra_representativa ? "representativa" : "completa"}</p>
+        <p><strong className="text-foreground">IA:</strong> mesma da digitalização</p>
       </div>
 
       {payload.amostra.usou_amostra_representativa && (
@@ -98,19 +101,6 @@ export function AnalysisDeepAIPanel({ summary, filters }: { summary: ProvaAnalys
           <span>{payload.amostra.aviso}</span>
         </div>
       )}
-
-      <details className="rounded-lg border bg-muted/30 p-3 text-sm">
-        <summary className="cursor-pointer font-medium">Dados enviados para a IA</summary>
-        <div className="mt-3 grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
-          <p><strong>Total analisado:</strong> {payload.total_questoes}</p>
-          <p><strong>Questões enviadas:</strong> {payload.amostra.quantidade_enviada}</p>
-          <p><strong>Anos:</strong> {payload.anos_analisados.length > 0 ? payload.anos_analisados.join(", ") : "sem anos cadastrados"}</p>
-          <p><strong>Amostra:</strong> {payload.amostra.usou_amostra_representativa ? "representativa" : "todas as questões"}</p>
-        </div>
-        <pre className="mt-3 max-h-72 overflow-auto rounded-md bg-background p-3 text-xs text-muted-foreground">
-          {deepAnalysisPayloadToText(payload)}
-        </pre>
-      </details>
 
       {error && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
