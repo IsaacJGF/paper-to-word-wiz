@@ -17,6 +17,15 @@ export type QuestaoExtraida = {
   tem_equacao: boolean;
   tem_imagem: boolean;
   baixa_confianca: string[];
+  area_geral?: string;
+  conteudo_principal?: string;
+  subconteudo_principal?: string;
+  conteudos_relacionados?: string[];
+  tags_livres?: string[];
+  ano?: string;
+  prova?: string;
+  instituicao?: string;
+  observacoes?: string;
 };
 export type DigitalizacaoExtraida = {
   referencia_texto: string;
@@ -39,27 +48,38 @@ const SYSTEM = `Você é um OCR especializado em digitalização de questões de
 
 Analise a imagem fornecida e extraia a digitalização de forma estruturada. A imagem pode conter uma questão única, um texto-base/referência seguido por vários itens numerados, OU uma montagem vertical com partes sequenciais da mesma questão.
 
+Além de transcrever a questão, sugira automaticamente a classificação pedagógica do item quando houver evidência suficiente. Essa classificação será editável depois pelo usuário, então ela pode ser uma sugestão, mas não deve ser inventada sem base.
+
 Retorne APENAS um objeto JSON válido com este formato exato:
 
 {
-  "referencia_texto": "texto-base, comando geral, tabela, descrição de imagem ou contexto comum aos itens; use \\"\\" se não houver",
-  "referencia_fonte": "fonte da referência, por exemplo Internet, ENEM, banca/ano; use \\"\\" se não houver",
+  "referencia_texto": "texto-base, comando geral, tabela, descrição de imagem ou contexto comum aos itens; use \"\" se não houver",
+  "referencia_fonte": "fonte da referência, por exemplo Internet, ENEM, banca/ano; use \"\" se não houver",
   "questoes": [
     {
-      "numero": "string (ex: \\"1\\", \\"86\\" ou \\"\\" se não houver)",
+      "numero": "string (ex: \"1\", \"86\" ou \"\" se não houver)",
       "enunciado": "texto específico do item/questão, sem repetir a referência comum",
       "alternativas": [{"letra": "A", "texto": "..."}, ...],
       "tipo": "multipla_escolha" | "certo_errado" | "numerica" | "discursiva",
-      "resposta": "string (gabarito se visível, senão \\"\\")",
-      "fonte": "string (instituição/prova/ano se visível, senão \\"\\")",
+      "resposta": "string (gabarito se visível, senão \"\")",
+      "fonte": "string (instituição/prova/ano se visível, senão \"\")",
       "tem_equacao": boolean,
       "tem_imagem": boolean,
-      "baixa_confianca": ["trechos com baixa confiança de leitura"]
+      "baixa_confianca": ["trechos com baixa confiança de leitura"],
+      "area_geral": "sugestão de área geral; use \"\" se não houver segurança",
+      "conteudo_principal": "sugestão de conteúdo principal; use \"\" se não houver segurança",
+      "subconteudo_principal": "sugestão de subconteúdo principal; use \"\" se não houver segurança",
+      "conteudos_relacionados": ["assuntos relacionados observados na questão"],
+      "tags_livres": ["tags de abordagem, recurso, tipo ou contexto"],
+      "ano": "ano da prova se visível ou inferível pela fonte; senão \"\"",
+      "prova": "nome da prova se visível, por exemplo ENEM, PAS, PAS 1, Vestibular UnB; senão \"\"",
+      "instituicao": "instituição/banca se visível, por exemplo INEP, UnB, CEBRASPE; senão \"\"",
+      "observacoes": "comentário curto sobre a sugestão de classificação, principalmente se houver incerteza; senão \"\""
     }
   ]
 }
 
-REGRAS CRÍTICAS:
+REGRAS CRÍTICAS DE TRANSCRIÇÃO:
 - NÃO invente texto, números ou símbolos que não estejam legíveis. Se um trecho estiver ilegível, escreva "[ilegível]" no local e adicione à lista "baixa_confianca".
 - Se a imagem tiver marcadores como "Parte 1 de 3", "Parte 2 de 3", etc., leia essas partes como sequência contínua da mesma questão/referência. Não trate cada parte como uma nova questão apenas por causa do marcador.
 - Se houver quebra entre partes sequenciais, junte o texto na ordem visual de cima para baixo.
@@ -84,6 +104,18 @@ REGRAS CRÍTICAS:
 - Se a questão for discursiva ou numérica, alternativas = [].
 - tem_imagem = true se a questão contém gráfico, figura, tabela ou diagrama.
 - tem_equacao = true se contém qualquer notação matemática/química.
+
+REGRAS PARA A CLASSIFICAÇÃO PEDAGÓGICA:
+- A classificação pedagógica é uma sugestão automática, não uma transcrição literal.
+- Preencha área_geral, conteudo_principal e subconteudo_principal apenas quando a questão oferecer evidência clara.
+- Use nomes curtos e padronizados de Física do Ensino Médio.
+- Exemplos de área_geral: Fundamentos da Física, Mecânica, Fluidos, Termologia e Termodinâmica, Ondulatória, Óptica, Eletricidade, Magnetismo e Eletromagnetismo, Física Moderna, Física Nuclear e Radiações, Astronomia e Cosmologia, Física Experimental, Interdisciplinar e Aplicações Tecnológicas.
+- Exemplos de conteudo_principal: Cinemática, Dinâmica, Estática, Trabalho, Energia e Potência, Impulso e Quantidade de Movimento, Gravitação, Hidrostática, Hidrodinâmica, Calorimetria, Propagação de calor, Termodinâmica, Ondas, Acústica, Óptica geométrica, Eletrostática, Eletrodinâmica, Circuitos elétricos, Magnetismo, Indução eletromagnética, Física quântica, Radioatividade, Medidas e experimentação.
+- Exemplos de subconteudo_principal: Movimento uniforme, Movimento uniformemente variado, Queda livre, Lançamento horizontal, Leis de Newton, Plano inclinado, Força de atrito, Energia cinética, Conservação da energia mecânica, Pressão hidrostática, Empuxo, Calor específico, Ondas sonoras, Efeito Doppler, Lei de Ohm, Associação de resistores, Campo elétrico, Lei de Faraday, Efeito fotoelétrico.
+- Conteúdos relacionados devem listar assuntos secundários realmente usados na questão, como Força peso, Força normal, Velocidade média, Energia cinética, Corrente elétrica, Temperatura, Frequência, Pressão, Campo elétrico.
+- Tags devem indicar formato e abordagem, como Cálculo direto, Questão conceitual, Questão contextualizada, Com gráfico, Com tabela, Com imagem, Com dados numéricos, Certo ou errado, Múltipla escolha, Resposta numérica, Questão de interpretação textual.
+- Se a classificação for incerta, deixe o campo principal vazio e explique rapidamente em observacoes.
+- Não force classificações genéricas como "Mecânica" se o conteúdo específico não estiver claro.
 - Retorne SOMENTE o JSON, sem markdown fora do JSON, sem explicações.`;
 
 export const digitizeQuestion = createServerFn({ method: "POST" })
@@ -102,7 +134,7 @@ export const digitizeQuestion = createServerFn({ method: "POST" })
         apiKey,
         model: "google/gemini-2.5-flash",
         systemPrompt: SYSTEM,
-        userText: "Digitalize esta questão seguindo as regras do sistema. Preserve a formatação visual básica quando ela estiver clara. Se a imagem tiver partes sequenciais, leia de cima para baixo e una o conteúdo na ordem correta.",
+        userText: "Digitalize esta questão seguindo as regras do sistema. Preserve a formatação visual básica quando ela estiver clara. Se a imagem tiver partes sequenciais, leia de cima para baixo e una o conteúdo na ordem correta. Sugira também a classificação pedagógica quando houver evidência suficiente.",
         imageDataUrl: data.imageDataUrl,
       });
 
@@ -130,6 +162,15 @@ function normalizeQuestion(q: Partial<QuestaoExtraida>): QuestaoExtraida {
     tem_equacao: !!q.tem_equacao,
     tem_imagem: !!q.tem_imagem,
     baixa_confianca: Array.isArray(q.baixa_confianca) ? q.baixa_confianca : [],
+    area_geral: cleanOptionalString(q.area_geral),
+    conteudo_principal: cleanOptionalString(q.conteudo_principal),
+    subconteudo_principal: cleanOptionalString(q.subconteudo_principal),
+    conteudos_relacionados: normalizeStringArray(q.conteudos_relacionados, 8),
+    tags_livres: normalizeStringArray(q.tags_livres, 10),
+    ano: cleanOptionalString(q.ano),
+    prova: cleanOptionalString(q.prova),
+    instituicao: cleanOptionalString(q.instituicao),
+    observacoes: cleanOptionalString(q.observacoes),
   };
 }
 
@@ -148,6 +189,15 @@ function normalizeDigitization(parsed: DigitalizacaoExtraida | QuestaoExtraida):
     referencia_fonte: "",
     questoes: [normalizeQuestion(parsed as Partial<QuestaoExtraida>)],
   };
+}
+
+function cleanOptionalString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function normalizeStringArray(value: unknown, limit: number) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.map(cleanOptionalString).filter((item): item is string => Boolean(item)))).slice(0, limit);
 }
 
 function digitizeFailure(errorCode: DigitizeErrorCode, message: string): DigitizeResult {
