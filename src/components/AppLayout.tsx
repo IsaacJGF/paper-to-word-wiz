@@ -1,6 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { ScanLine, Library, FileText, BookMarked, BarChart3 } from "lucide-react";
-import type { ReactNode } from "react";
+import { ScanLine, Library, FileText, BookMarked, BarChart3, Save } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const tabs = [
@@ -13,6 +14,8 @@ const tabs = [
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isReviewPage = pathname === "/revisar";
+
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b bg-card sticky top-0 z-30 backdrop-blur">
@@ -61,10 +64,74 @@ export function AppLayout({ children }: { children: ReactNode }) {
           })}
         </nav>
       </header>
-      <main className="flex-1">{children}</main>
+      <main className={cn("flex-1", isReviewPage && "pb-28")}>{children}</main>
       <footer className="py-3 text-center text-[10px] text-muted-foreground">
         Criado por Isaac Jose
       </footer>
+      {isReviewPage && <ReviewSaveDock />}
     </div>
   );
+}
+
+function ReviewSaveDock() {
+  const [buttonLabel, setButtonLabel] = useState("Salvar revisão");
+  const [disabled, setDisabled] = useState(false);
+
+  useEffect(() => {
+    let previousButton: HTMLButtonElement | null = null;
+    let previousDisplay = "";
+
+    const syncButton = () => {
+      const target = findReviewSaveButton();
+      if (previousButton && previousButton !== target) {
+        previousButton.style.display = previousDisplay;
+      }
+      if (!target) {
+        setButtonLabel("Salvar revisão");
+        setDisabled(true);
+        previousButton = null;
+        return;
+      }
+
+      if (previousButton !== target) {
+        previousDisplay = target.style.display;
+        previousButton = target;
+      }
+      target.style.display = "none";
+      setButtonLabel(target.textContent?.trim() || "Salvar revisão");
+      setDisabled(target.disabled);
+    };
+
+    syncButton();
+    const interval = window.setInterval(syncButton, 300);
+    return () => {
+      window.clearInterval(interval);
+      if (previousButton) previousButton.style.display = previousDisplay;
+    };
+  }, []);
+
+  const clickOriginalSave = () => {
+    const target = findReviewSaveButton();
+    if (!target || target.disabled) return;
+    target.click();
+  };
+
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 px-4 py-3 shadow-[0_-8px_30px_rgba(15,23,42,0.12)] backdrop-blur">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">Finalizou a revisão?</p>
+          <p className="text-xs text-muted-foreground">Salve a questão aqui, sem precisar voltar para o topo da página.</p>
+        </div>
+        <Button type="button" className="gap-2" disabled={disabled} onClick={clickOriginalSave} data-review-save-dock="true">
+          <Save className="size-4" /> {buttonLabel}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function findReviewSaveButton() {
+  const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>("button:not([data-review-save-dock])"));
+  return buttons.find((button) => button.textContent?.trim().startsWith("Salvar")) ?? null;
 }
