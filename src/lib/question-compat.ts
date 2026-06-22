@@ -3,6 +3,18 @@ import type { ImagePlacementLayout } from "@/lib/image-layout";
 
 export type QuestionInsertRow = Record<string, unknown>;
 
+type CatalogItem = { id: string; nome: string; ativo: boolean; area_id?: string; conteudo_id?: string };
+
+type CatalogSnapshot = {
+  areas: CatalogItem[];
+  conteudos: CatalogItem[];
+  subconteudos: CatalogItem[];
+  relacionados: CatalogItem[];
+  tags: CatalogItem[];
+  provas: CatalogItem[];
+  instituicoes: CatalogItem[];
+};
+
 export type DocumentQuestion = {
   id: string;
   numero: string | null;
@@ -87,7 +99,8 @@ const REQUIRED_DOCUMENT_COLUMNS = [
 const db = supabase as any;
 
 export async function insertQuestionsWithCompatibility(rows: QuestionInsertRow[]) {
-  let currentRows = rows;
+  const sanitizedRows = await sanitizeRowsByCatalogs(rows);
+  let currentRows = sanitizedRows;
   const removedColumns: string[] = [];
   let lastError: unknown = null;
 
@@ -136,6 +149,97 @@ export async function fetchDocumentQuestions(ids: string[]): Promise<DocumentQue
   throw lastError;
 }
 
+async function sanitizeRowsByCatalogs(rows: QuestionInsertRow[]) {
+  try {
+    const catalogs = await fetchCatalogSnapshot();
+    return rows.map((row) => sanitizeRowByCatalogs(row, catalogs));
+  } catch (error) {
+    console.warn("Não foi possível validar a classificação pelos catálogos. Salvando sem filtro extra.", error);
+    return rows;
+  }
+}
+
+async function fetchCatalogSnapshot(): Promise<CatalogSnapshot> {
+  const [areas, conteudos, subconteudos, relacionados, tags, provas, instituicoes] = await Promise.all([
+    fetchCatalog("catalog_areas"),
+    fetchCatalog("catalog_conteudos"),
+    fetchCatalog("catalog_subconteudos"),
+    fetchCatalog("catalog_relacionados"),
+    fetchCatalog("catalog_tags"),
+    fetchCatalog("catalog_provas"),
+    fetchCatalog("catalog_instituicoes"),
+  ]);
+
+  return { areas, conteudos, subconteudos, relacionados, tags, provas, instituicoes };
+}
+
+async function fetchCatalog(table: string): Promise<CatalogItem[]> {
+  const { data, error } = await db.from(table).select("id, nome, ativo, area_id, conteudo_id");
+  if (error) {
+    console.warn(`Falha ao carregar ${table} para validar classificação:`, error);
+    return [];
+  }
+  return (data ?? []) as CatalogItem[];
+}
+
+function sanitizeRowByCatalogs(row: QuestionInsertRow, catalogs: CatalogSnapshot): QuestionInsertRow {
+  const area = canonicalCatalogName(catalogs.areas, row.area_geral);
+  const content = canonicalCatalogName(catalogs.conteudos, row.conteudo_principal);
+  const subcontent = canonicalCatalogName(catalogs.subconteudos, row.subconteudo_principal);
+  const related = canonicalCatalogArray(catalogs.relacionados, row.conteudos_relacionados);
+  const tagNames = canonicalCatalogArray(catalogs.tags, row.tags_livres ?? row.tags);
+  const prova = canonicalCatalogName(catalogs.provas, row.prova);
+  const instituicao = canonicalCatalogName(catalogs.instituicoes, row.instituicao);
+
+  return {
+    ...row,
+    disciplina: area ?? normalizeNullable(row.disciplina),
+    conteudo: content ?? normalizeNullable(row.conteudo),
+    area_geral: area,
+    conteudo_principal: content,
+    subconteudo_principal: subcontent,
+    conteudos_relacionados: related,
+    tags_livres: tagNames,
+    tags: tagNames.length > 0 ? tagNames : null,
+    prova,
+    instituicao,
+  };
+}
+
+function canonicalCatalogName(items: CatalogItem[], value: unknown): string | null {
+  if (items.length === 0) return normalizeNullable(value);
+  const normalized = normalizeCatalogValue(value);
+  if (!normalized) return null;
+  return items.find((item) => item.ativo && normalizeCatalogValue(item.nome) === normalized)?.nome ?? null;
+}
+
+function canonicalCatalogArray(items: CatalogItem[], value: unknown): string[] {
+  const values = normalizeStringArray(value);
+  if (items.length === 0) return values;
+  const activeByName = new Map(items.filter((item) => item.ativo).map((item) => [normalizeCatalogValue(item.nome), item.nome]));
+  return Array.from(new Set(values.map((item) => activeByName.get(normalizeCatalogValue(item))).filter((item): item is string => Boolean(item))));
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeString(item).trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value.split(/[;,]/).map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function normalizeCatalogValue(value: unknown) {
+  return normalizeString(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 function normalizeDocumentRows(rows: unknown[]): DocumentQuestion[] {
   return (rows as Partial<DocumentQuestion>[]).map((row) => ({
     id: String(row.id),
@@ -173,6 +277,11 @@ function normalizeAlternatives(value: unknown[]) {
 
 function normalizeString(value: unknown) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function normalizeNullable(value: unknown): string | null {
+  const text = normalizeString(value).trim();
+  return text || null;
 }
 
 function normalizeNullableString(value: unknown): string | null {
