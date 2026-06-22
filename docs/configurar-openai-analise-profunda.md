@@ -1,82 +1,96 @@
-# Configuração da OpenAI para Análise profunda por IA
+# Configuração da Análise profunda por IA
 
-A aba **Análise de Provas** usa a Supabase Edge Function `openai-deep-analysis` para chamar a API da OpenAI com segurança.
+A aba **Análise de Provas** agora usa a **mesma IA da digitalização de questões**.
 
-## Por que usar Edge Function
+Isso significa que a análise profunda não depende mais de OpenAI API, Supabase Edge Function ou secrets da OpenAI.
 
-A chave da OpenAI não deve ficar no front-end, no navegador, nem em arquivos versionados do repositório.
-
-Fluxo correto:
+## Fluxo atual
 
 ```text
 Front-end
-→ Supabase Edge Function openai-deep-analysis
-→ OpenAI API
+→ Server Function generateDeepAnalysis
+→ Lovable AI Gateway
+→ modelo google/gemini-2.5-flash por padrão
 → relatório estruturado para o front-end
 ```
 
-## Secrets necessários
+## Variáveis necessárias
 
-Configure estes secrets no ambiente da Supabase:
+A análise profunda usa a mesma chave já usada pela digitalização:
 
 ```text
-OPENAI_API_KEY=sk-...
-OPENAI_ANALYSIS_MODEL=gpt-4o-mini
+LOVABLE_API_KEY
 ```
 
-`OPENAI_ANALYSIS_MODEL` é opcional. Se não for configurado, a função usa `gpt-4o-mini` como padrão.
+Opcionalmente, é possível definir outro modelo para análise:
 
-## Como configurar no Supabase
-
-Pelo painel da Supabase:
-
-1. Acesse o projeto da Supabase.
-2. Vá em **Edge Functions**.
-3. Abra a função `openai-deep-analysis`.
-4. Configure os secrets/variáveis de ambiente.
-5. Faça deploy da função.
-
-Pela CLI da Supabase:
-
-```bash
-supabase secrets set OPENAI_API_KEY="sk-..."
-supabase secrets set OPENAI_ANALYSIS_MODEL="gpt-4o-mini"
-supabase functions deploy openai-deep-analysis
+```text
+LOVABLE_ANALYSIS_MODEL=google/gemini-2.5-flash
 ```
 
-## Segurança
+Se `LOVABLE_ANALYSIS_MODEL` não existir, o sistema usa `google/gemini-2.5-flash`.
 
-- Nunca coloque `OPENAI_API_KEY` em componente React.
-- Nunca coloque a chave em `.env` público com prefixo `VITE_`.
-- Nunca cole a chave em tela, prompt ou arquivo do repositório.
-- Se uma chave foi exposta, revogue a chave no painel da OpenAI e gere uma nova.
+## O que não é mais necessário
+
+Não é mais necessário configurar no Supabase:
+
+```text
+OPENAI_API_KEY
+OPENAI_ANALYSIS_MODEL
+openai-deep-analysis
+```
+
+A função `openai-deep-analysis` deixou de ser usada pela aba **Análise de Provas**.
 
 ## Funcionamento esperado
 
-Ao clicar em **Gerar análise profunda por IA**, o front-end envia apenas os dados estruturados da análise para a Edge Function.
+Ao clicar em **Gerar análise profunda por IA**, o sistema envia para a IA:
 
-A função:
+- filtros aplicados;
+- estatísticas calculadas localmente;
+- análise de termos e comandos;
+- análise de referências/textos-base;
+- cruzamentos;
+- qualidade dos dados;
+- amostra das questões analisadas.
 
-- lê `OPENAI_API_KEY` no ambiente seguro;
-- chama a OpenAI Responses API;
-- pede resposta estruturada em JSON;
-- devolve o relatório para a aba **Análise de Provas**.
+A IA devolve um relatório estruturado com:
+
+- visão geral;
+- padrões de conteúdo;
+- padrões de linguagem;
+- padrões de construção dos itens;
+- uso de texto-base;
+- padrões sutis;
+- recomendações para simulado;
+- limitações;
+- evidências usadas.
+
+## Segurança
+
+- `LOVABLE_API_KEY` deve ficar apenas no ambiente do servidor.
+- Não coloque essa chave em componente React.
+- Não coloque a chave em variável pública com prefixo `VITE_`.
+- Não cole a chave em código versionado.
 
 ## Erros comuns
 
 ### `missing_api_key`
 
-A função está sem `OPENAI_API_KEY` configurada.
+A variável `LOVABLE_API_KEY` não está configurada.
 
-### `FunctionsHttpError`
+### `invalid_api_key`
 
-A Edge Function pode não estar publicada, pode estar com erro interno ou pode estar sem secrets.
+A chave da IA está inválida ou sem permissão.
 
-### `openai_error`
+### `rate_limit`
 
-A OpenAI recusou a chamada. Verifique:
+O limite de uso da IA foi atingido. Aguarde e tente novamente.
 
-- chave ativa;
-- billing ativo na OpenAI Platform;
-- modelo configurado em `OPENAI_ANALYSIS_MODEL`;
-- limites de uso da conta.
+### `credits`
+
+Os créditos de IA do workspace foram esgotados.
+
+### `truncated_response`
+
+A resposta ficou grande demais. Use filtros mais específicos ou reduza a quantidade de questões.

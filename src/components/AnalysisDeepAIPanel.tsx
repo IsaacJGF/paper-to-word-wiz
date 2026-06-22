@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, BrainCircuit, ClipboardCopy, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+import { generateDeepAnalysis } from "@/lib/prova-deep-analysis.functions";
 import { buildDeepAnalysisPayload, deepAnalysisPayloadToText, type DeepAnalysisFilters, type DeepAnalysisReport, type DeepPattern } from "@/lib/prova-deep-analysis";
 import type { ProvaAnalysisSummary } from "@/lib/prova-analysis";
 import { toast } from "sonner";
@@ -31,24 +31,7 @@ export function AnalysisDeepAIPanel({ summary, filters }: { summary: ProvaAnalys
     setLoading(true);
     setError("");
     try {
-      const { data, error: invokeError } = await supabase.functions.invoke<DeepAnalysisResponse>("openai-deep-analysis", {
-        body: { payload },
-      });
-
-      if (invokeError) {
-        console.error("Erro ao chamar Edge Function openai-deep-analysis:", invokeError);
-        const message = invokeError.message || "Falha ao chamar a função de análise profunda por IA.";
-        setError(message);
-        toast.error(message);
-        return;
-      }
-
-      if (!data) {
-        const message = "A função de análise profunda não retornou dados.";
-        setError(message);
-        toast.error(message);
-        return;
-      }
+      const data = await generateDeepAnalysis({ data: { payload } }) as DeepAnalysisResponse;
 
       if (!data.ok) {
         setError(data.message);
@@ -89,7 +72,7 @@ export function AnalysisDeepAIPanel({ summary, filters }: { summary: ProvaAnalys
             <h2 className="font-semibold">Análise profunda por IA</h2>
           </div>
           <p className="max-w-3xl text-sm text-muted-foreground">
-            A OpenAI analisará os dados estatísticos e os textos das questões para encontrar padrões mais sutis de cobrança, linguagem e construção dos itens.
+            A mesma IA usada na digitalização analisará os dados estatísticos e os textos das questões para encontrar padrões mais sutis de cobrança, linguagem e construção dos itens.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -106,7 +89,7 @@ export function AnalysisDeepAIPanel({ summary, filters }: { summary: ProvaAnalys
       </div>
 
       <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-        Essa análise pode demorar um pouco mais, pois usa uma Supabase Edge Function segura para chamar a API da OpenAI. A chave da OpenAI não fica no navegador.
+        Essa análise usa a mesma configuração da digitalização por IA, sem depender da OpenAI API. Ela utiliza a chave <strong>LOVABLE_API_KEY</strong> já usada no reconhecimento das questões.
       </div>
 
       {payload.amostra.usou_amostra_representativa && (
