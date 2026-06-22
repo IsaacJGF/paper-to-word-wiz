@@ -32,38 +32,50 @@ export function suggestQuestionMetadata({
     question.enunciado,
     question.fonte ?? "",
     question.resposta ?? "",
+    question.area_geral ?? "",
+    question.conteudo_principal ?? "",
+    question.subconteudo_principal ?? "",
+    ...(question.conteudos_relacionados ?? []),
+    ...(question.tags_livres ?? []),
     ...question.alternativas.map((alt) => alt.texto),
   ].join(" "));
 
   const areaById = new Map(areas.map((area) => [area.id, area]));
   const conteudoById = new Map(conteudos.map((conteudo) => [conteudo.id, conteudo]));
+  const aiSuggestion = suggestionFromAiFields(question, { areas, conteudos, subconteudos, relacionados, tags, areaById, conteudoById });
+
   const subScores = bestMatches(subconteudos, text, 1, 42);
   const contentScores = bestMatches(conteudos, text, 1, 36);
   const areaScores = bestMatches(areas, text, 1, 30);
 
-  let area_geral: string | undefined;
-  let conteudo_principal: string | undefined;
-  let subconteudo_principal: string | undefined;
+  let area_geral: string | undefined = aiSuggestion.area_geral;
+  let conteudo_principal: string | undefined = aiSuggestion.conteudo_principal;
+  let subconteudo_principal: string | undefined = aiSuggestion.subconteudo_principal;
 
-  const bestSub = subScores[0]?.item;
-  if (bestSub?.conteudo_id) {
-    const parentContent = conteudoById.get(bestSub.conteudo_id);
-    const parentArea = parentContent?.area_id ? areaById.get(parentContent.area_id) : undefined;
-    subconteudo_principal = bestSub.nome;
-    conteudo_principal = parentContent?.nome;
-    area_geral = parentArea?.nome;
-  } else {
-    const bestContent = contentScores[0]?.item;
-    if (bestContent?.area_id) {
-      conteudo_principal = bestContent.nome;
-      area_geral = areaById.get(bestContent.area_id)?.nome;
+  if (!area_geral || !conteudo_principal || !subconteudo_principal) {
+    const bestSub = subScores[0]?.item;
+    if (bestSub?.conteudo_id) {
+      const parentContent = conteudoById.get(bestSub.conteudo_id);
+      const parentArea = parentContent?.area_id ? areaById.get(parentContent.area_id) : undefined;
+      subconteudo_principal = subconteudo_principal ?? bestSub.nome;
+      conteudo_principal = conteudo_principal ?? parentContent?.nome;
+      area_geral = area_geral ?? parentArea?.nome;
     } else {
-      area_geral = areaScores[0]?.item.nome;
+      const bestContent = contentScores[0]?.item;
+      if (bestContent?.area_id) {
+        conteudo_principal = conteudo_principal ?? bestContent.nome;
+        area_geral = area_geral ?? areaById.get(bestContent.area_id)?.nome;
+      } else {
+        area_geral = area_geral ?? areaScores[0]?.item.nome;
+      }
     }
   }
 
-  const related = bestMatches(relacionados, text, 6, 22).map(({ item }) => item.nome);
-  const tagNames = new Set(bestMatches(tags, text, 6, 20).map(({ item }) => item.nome));
+  const related = mergeUnique(
+    aiSuggestion.conteudos_relacionados,
+    bestMatches(relacionados, text, 6, 22).map(({ item }) => item.nome),
+  ).slice(0, 8);
+  const tagNames = new Set(mergeUnique(aiSuggestion.tags_livres, bestMatches(tags, text, 6, 20).map(({ item }) => item.nome)));
   for (const name of heuristicTags(text, question)) {
     if (tags.some((tag) => tag.nome === name && tag.ativo)) tagNames.add(name);
   }
@@ -97,6 +109,54 @@ export function formatMetadataSuggestion(suggestion: MetadataSuggestion) {
   ]
     .map(([label, value]) => `${label}: ${value || "sem sugestão"}`)
     .join("\n");
+}
+
+function suggestionFromAiFields(
+  question: DraftQuestion,
+  catalogs: {
+    areas: CatalogItem[];
+    conteudos: CatalogItem[];
+    subconteudos: CatalogItem[];
+    relacionados: CatalogItem[];
+    tags: CatalogItem[];
+    areaById: Map<string, CatalogItem>;
+    conteudoById: Map<string, CatalogItem>;
+  },
+): MetadataSuggestion {
+  const sub = findCatalogByName(catalogs.subconteudos, question.subconteudo_principal);
+  if (sub?.conteudo_id) {
+    const parentContent = catalogs.conteudoById.get(sub.conteudo_id);
+    const parentArea = parentContent?.area_id ? catalogs.areaById.get(parentContent.area_id) : undefined;
+    return {
+      area_geral: parentArea?.nome ?? findCatalogByName(catalogs.areas, question.area_geral)?.nome,
+      conteudo_principal: parentContent?.nome ?? findCatalogByName(catalogs.conteudos, question.conteudo_principal)?.nome,
+      subconteudo_principal: sub.nome,
+      conteudos_relacionados: matchCatalogNames(catalogs.relacionados, question.conteudos_relacionados ?? []),
+      tags_livres: matchCatalogNames(catalogs.tags, question.tags_livres ?? []),
+    };
+  }
+
+  const content = findCatalogByName(catalogs.conteudos, question.conteudo_principal);
+  const area = content?.area_id ? catalogs.areaById.get(content.area_id) : findCatalogByName(catalogs.areas, question.area_geral);
+  return {
+    area_geral: area?.nome,
+    conteudo_principal: content?.nome,
+    subconteudo_principal: findCatalogByName(catalogs.subconteudos, question.subconteudo_principal)?.nome,
+    conteudos_relacionados: matchCatalogNames(catalogs.relacionados, question.conteudos_relacionados ?? []),
+    tags_livres: matchCatalogNames(catalogs.tags, question.tags_livres ?? []),
+  };
+}
+
+function findCatalogByName(items: CatalogItem[], value: unknown) {
+  const normalized = typeof value === "string" ? normalize(value) : "";
+  if (!normalized) return undefined;
+  return items.find((item) => item.ativo && normalize(item.nome) === normalized);
+}
+
+function matchCatalogNames(items: CatalogItem[], values: string[]) {
+  return values
+    .map((value) => findCatalogByName(items, value)?.nome)
+    .filter((value): value is string => Boolean(value));
 }
 
 function bestMatches(items: CatalogItem[], text: string, limit: number, minScore: number) {
@@ -138,6 +198,10 @@ function heuristicTags(text: string, question: DraftQuestion) {
   if (question.tipo === "discursiva") tags.add("Resposta discursiva");
   if (question.tipo === "numerica") tags.add("Resposta numérica");
   return [...tags];
+}
+
+function mergeUnique(...groups: string[][]) {
+  return Array.from(new Set(groups.flat().filter(Boolean)));
 }
 
 function normalize(value: string) {
