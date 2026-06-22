@@ -1,6 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, BarChart3, BookOpenCheck, FileSearch, Image as ImageIcon, Layers, ListChecks, Loader2, Sigma, Tags, TextSearch } from "lucide-react";
+import {
+  AlertTriangle,
+  BarChart3,
+  BookOpenCheck,
+  FileSearch,
+  Image as ImageIcon,
+  Layers,
+  ListChecks,
+  Loader2,
+  Sigma,
+  Tags,
+  TextSearch,
+} from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
 import { AnalysisCrossPanel } from "@/components/AnalysisCrossPanel";
 import { AnalysisDataQualityPanel } from "@/components/AnalysisDataQualityPanel";
@@ -22,7 +34,6 @@ export const Route = createFileRoute("/analise-provas")({
 });
 
 type CatalogItem = { id: string; nome: string; ativo: boolean; area_id?: string | null; conteudo_id?: string | null };
-
 type AnalysisFilters = {
   prova: string;
   instituicao: string;
@@ -33,10 +44,9 @@ type AnalysisFilters = {
   subconteudoPrincipal: string;
   tipo: string;
 };
-
 type QuestionRow = ProvaAnalysisQuestion;
-
 type MatrixRow = { content: string; byYear: Record<string, number>; total: number };
+type AnalysisTab = "geral" | "conteudos" | "linguagem" | "referencias" | "cruzamentos" | "ia" | "qualidade";
 
 const EMPTY_FILTERS: AnalysisFilters = {
   prova: "",
@@ -118,7 +128,6 @@ function Page() {
   const conteudoOptions = selectedArea ? conteudos.filter((item) => item.area_id === selectedArea.id) : conteudos;
   const selectedConteudo = conteudoOptions.find((item) => item.nome === filters.conteudoPrincipal);
   const subconteudoOptions = selectedConteudo ? subconteudos.filter((item) => item.conteudo_id === selectedConteudo.id) : subconteudos;
-
   const activeFilterCount = useMemo(() => Object.values(filters).filter(Boolean).length, [filters]);
 
   const updateFilter = <K extends keyof AnalysisFilters>(key: K, value: AnalysisFilters[K]) => {
@@ -173,57 +182,64 @@ function Page() {
   return (
     <AppLayout>
       <div className="mx-auto max-w-7xl px-4 py-6">
-        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold">Análise de Provas</h1>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Analise provas antigas cadastradas no banco de questões para identificar padrões de cobrança, tipos de item e características gerais da base selecionada.
-            </p>
-          </div>
-          <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            Qualidade dos dados
+        <div className="mb-5 rounded-2xl border bg-gradient-to-br from-card to-muted/30 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">Painel analítico</p>
+              <h1 className="text-2xl font-bold">Análise de Provas</h1>
+              <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                Veja padrões de cobrança, conteúdos mais frequentes, linguagem da banca, textos-base, cruzamentos e análise por IA em uma página organizada por abas.
+              </p>
+            </div>
+            <div className="rounded-xl border bg-background/80 px-3 py-2 text-xs text-muted-foreground shadow-sm">
+              {activeFilterCount > 0 ? `${activeFilterCount} filtro${activeFilterCount > 1 ? "s" : ""} preparado${activeFilterCount > 1 ? "s" : ""}` : "Pronto para analisar"}
+            </div>
           </div>
         </div>
 
         <section className="rounded-xl border bg-card p-4">
-          <div className="mb-4 flex items-center justify-between gap-2">
-            <div>
-              <h2 className="font-semibold">Filtros da análise</h2>
-              <p className="text-xs text-muted-foreground">Selecione a base de questões que será analisada. Os filtros são combinados entre si.</p>
-            </div>
-            {activeFilterCount > 0 && <span className="rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">{activeFilterCount} filtro{activeFilterCount > 1 ? "s" : ""}</span>}
-          </div>
+          <details open>
+            <summary className="cursor-pointer list-none">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="font-semibold">Filtros da análise</h2>
+                  <p className="text-xs text-muted-foreground">Selecione a base que será analisada. Os filtros são combinados entre si.</p>
+                </div>
+                {activeFilterCount > 0 && <span className="rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">{activeFilterCount} filtro{activeFilterCount > 1 ? "s" : ""}</span>}
+              </div>
+            </summary>
 
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-            <FilterSelect label="Prova" value={filters.prova} onChange={(value) => updateFilter("prova", value)} options={provas} placeholder="Todas as provas" />
-            <FilterSelect label="Instituição" value={filters.instituicao} onChange={(value) => updateFilter("instituicao", value)} options={instituicoes} placeholder="Todas as instituições" />
-            <div className="space-y-1.5">
-              <Label>Ano inicial</Label>
-              <Input value={filters.anoInicial} onChange={(event) => updateFilter("anoInicial", onlyYearDigits(event.target.value))} placeholder="Ex.: 2018" inputMode="numeric" maxLength={4} />
+            <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+              <FilterSelect label="Prova" value={filters.prova} onChange={(value) => updateFilter("prova", value)} options={provas} placeholder="Todas as provas" />
+              <FilterSelect label="Instituição" value={filters.instituicao} onChange={(value) => updateFilter("instituicao", value)} options={instituicoes} placeholder="Todas as instituições" />
+              <div className="space-y-1.5">
+                <Label>Ano inicial</Label>
+                <Input value={filters.anoInicial} onChange={(event) => updateFilter("anoInicial", onlyYearDigits(event.target.value))} placeholder="Ex.: 2018" inputMode="numeric" maxLength={4} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Ano final</Label>
+                <Input value={filters.anoFinal} onChange={(event) => updateFilter("anoFinal", onlyYearDigits(event.target.value))} placeholder="Ex.: 2024" inputMode="numeric" maxLength={4} />
+              </div>
+              <FilterSelect label="Área geral" value={filters.areaGeral} onChange={(value) => updateFilter("areaGeral", value)} options={areas} placeholder="Todas as áreas" />
+              <FilterSelect label="Conteúdo principal" value={filters.conteudoPrincipal} onChange={(value) => updateFilter("conteudoPrincipal", value)} options={conteudoOptions} placeholder={filters.areaGeral ? "Todos os conteúdos da área" : "Todos os conteúdos"} disabled={Boolean(filters.areaGeral) && conteudoOptions.length === 0} />
+              <FilterSelect label="Subconteúdo principal" value={filters.subconteudoPrincipal} onChange={(value) => updateFilter("subconteudoPrincipal", value)} options={subconteudoOptions} placeholder={filters.conteudoPrincipal ? "Todos os subconteúdos do conteúdo" : "Todos os subconteúdos"} disabled={Boolean(filters.conteudoPrincipal) && subconteudoOptions.length === 0} />
+              <div className="space-y-1.5">
+                <Label>Tipo de questão</Label>
+                <select value={filters.tipo} onChange={(event) => updateFilter("tipo", event.target.value)} className="h-10 w-full rounded-md border bg-card px-3 text-sm">
+                  <option value="">Todos os tipos</option>
+                  {TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>Ano final</Label>
-              <Input value={filters.anoFinal} onChange={(event) => updateFilter("anoFinal", onlyYearDigits(event.target.value))} placeholder="Ex.: 2024" inputMode="numeric" maxLength={4} />
-            </div>
-            <FilterSelect label="Área geral" value={filters.areaGeral} onChange={(value) => updateFilter("areaGeral", value)} options={areas} placeholder="Todas as áreas" />
-            <FilterSelect label="Conteúdo principal" value={filters.conteudoPrincipal} onChange={(value) => updateFilter("conteudoPrincipal", value)} options={conteudoOptions} placeholder={filters.areaGeral ? "Todos os conteúdos da área" : "Todos os conteúdos"} disabled={Boolean(filters.areaGeral) && conteudoOptions.length === 0} />
-            <FilterSelect label="Subconteúdo principal" value={filters.subconteudoPrincipal} onChange={(value) => updateFilter("subconteudoPrincipal", value)} options={subconteudoOptions} placeholder={filters.conteudoPrincipal ? "Todos os subconteúdos do conteúdo" : "Todos os subconteúdos"} disabled={Boolean(filters.conteudoPrincipal) && subconteudoOptions.length === 0} />
-            <div className="space-y-1.5">
-              <Label>Tipo de questão</Label>
-              <select value={filters.tipo} onChange={(event) => updateFilter("tipo", event.target.value)} className="h-10 w-full rounded-md border bg-card px-3 text-sm">
-                <option value="">Todos os tipos</option>
-                {TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </div>
-          </div>
 
-          <div className="mt-4 flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="outline" onClick={clearFilters}>Limpar</Button>
-            <Button type="button" onClick={analyze} disabled={loading} className="gap-2">
-              {loading ? <Loader2 className="size-4 animate-spin" /> : <FileSearch className="size-4" />}
-              {loading ? "Analisando..." : "Analisar prova"}
-            </Button>
-          </div>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <Button type="button" variant="outline" onClick={clearFilters}>Limpar</Button>
+              <Button type="button" onClick={analyze} disabled={loading} className="gap-2">
+                {loading ? <Loader2 className="size-4 animate-spin" /> : <FileSearch className="size-4" />}
+                {loading ? "Analisando..." : "Analisar prova"}
+              </Button>
+            </div>
+          </details>
         </section>
 
         <section className="mt-4">
@@ -276,39 +292,90 @@ function EmptyState({ text }: { text: string }) {
 }
 
 function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; filters: AnalysisFilters }) {
+  const [activeTab, setActiveTab] = useState<AnalysisTab>("geral");
   const period = formatPeriod(filters, summary.years);
+
   return (
     <div className="space-y-4">
       {summary.total < 10 && <SmallSampleAlert total={summary.total} />}
       <SummaryCards summary={summary} period={period} />
-      <AnalysisDataQualityPanel summary={summary} />
-      <AnalysisGeneralSummaryPanel summary={summary} />
-      <AnalysisSimulationSuggestionPanel summary={summary} />
-      <AnalysisDeepAIPanel summary={summary} filters={filters} />
+      <AnalysisNavigator activeTab={activeTab} onChange={setActiveTab} />
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
+      {activeTab === "geral" && (
         <div className="space-y-4">
-          <SearchSummary filters={filters} period={period} />
-          <TopContentCards summary={summary} />
+          <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
+            <div className="space-y-4">
+              <SearchSummary filters={filters} period={period} />
+              <TopContentCards summary={summary} />
+            </div>
+            <TypeBreakdownCard summary={summary} />
+          </div>
+          <ChartsPanel summary={summary} />
         </div>
-        <TypeBreakdownCard summary={summary} />
+      )}
+
+      {activeTab === "conteudos" && (
+        <div className="space-y-4">
+          <div className="grid gap-4 xl:grid-cols-2">
+            <HorizontalBarChart title="Conteúdos mais cobrados" rows={summary.contentFrequency} emptyText="Nenhum conteúdo principal encontrado." />
+            <DonutChart title="Distribuição por área geral" rows={summary.areaFrequency} total={summary.total} />
+          </div>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <VisualFrequencyTable title="Conteúdos mais cobrados" rows={summary.contentFrequency} total={summary.total} highlightFirst />
+            <VisualFrequencyTable title="Subconteúdos mais cobrados" rows={summary.subcontentFrequency} total={summary.total} highlightFirst />
+            <VisualFrequencyTable title="Tags mais frequentes" rows={summary.tagFrequency} total={summary.total} emptyText="Nenhuma tag cadastrada nas questões analisadas." />
+            <VisualFrequencyTable title="Conteúdos relacionados mais frequentes" rows={summary.relatedContentFrequency} total={summary.total} emptyText="Nenhum conteúdo relacionado cadastrado." />
+          </div>
+        </div>
+      )}
+
+      {activeTab === "linguagem" && <AnalysisLanguagePanel summary={summary} />}
+      {activeTab === "referencias" && <AnalysisReferencePanel summary={summary} />}
+      {activeTab === "cruzamentos" && <AnalysisCrossPanel summary={summary} />}
+      {activeTab === "ia" && (
+        <div className="space-y-4">
+          <div className="grid gap-4 xl:grid-cols-2">
+            <AnalysisGeneralSummaryPanel summary={summary} />
+            <AnalysisSimulationSuggestionPanel summary={summary} />
+          </div>
+          <AnalysisDeepAIPanel summary={summary} filters={filters} />
+        </div>
+      )}
+      {activeTab === "qualidade" && <AnalysisDataQualityPanel summary={summary} />}
+    </div>
+  );
+}
+
+function AnalysisNavigator({ activeTab, onChange }: { activeTab: AnalysisTab; onChange: (tab: AnalysisTab) => void }) {
+  const tabs: Array<{ id: AnalysisTab; label: string; description: string }> = [
+    { id: "geral", label: "Visão geral", description: "métricas e gráficos principais" },
+    { id: "conteudos", label: "Conteúdos", description: "frequência e ranking" },
+    { id: "linguagem", label: "Linguagem", description: "termos e comandos" },
+    { id: "referencias", label: "Textos-base", description: "referências e agrupamentos" },
+    { id: "cruzamentos", label: "Cruzamentos", description: "relações entre dados" },
+    { id: "ia", label: "IA e simulado", description: "interpretação e sugestões" },
+    { id: "qualidade", label: "Qualidade", description: "dados incompletos" },
+  ];
+
+  return (
+    <div className="sticky top-16 z-20 rounded-xl border bg-background/95 p-2 shadow-sm backdrop-blur">
+      <div className="mb-2 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Mapa da análise</div>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {tabs.map((tab) => {
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => onChange(tab.id)}
+              className={`min-w-[150px] rounded-lg border px-3 py-2 text-left transition ${active ? "border-primary bg-primary text-primary-foreground shadow-sm" : "bg-card hover:bg-muted"}`}
+            >
+              <span className="block text-sm font-semibold">{tab.label}</span>
+              <span className={`block text-[11px] ${active ? "text-primary-foreground/80" : "text-muted-foreground"}`}>{tab.description}</span>
+            </button>
+          );
+        })}
       </div>
-
-      <ChartsPanel summary={summary} />
-      <AnalysisCrossPanel summary={summary} />
-      <AnalysisReferencePanel summary={summary} />
-      <AnalysisLanguagePanel summary={summary} />
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <VisualFrequencyTable title="Conteúdos mais cobrados" rows={summary.contentFrequency} total={summary.total} highlightFirst />
-        <VisualFrequencyTable title="Subconteúdos mais cobrados" rows={summary.subcontentFrequency} total={summary.total} highlightFirst />
-        <VisualFrequencyTable title="Tags mais frequentes" rows={summary.tagFrequency} total={summary.total} emptyText="Nenhuma tag cadastrada nas questões analisadas." />
-        <VisualFrequencyTable title="Áreas gerais mais cobradas" rows={summary.areaFrequency} total={summary.total} />
-        <VisualFrequencyTable title="Conteúdos relacionados mais frequentes" rows={summary.relatedContentFrequency} total={summary.total} emptyText="Nenhum conteúdo relacionado cadastrado nas questões analisadas." />
-        <VisualFrequencyTable title="Questões por ano" rows={summary.questionsByYear.map((row) => ({ value: row.year, count: row.count, percent: summary.total > 0 ? Math.round((row.count / summary.total) * 1000) / 10 : 0, years: [row.year] }))} total={summary.total} />
-      </div>
-
-      <QuestionList questions={summary.questions} />
     </div>
   );
 }
@@ -358,14 +425,11 @@ function SearchSummary({ filters, period }: { filters: AnalysisFilters; period: 
 }
 
 function TopContentCards({ summary }: { summary: ProvaAnalysisSummary }) {
-  const topContent = summary.contentFrequency[0];
-  const topSubcontent = summary.subcontentFrequency[0];
-  const topTag = summary.tagFrequency[0];
   return (
     <div className="grid gap-3 md:grid-cols-3">
-      <TopMetricCard title="Conteúdo líder" row={topContent} icon={<BookOpenCheck className="size-4" />} empty="Sem conteúdo principal" />
-      <TopMetricCard title="Subconteúdo líder" row={topSubcontent} icon={<Layers className="size-4" />} empty="Sem subconteúdo" />
-      <TopMetricCard title="Tag líder" row={topTag} icon={<Tags className="size-4" />} empty="Sem tags" />
+      <TopMetricCard title="Conteúdo líder" row={summary.contentFrequency[0]} icon={<BookOpenCheck className="size-4" />} empty="Sem conteúdo principal" />
+      <TopMetricCard title="Subconteúdo líder" row={summary.subcontentFrequency[0]} icon={<Layers className="size-4" />} empty="Sem subconteúdo" />
+      <TopMetricCard title="Tag líder" row={summary.tagFrequency[0]} icon={<Tags className="size-4" />} empty="Sem tags" />
     </div>
   );
 }
@@ -418,7 +482,7 @@ function ChartsPanel({ summary }: { summary: ProvaAnalysisSummary }) {
       <HorizontalBarChart title="Barras horizontais: conteúdos mais cobrados" rows={summary.contentFrequency} emptyText="Nenhum conteúdo principal encontrado." />
       <VerticalBarChart title="Barras verticais: questões por ano" rows={summary.questionsByYear} />
       <DonutChart title="Distribuição por área geral" rows={summary.areaFrequency} total={summary.total} />
-      <HeatmapChart title="Mapa simples Ano × Conteúdo" years={matrix.years} rows={matrix.rows} />
+      <HeatmapChart title="Mapa Ano × Conteúdo" years={matrix.years} rows={matrix.rows} />
     </div>
   );
 }
@@ -496,7 +560,7 @@ function DonutChart({ title, rows, total }: { title: string; rows: FrequencyRow[
 function HeatmapChart({ title, years, rows }: { title: string; years: string[]; rows: MatrixRow[] }) {
   const max = Math.max(...rows.flatMap((row) => Object.values(row.byYear)), 0);
   return (
-    <ChartCard title={title} description="Cruzamento visual simples entre ano e conteúdo principal.">
+    <ChartCard title={title} description="Cruzamento visual entre ano e conteúdo principal.">
       {years.length === 0 || rows.length === 0 ? <p className="text-sm text-muted-foreground">Não há anos ou conteúdos suficientes para montar o mapa.</p> : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-sm">
@@ -619,41 +683,6 @@ function ProgressBar({ percent }: { percent: number }) {
   );
 }
 
-function QuestionList({ questions }: { questions: ProvaAnalysisQuestion[] }) {
-  const visible = questions.slice(0, 80);
-  return (
-    <div className="rounded-xl border bg-card p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="font-semibold">Questões usadas na análise</h2>
-          <p className="text-xs text-muted-foreground">Lista compacta para conferir se a busca retornou a base correta.</p>
-        </div>
-        {questions.length > visible.length && <span className="text-xs text-muted-foreground">Mostrando {visible.length} de {questions.length}</span>}
-      </div>
-      <div className="space-y-2">
-        {visible.map((question) => (
-          <div key={question.id} className="rounded-lg border bg-background p-3">
-            <div className="mb-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="rounded-md bg-muted px-1.5 py-0.5">{question.prova || "Prova não informada"}</span>
-              <span className="rounded-md bg-muted px-1.5 py-0.5">{question.instituicao || "Instituição não informada"}</span>
-              <span className="rounded-md bg-muted px-1.5 py-0.5">{question.ano || "Ano não informado"}</span>
-              <span className="rounded-md bg-muted px-1.5 py-0.5">{formatType(question.tipo || "Sem tipo")}</span>
-            </div>
-            <div className="mb-1 flex flex-wrap gap-1.5 text-xs">
-              <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-primary">{question.area_geral || "Sem área"}</span>
-              <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-primary">{question.conteudo_principal || "Sem conteúdo"}</span>
-              <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-primary">{question.subconteudo_principal || "Sem subconteúdo"}</span>
-            </div>
-            <p className="line-clamp-2 text-sm text-foreground/90">
-              {question.numero ? `Item ${question.numero}. ` : ""}{plainText(question.enunciado) || "Sem enunciado cadastrado."}
-            </p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyFiltersToQuery(query: any, filters: AnalysisFilters) {
   if (filters.prova) query = query.eq("prova", filters.prova);
@@ -747,14 +776,6 @@ function formatPeriod(filters: AnalysisFilters, years: string[]) {
 
 function onlyYearDigits(value: string) {
   return value.replace(/\D/g, "").slice(0, 4);
-}
-
-function plainText(value: string | null | undefined) {
-  return (value ?? "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\$+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function formatType(tipo: string) {
