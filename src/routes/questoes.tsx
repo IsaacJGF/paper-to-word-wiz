@@ -99,9 +99,6 @@ type EditDraft = {
   tipo: string;
   resposta: string;
   fonte: string;
-  referencia_texto: string;
-  referencia_texto_apos: string;
-  referencia_fonte: string;
   area_geral: string;
   conteudo_principal: string;
   subconteudo_principal: string;
@@ -111,6 +108,17 @@ type EditDraft = {
   prova: string;
   instituicao: string;
   observacoes: string;
+};
+type ReferenceDraft = {
+  referencia_texto: string;
+  referencia_texto_apos: string;
+  referencia_fonte: string;
+};
+type ReferenceDialogState = {
+  question: Q;
+  draft: ReferenceDraft;
+  editing: boolean;
+  saving: boolean;
 };
 type ReferenceGroupState = { items: Q[]; selected: Set<string> };
 
@@ -177,6 +185,7 @@ function Page() {
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [expanded, setExpanded] = useState<Q | null>(null);
   const [expandedLoading, setExpandedLoading] = useState(false);
+  const [referenceDialog, setReferenceDialog] = useState<ReferenceDialogState | null>(null);
   const [referenceGroup, setReferenceGroup] = useState<ReferenceGroupState | null>(null);
   const [referenceLoading, setReferenceLoading] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -289,6 +298,17 @@ function Page() {
     setEditDraft(toEditDraft(full));
   };
 
+  const openReferenceDialog = async (question: Q) => {
+    setReferenceLoading(question.id);
+    try {
+      const full = await fetchFullQuestion(question.id);
+      if (!full) return;
+      setReferenceDialog({ question: full, draft: toReferenceDraft(full), editing: false, saving: false });
+    } finally {
+      setReferenceLoading(null);
+    }
+  };
+
   const fetchReferenceItems = async (question: Q) => {
     if (!question.grupo_id?.trim()) return [await fetchFullQuestion(question.id)].filter(Boolean) as Q[];
     setReferenceLoading(question.id);
@@ -396,26 +416,9 @@ function Page() {
     if (!editing || !editDraft) return;
     setSavingEdit(true);
     try {
-      const itemPayload = editDraftToPayload(editDraft, editing);
-      const referencePayload = referenceDraftToPayload(editDraft);
-      const hasGroup = Boolean(editing.grupo_id?.trim());
+      const payload = editDraftToPayload(editDraft, editing);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const db = supabase as any;
-
-      if (hasGroup) {
-        const { error: referenceError } = await db
-          .from("questions")
-          .update(referencePayload)
-          .eq("grupo_id", editing.grupo_id);
-        if (referenceError) {
-          console.error(referenceError);
-          toast.error("Falha ao atualizar a referência dos itens vinculados.");
-          return;
-        }
-      }
-
-      const payload = hasGroup ? itemPayload : { ...itemPayload, ...referencePayload };
-      const { data, error } = await db
+      const { data, error } = await (supabase as any)
         .from("questions")
         .update(payload)
         .eq("id", editing.id)
@@ -426,27 +429,55 @@ function Page() {
         toast.error("Falha ao salvar edição.");
         return;
       }
-
       const updated = normalizeRow(data as Partial<Q>);
-      setItems((current) => current.map((item) => {
-        if (item.id === editing.id) return listProjection(updated);
-        if (hasGroup && item.grupo_id === editing.grupo_id) return { ...item, ...referencePayload };
-        return item;
-      }));
+      setItems((current) => current.map((item) => item.id === editing.id ? listProjection(updated) : item));
       setExpanded((current) => current?.id === editing.id ? updated : current);
-      setReferenceGroup((current) => current ? {
-        ...current,
-        items: current.items.map((item) => {
-          if (item.id === updated.id) return updated;
-          if (hasGroup && item.grupo_id === editing.grupo_id) return { ...item, ...referencePayload };
-          return item;
-        }),
-      } : current);
+      setReferenceGroup((current) => current ? { ...current, items: current.items.map((item) => item.id === updated.id ? updated : item) } : current);
       setEditing(null);
       setEditDraft(null);
-      toast.success(hasGroup ? "Questão atualizada. A referência foi aplicada aos itens vinculados." : "Questão atualizada.");
+      toast.success("Questão atualizada.");
     } finally {
       setSavingEdit(false);
+    }
+  };
+
+  const saveReferenceEdit = async () => {
+    if (!referenceDialog) return;
+    const { question, draft } = referenceDialog;
+    const payload = referenceDraftToPayload(draft);
+    const hasGroup = Boolean(question.grupo_id?.trim());
+    setReferenceDialog((current) => current ? { ...current, saving: true } : current);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db = supabase as any;
+      const query = db.from("questions").update(payload);
+      const { error } = hasGroup
+        ? await query.eq("grupo_id", question.grupo_id)
+        : await query.eq("id", question.id);
+      if (error) {
+        console.error(error);
+        toast.error("Falha ao salvar referência.");
+        return;
+      }
+
+      const updatedQuestion = normalizeRow({ ...question, ...payload });
+      setItems((current) => current.map((item) => {
+        if (item.id === question.id || (hasGroup && item.grupo_id === question.grupo_id)) return { ...item, ...payload };
+        return item;
+      }));
+      setExpanded((current) => {
+        if (!current) return current;
+        if (current.id === question.id || (hasGroup && current.grupo_id === question.grupo_id)) return normalizeRow({ ...current, ...payload });
+        return current;
+      });
+      setReferenceGroup((current) => current ? {
+        ...current,
+        items: current.items.map((item) => item.id === question.id || (hasGroup && item.grupo_id === question.grupo_id) ? normalizeRow({ ...item, ...payload }) : item),
+      } : current);
+      setReferenceDialog({ question: updatedQuestion, draft: toReferenceDraft(updatedQuestion), editing: false, saving: false });
+      toast.success(hasGroup ? "Referência atualizada em todos os itens vinculados." : "Referência atualizada.");
+    } finally {
+      setReferenceDialog((current) => current ? { ...current, saving: false } : current);
     }
   };
 
@@ -533,6 +564,9 @@ function Page() {
 
                   {hasReferenceGroup && (
                     <div className="mt-2 flex flex-wrap gap-2">
+                      <Button type="button" size="sm" variant="outline" className="h-8 gap-1 text-xs" disabled={referenceLoading === it.id} onClick={() => openReferenceDialog(it)}>
+                        {referenceLoading === it.id ? <Loader2 className="size-3.5 animate-spin" /> : <FileText className="size-3.5" />} Ver referência
+                      </Button>
                       <Button type="button" size="sm" variant="outline" className="h-8 gap-1 text-xs" disabled={referenceLoading === it.id} onClick={() => openReferenceGroup(it)}>
                         {referenceLoading === it.id ? <Loader2 className="size-3.5 animate-spin" /> : <Layers className="size-3.5" />} Ver itens
                       </Button>
@@ -562,6 +596,7 @@ function Page() {
 
         <AdvancedFiltersDialog open={advancedOpen} onOpenChange={setAdvancedOpen} filters={draftFilters} onFiltersChange={setDraftFilters} activeCount={activeFilterCount} areas={areas} conteudos={catalogConteudos} subconteudos={subconteudos} relacionados={relacionados} provas={provas} instituicoes={instituicoes} anos={anos} onApply={applyAdvancedFilters} onClear={clearAdvancedFilters} />
         <QuestionDetailsDialog question={expanded} loading={expandedLoading} onClose={() => setExpanded(null)} onEdit={openQuestionEditor} />
+        <ReferenceViewDialog state={referenceDialog} onClose={() => setReferenceDialog(null)} onDraftChange={(patch) => setReferenceDialog((current) => current ? { ...current, draft: { ...current.draft, ...patch } } : current)} onStartEdit={() => setReferenceDialog((current) => current ? { ...current, editing: true } : current)} onCancelEdit={() => setReferenceDialog((current) => current ? { ...current, draft: toReferenceDraft(current.question), editing: false } : current)} onSave={saveReferenceEdit} />
         <ReferenceGroupDialog group={referenceGroup?.items ?? []} selectedIds={referenceGroup?.selected ?? new Set()} assessmentIds={sel} onToggle={toggleReferenceGroupItem} onSelectAll={selectAllReferenceGroupItems} onClear={clearReferenceGroupItems} onAdd={addReferenceGroupSelection} onClose={() => setReferenceGroup(null)} />
         <EditQuestionDialog question={editing} draft={editDraft} saving={savingEdit} areas={areas} conteudos={catalogConteudos} subconteudos={subconteudos} relacionados={relacionados} tags={tagsCat} provas={provas} instituicoes={instituicoes} onDraftChange={setEditDraft} onClose={() => { setEditing(null); setEditDraft(null); }} onSave={saveQuestionEdit} />
 
@@ -638,6 +673,74 @@ function FilterSelect({ id, value, onChange, options, placeholder, disabled }: {
   );
 }
 
+function ReferenceViewDialog({ state, onClose, onDraftChange, onStartEdit, onCancelEdit, onSave }: {
+  state: ReferenceDialogState | null;
+  onClose: () => void;
+  onDraftChange: (patch: Partial<ReferenceDraft>) => void;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  onSave: () => void;
+}) {
+  if (!state) return null;
+  const { question, draft, editing, saving } = state;
+  const hasReference = Boolean(question.referencia_texto || question.referencia_texto_apos || question.referencia_imagem || question.referencia_fonte);
+  return (
+    <Dialog open={!!state} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Referência/texto-base</DialogTitle>
+          <DialogDescription>
+            {question.grupo_id ? "Esta referência pertence a um grupo. Ao editar, a alteração será aplicada a todos os itens vinculados." : "Esta referência pertence apenas a este item."}
+          </DialogDescription>
+        </DialogHeader>
+
+        {editing ? (
+          <div className="space-y-4">
+            {question.referencia_imagem && <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">Imagem da referência preservada. Esta edição altera apenas texto, complemento e fonte.</div>}
+            <FilterBlock label="Texto da referência"><Textarea value={draft.referencia_texto} onChange={(event) => onDraftChange({ referencia_texto: event.target.value })} rows={7} placeholder="Texto-base antes da imagem ou comando geral" /></FilterBlock>
+            <FilterBlock label="Complemento da referência"><Textarea value={draft.referencia_texto_apos} onChange={(event) => onDraftChange({ referencia_texto_apos: event.target.value })} rows={4} placeholder="Texto após imagem/tabela, se houver" /></FilterBlock>
+            <FilterBlock label="Fonte da referência"><Input value={draft.referencia_fonte} onChange={(event) => onDraftChange({ referencia_fonte: event.target.value })} placeholder="Fonte do texto-base, se houver" /></FilterBlock>
+            <div className="rounded-md border bg-muted/20 p-3 text-sm">
+              <p className="mb-2 text-xs font-semibold text-muted-foreground">Prévia da referência</p>
+              {draft.referencia_texto ? <RichText text={draft.referencia_texto} /> : <p className="text-muted-foreground">Sem texto antes da imagem.</p>}
+              {question.referencia_imagem && <img src={question.referencia_imagem} alt="Referência" className="my-3 max-h-96 max-w-full rounded border object-contain" />}
+              {draft.referencia_texto_apos && <RichText text={draft.referencia_texto_apos} className="mt-2" />}
+              {draft.referencia_fonte && <p className="mt-2 text-right text-xs text-muted-foreground">{draft.referencia_fonte}</p>}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {hasReference ? (
+              <section className="rounded-lg border bg-muted/20 p-3">
+                {question.referencia_texto && <RichText text={question.referencia_texto} className="text-sm" />}
+                {question.referencia_imagem && <img src={question.referencia_imagem} alt="Referência" className="my-2 max-h-96 max-w-full rounded border object-contain" />}
+                {question.referencia_texto_apos && <RichText text={question.referencia_texto_apos} className="text-sm" />}
+                {question.referencia_fonte && <p className="mt-2 text-right text-xs text-muted-foreground">{question.referencia_fonte}</p>}
+              </section>
+            ) : (
+              <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">Esta questão ainda não possui referência cadastrada.</div>
+            )}
+          </div>
+        )}
+
+        <DialogFooter>
+          {editing ? (
+            <>
+              <Button type="button" variant="outline" onClick={onCancelEdit} disabled={saving}>Cancelar edição</Button>
+              <Button type="button" onClick={onSave} disabled={saving} className="gap-2">{saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Salvar referência</Button>
+            </>
+          ) : (
+            <>
+              <Button type="button" variant="outline" onClick={onClose}>Fechar</Button>
+              <Button type="button" onClick={onStartEdit} className="gap-2"><Pencil className="size-4" /> Editar referência</Button>
+            </>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function EditQuestionDialog({ question, draft, saving, areas, conteudos, subconteudos, relacionados, tags, provas, instituicoes, onDraftChange, onClose, onSave }: {
   question: Q | null;
   draft: EditDraft | null;
@@ -666,32 +769,12 @@ function EditQuestionDialog({ question, draft, saving, areas, conteudos, subcont
   };
   const addAlt = () => patch({ alternativas: reletterAlternatives([...draft.alternativas, { letra: LETTERS[draft.alternativas.length] ?? "X", texto: "" }]) });
   const removeAlt = (index: number) => patch({ alternativas: reletterAlternatives(draft.alternativas.filter((_, i) => i !== index)) });
-  const hasReference = Boolean(question.grupo_id || question.referencia_texto || question.referencia_texto_apos || question.referencia_imagem);
 
   return (
     <Dialog open={!!question} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Editar questão</DialogTitle>
-          <DialogDescription>Edite enunciado, alternativas, gabarito, referência e classificação pedagógica.</DialogDescription>
-        </DialogHeader>
-
-        <section className="space-y-3 rounded-lg border bg-muted/20 p-3">
-          <div>
-            <h3 className="text-sm font-semibold">Referência/texto-base</h3>
-            <p className="text-xs text-muted-foreground">
-              {question.grupo_id
-                ? "Esta referência está vinculada a um grupo. Ao salvar, a alteração será aplicada a todos os itens da mesma referência."
-                : "Se esta questão não tiver grupo vinculado, a alteração será aplicada apenas a este item."}
-            </p>
-          </div>
-          {question.referencia_imagem && <div className="rounded-md border bg-background p-2 text-xs text-muted-foreground">Imagem da referência preservada. Esta edição altera o texto e a fonte da referência.</div>}
-          <FilterBlock label="Texto da referência"><Textarea value={draft.referencia_texto} onChange={(event) => patch({ referencia_texto: event.target.value })} rows={5} placeholder="Texto-base antes da imagem ou comando geral" /></FilterBlock>
-          <FilterBlock label="Complemento da referência"><Textarea value={draft.referencia_texto_apos} onChange={(event) => patch({ referencia_texto_apos: event.target.value })} rows={3} placeholder="Texto após imagem/tabela, se houver" /></FilterBlock>
-          <FilterBlock label="Fonte da referência"><Input value={draft.referencia_fonte} onChange={(event) => patch({ referencia_fonte: event.target.value })} placeholder="Fonte do texto-base, se houver" /></FilterBlock>
-          {!hasReference && <p className="text-xs text-muted-foreground">Esta questão ainda não possui referência. Você pode criar uma referência preenchendo os campos acima.</p>}
-        </section>
-
+        <DialogHeader><DialogTitle>Editar questão</DialogTitle><DialogDescription>Edite enunciado, alternativas, gabarito e classificação. A referência é editada pelo botão “Ver referência” no card.</DialogDescription></DialogHeader>
+        {(question.referencia_texto || question.referencia_imagem || question.grupo_id) && <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">Esta questão possui referência vinculada. Para editar o texto-base, feche esta janela e use o botão “Ver referência” no card da questão.</div>}
         <div className="grid gap-4 md:grid-cols-2"><FilterBlock label="Tipo"><select value={draft.tipo} onChange={(event) => patch({ tipo: event.target.value })} className="h-10 w-full rounded-md border bg-card px-3 text-sm"><option value="multipla_escolha">Múltipla escolha</option><option value="certo_errado">Certo ou errado</option><option value="numerica">Numérica</option><option value="discursiva">Discursiva</option></select></FilterBlock><FilterBlock label="Número do item"><Input value={draft.numero} onChange={(event) => patch({ numero: event.target.value })} placeholder="Ex.: 68" /></FilterBlock></div>
         <FilterBlock label="Enunciado"><Textarea value={draft.enunciado} onChange={(event) => patch({ enunciado: event.target.value })} rows={8} className="font-mono text-sm" /><div className="rounded-md border bg-muted/20 p-3 text-sm"><RichText text={draft.enunciado} /></div></FilterBlock>
         {draft.tipo === "multipla_escolha" && <FilterBlock label="Alternativas"><div className="mb-2 flex justify-end"><Button type="button" size="sm" variant="outline" onClick={addAlt} className="gap-1"><Plus className="size-3" /> Adicionar</Button></div><div className="space-y-2">{draft.alternativas.map((alt, index) => <div key={index} className="grid gap-2 rounded-lg border p-2 sm:grid-cols-[60px_1fr_auto]"><Input value={alt.letra} onChange={(event) => updateAlt(index, { letra: event.target.value })} className="text-center font-bold" /><Textarea value={alt.texto} onChange={(event) => updateAlt(index, { texto: event.target.value })} rows={2} /><Button type="button" size="icon" variant="ghost" className="text-destructive" onClick={() => removeAlt(index)}><X className="size-4" /></Button></div>)}</div></FilterBlock>}
@@ -811,9 +894,10 @@ function getCardChips(q: Q) { return [q.area_geral, q.conteudo_principal, q.subc
 function getPedagogicalEntries(q: Q) { return [["Área", q.area_geral], ["Conteúdo", q.conteudo_principal], ["Subconteúdo", q.subconteudo_principal], ...(q.conteudos_relacionados ?? []).map((value) => ["Relacionado", value]), ...(q.tags_livres ?? q.tags ?? []).map((value) => ["Tag", value])].filter(([, value]) => Boolean(value)).map(([label, value]) => ({ label: label as string, value: value as string })); }
 function metadataTooltip(q: Q) { const lines = getPedagogicalEntries(q).map((entry) => `${entry.label}: ${entry.value}`); if (q.resposta) lines.push(`Gabarito: ${q.resposta}`); return lines.join("\n"); }
 function compareReferenceItems(a: Q, b: Q) { return String(a.numero ?? "").localeCompare(String(b.numero ?? ""), "pt-BR", { numeric: true }); }
-function toEditDraft(q: Q): EditDraft { return { numero: q.numero ?? "", enunciado: q.enunciado ?? "", alternativas: q.alternativas ?? [], tipo: q.tipo ?? "discursiva", resposta: q.resposta ?? "", fonte: q.fonte ?? "", referencia_texto: q.referencia_texto ?? "", referencia_texto_apos: q.referencia_texto_apos ?? "", referencia_fonte: q.referencia_fonte ?? "", area_geral: q.area_geral ?? "", conteudo_principal: q.conteudo_principal ?? "", subconteudo_principal: q.subconteudo_principal ?? "", conteudos_relacionados: q.conteudos_relacionados ?? [], tags_livres: q.tags_livres?.length ? q.tags_livres : q.tags ?? [], ano: q.ano ?? "", prova: q.prova ?? "", instituicao: q.instituicao ?? "", observacoes: q.observacoes ?? "" }; }
+function toEditDraft(q: Q): EditDraft { return { numero: q.numero ?? "", enunciado: q.enunciado ?? "", alternativas: q.alternativas ?? [], tipo: q.tipo ?? "discursiva", resposta: q.resposta ?? "", fonte: q.fonte ?? "", area_geral: q.area_geral ?? "", conteudo_principal: q.conteudo_principal ?? "", subconteudo_principal: q.subconteudo_principal ?? "", conteudos_relacionados: q.conteudos_relacionados ?? [], tags_livres: q.tags_livres?.length ? q.tags_livres : q.tags ?? [], ano: q.ano ?? "", prova: q.prova ?? "", instituicao: q.instituicao ?? "", observacoes: q.observacoes ?? "" }; }
+function toReferenceDraft(q: Q): ReferenceDraft { return { referencia_texto: q.referencia_texto ?? "", referencia_texto_apos: q.referencia_texto_apos ?? "", referencia_fonte: q.referencia_fonte ?? "" }; }
 function editDraftToPayload(draft: EditDraft, original: Q) { return { numero: draft.numero || null, enunciado: draft.enunciado, alternativas: draft.alternativas, tipo: draft.tipo, resposta: draft.resposta || null, fonte: draft.fonte || null, disciplina: draft.area_geral || original.disciplina || null, conteudo: draft.conteudo_principal || original.conteudo || null, area_geral: draft.area_geral || null, conteudo_principal: draft.conteudo_principal || null, subconteudo_principal: draft.subconteudo_principal || null, conteudos_relacionados: draft.conteudos_relacionados, tags_livres: draft.tags_livres, tags: draft.tags_livres, ano: draft.ano || null, prova: draft.prova || null, instituicao: draft.instituicao || null, observacoes: draft.observacoes || null, tem_equacao: detectEquation(draft.enunciado, draft.alternativas), tem_imagem: Boolean(original.tem_imagem || original.referencia_imagem || original.enunciado_imagem || draft.alternativas.some((alt) => alt.imagem)) }; }
-function referenceDraftToPayload(draft: EditDraft) { return { referencia_texto: draft.referencia_texto || null, referencia_texto_apos: draft.referencia_texto_apos || null, referencia_fonte: draft.referencia_fonte || null }; }
+function referenceDraftToPayload(draft: ReferenceDraft) { return { referencia_texto: draft.referencia_texto || null, referencia_texto_apos: draft.referencia_texto_apos || null, referencia_fonte: draft.referencia_fonte || null }; }
 function buildDuplicatePayload(q: Q) { const { id: _id, created_at: _createdAt, ...rest } = q; return { ...rest, numero: q.numero ? `${q.numero} cópia` : null }; }
 function reletterAlternatives(alternatives: EditDraft["alternativas"]) { return alternatives.map((alt, index) => ({ ...alt, letra: LETTERS[index] ?? alt.letra ?? String(index + 1) })); }
 function detectEquation(text: string, alternatives: EditDraft["alternativas"]) { return /\$[^$]+\$|\\frac|\\sqrt|[=<>≤≥]/.test([text, ...alternatives.map((alt) => alt.texto)].join(" ")); }
