@@ -174,7 +174,7 @@ async function fetchCatalogSnapshot(): Promise<CatalogSnapshot> {
 }
 
 async function fetchCatalog(table: string): Promise<CatalogItem[]> {
-  const { data, error } = await db.from(table).select("id, nome, ativo, area_id, conteudo_id");
+  const { data, error } = await db.from(table).select("*");
   if (error) {
     console.warn(`Falha ao carregar ${table} para validar classificação:`, error);
     return [];
