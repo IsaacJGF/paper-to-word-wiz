@@ -1,17 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  AlertTriangle,
   BarChart3,
-  BookOpenCheck,
   FileSearch,
+  Filter,
   Image as ImageIcon,
-  Layers,
   ListChecks,
   Loader2,
   Sigma,
-  Tags,
+  Sparkles,
   TextSearch,
+  X,
 } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
 import { AnalysisCrossPanel } from "@/components/AnalysisCrossPanel";
@@ -24,6 +23,16 @@ import { AnalysisSimulationSuggestionPanel } from "@/components/AnalysisSimulati
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+  SheetFooter,
+} from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
 import { analyzeProvaQuestions, type FrequencyRow, type ProvaAnalysisQuestion, type ProvaAnalysisSummary } from "@/lib/prova-analysis";
 import { toast } from "sonner";
@@ -49,14 +58,8 @@ type MatrixRow = { content: string; byYear: Record<string, number>; total: numbe
 type AnalysisTab = "geral" | "conteudos" | "linguagem" | "referencias" | "cruzamentos" | "ia" | "qualidade";
 
 const EMPTY_FILTERS: AnalysisFilters = {
-  prova: "",
-  instituicao: "",
-  anoInicial: "",
-  anoFinal: "",
-  areaGeral: "",
-  conteudoPrincipal: "",
-  subconteudoPrincipal: "",
-  tipo: "",
+  prova: "", instituicao: "", anoInicial: "", anoFinal: "",
+  areaGeral: "", conteudoPrincipal: "", subconteudoPrincipal: "", tipo: "",
 };
 
 const TYPE_OPTIONS = [
@@ -67,28 +70,10 @@ const TYPE_OPTIONS = [
 ];
 
 const ANALYSIS_COLUMNS = [
-  "id",
-  "numero",
-  "enunciado",
-  "tipo",
-  "resposta",
-  "ano",
-  "prova",
-  "instituicao",
-  "area_geral",
-  "conteudo_principal",
-  "subconteudo_principal",
-  "conteudos_relacionados",
-  "tags_livres",
-  "tags",
-  "grupo_id",
-  "referencia_texto",
-  "referencia_texto_apos",
-  "referencia_imagem",
-  "enunciado_imagem",
-  "tem_imagem",
-  "tem_equacao",
-  "alternativas",
+  "id", "numero", "enunciado", "tipo", "resposta", "ano", "prova", "instituicao",
+  "area_geral", "conteudo_principal", "subconteudo_principal", "conteudos_relacionados",
+  "tags_livres", "tags", "grupo_id", "referencia_texto", "referencia_texto_apos",
+  "referencia_imagem", "enunciado_imagem", "tem_imagem", "tem_equacao", "alternativas",
 ].join(",");
 
 const DONUT_COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2", "#64748b"];
@@ -104,6 +89,7 @@ function Page() {
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<ProvaAnalysisSummary | null>(null);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -116,7 +102,6 @@ function Page() {
         ["catalog_provas", setProvas],
         ["catalog_instituicoes", setInstituicoes],
       ] as const;
-
       for (const [table, setter] of tables) {
         const { data, error } = await db.from(table).select("*").order("nome");
         if (!error) setter((data ?? []) as CatalogItem[]);
@@ -129,17 +114,18 @@ function Page() {
   const selectedConteudo = conteudoOptions.find((item) => item.nome === filters.conteudoPrincipal);
   const subconteudoOptions = selectedConteudo ? subconteudos.filter((item) => item.conteudo_id === selectedConteudo.id) : subconteudos;
   const activeFilterCount = useMemo(() => Object.values(filters).filter(Boolean).length, [filters]);
+  const appliedFilterCount = useMemo(() => Object.values(appliedFilters).filter(Boolean).length, [appliedFilters]);
 
   const updateFilter = <K extends keyof AnalysisFilters>(key: K, value: AnalysisFilters[K]) => {
     if (key === "areaGeral") {
-      setFilters((current) => ({ ...current, areaGeral: value, conteudoPrincipal: "", subconteudoPrincipal: "" }));
+      setFilters((c) => ({ ...c, areaGeral: value, conteudoPrincipal: "", subconteudoPrincipal: "" }));
       return;
     }
     if (key === "conteudoPrincipal") {
-      setFilters((current) => ({ ...current, conteudoPrincipal: value, subconteudoPrincipal: "" }));
+      setFilters((c) => ({ ...c, conteudoPrincipal: value, subconteudoPrincipal: "" }));
       return;
     }
-    setFilters((current) => ({ ...current, [key]: value }));
+    setFilters((c) => ({ ...c, [key]: value }));
   };
 
   const clearFilters = () => {
@@ -155,128 +141,144 @@ function Page() {
       toast.error("Confira o intervalo de anos antes de analisar.");
       return;
     }
-
     setLoading(true);
     setHasAnalyzed(true);
     setAppliedFilters(normalizedFilters);
+    setFilterOpen(false);
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db = supabase as any;
       let query = db.from("questions").select(ANALYSIS_COLUMNS);
       query = applyFiltersToQuery(query, normalizedFilters);
       const { data, error } = await query.order("ano", { ascending: true }).order("created_at", { ascending: true });
-
       if (error) {
         console.error("Erro ao consultar questões para análise:", error);
         toast.error("Não foi possível carregar as questões para análise.");
         setSummary(null);
         return;
       }
-
       setSummary(analyzeProvaQuestions((data ?? []) as QuestionRow[]));
     } finally {
       setLoading(false);
     }
   };
 
+  const appliedChips = buildFilterChips(appliedFilters);
+
   return (
     <AppLayout>
-      <div className="mx-auto max-w-7xl px-4 py-6">
-        <div className="mb-5 rounded-2xl border bg-gradient-to-br from-card to-muted/30 p-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">Painel analítico</p>
-              <h1 className="text-2xl font-bold">Análise de Provas</h1>
-              <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-                Veja padrões de cobrança, conteúdos mais frequentes, linguagem da banca, textos-base, cruzamentos e análise por IA em uma página organizada por abas.
-              </p>
-            </div>
-            <div className="rounded-xl border bg-background/80 px-3 py-2 text-xs text-muted-foreground shadow-sm">
-              {activeFilterCount > 0 ? `${activeFilterCount} filtro${activeFilterCount > 1 ? "s" : ""} preparado${activeFilterCount > 1 ? "s" : ""}` : "Pronto para analisar"}
-            </div>
+      <div className="mx-auto max-w-6xl px-4 py-6">
+        {/* Compact header */}
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Análise de Provas</h1>
+            <p className="text-sm text-muted-foreground">Padrões de conteúdo, linguagem e cobrança da banca.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Sheet open={filterOpen} onOpenChange={setFilterOpen}>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2">
+                  <Filter className="size-4" />
+                  Filtros
+                  {activeFilterCount > 0 && (
+                    <span className="ml-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </Button>
+              </SheetTrigger>
+              <SheetContent className="w-full overflow-y-auto sm:max-w-md">
+                <SheetHeader>
+                  <SheetTitle>Filtros</SheetTitle>
+                  <SheetDescription>Refine a base de questões analisadas.</SheetDescription>
+                </SheetHeader>
+                <div className="grid gap-3 py-4">
+                  <FilterSelect label="Prova" value={filters.prova} onChange={(v) => updateFilter("prova", v)} options={provas} placeholder="Todas" />
+                  <FilterSelect label="Instituição" value={filters.instituicao} onChange={(v) => updateFilter("instituicao", v)} options={instituicoes} placeholder="Todas" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Ano inicial</Label>
+                      <Input value={filters.anoInicial} onChange={(e) => updateFilter("anoInicial", onlyYearDigits(e.target.value))} placeholder="2018" inputMode="numeric" maxLength={4} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Ano final</Label>
+                      <Input value={filters.anoFinal} onChange={(e) => updateFilter("anoFinal", onlyYearDigits(e.target.value))} placeholder="2024" inputMode="numeric" maxLength={4} />
+                    </div>
+                  </div>
+                  <FilterSelect label="Área geral" value={filters.areaGeral} onChange={(v) => updateFilter("areaGeral", v)} options={areas} placeholder="Todas" />
+                  <FilterSelect label="Conteúdo principal" value={filters.conteudoPrincipal} onChange={(v) => updateFilter("conteudoPrincipal", v)} options={conteudoOptions} placeholder="Todos" disabled={Boolean(filters.areaGeral) && conteudoOptions.length === 0} />
+                  <FilterSelect label="Subconteúdo" value={filters.subconteudoPrincipal} onChange={(v) => updateFilter("subconteudoPrincipal", v)} options={subconteudoOptions} placeholder="Todos" disabled={Boolean(filters.conteudoPrincipal) && subconteudoOptions.length === 0} />
+                  <div className="space-y-1.5">
+                    <Label>Tipo de questão</Label>
+                    <select value={filters.tipo} onChange={(e) => updateFilter("tipo", e.target.value)} className="h-10 w-full rounded-md border bg-card px-3 text-sm">
+                      <option value="">Todos</option>
+                      {TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <SheetFooter className="gap-2 sm:justify-between">
+                  <Button variant="ghost" onClick={() => setFilters(EMPTY_FILTERS)}>Limpar campos</Button>
+                  <Button onClick={analyze} disabled={loading} className="gap-2">
+                    {loading ? <Loader2 className="size-4 animate-spin" /> : <FileSearch className="size-4" />}
+                    Analisar
+                  </Button>
+                </SheetFooter>
+              </SheetContent>
+            </Sheet>
+            {hasAnalyzed && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>Limpar</Button>
+            )}
+            <Button size="sm" onClick={analyze} disabled={loading} className="gap-2">
+              {loading ? <Loader2 className="size-4 animate-spin" /> : <FileSearch className="size-4" />}
+              Analisar
+            </Button>
           </div>
         </div>
 
-        <section className="rounded-xl border bg-card p-4">
-          <details open>
-            <summary className="cursor-pointer list-none">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h2 className="font-semibold">Filtros da análise</h2>
-                  <p className="text-xs text-muted-foreground">Selecione a base que será analisada. Os filtros são combinados entre si.</p>
-                </div>
-                {activeFilterCount > 0 && <span className="rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">{activeFilterCount} filtro{activeFilterCount > 1 ? "s" : ""}</span>}
-              </div>
-            </summary>
+        {/* Applied filter chips */}
+        {appliedFilterCount > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Filtros:</span>
+            {appliedChips.map((chip) => (
+              <span key={chip.key} className="inline-flex items-center gap-1 rounded-full border bg-muted/40 px-2 py-0.5 text-xs">
+                <span className="text-muted-foreground">{chip.label}:</span>
+                <strong className="font-medium">{chip.value}</strong>
+              </span>
+            ))}
+          </div>
+        )}
 
-            <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-              <FilterSelect label="Prova" value={filters.prova} onChange={(value) => updateFilter("prova", value)} options={provas} placeholder="Todas as provas" />
-              <FilterSelect label="Instituição" value={filters.instituicao} onChange={(value) => updateFilter("instituicao", value)} options={instituicoes} placeholder="Todas as instituições" />
-              <div className="space-y-1.5">
-                <Label>Ano inicial</Label>
-                <Input value={filters.anoInicial} onChange={(event) => updateFilter("anoInicial", onlyYearDigits(event.target.value))} placeholder="Ex.: 2018" inputMode="numeric" maxLength={4} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Ano final</Label>
-                <Input value={filters.anoFinal} onChange={(event) => updateFilter("anoFinal", onlyYearDigits(event.target.value))} placeholder="Ex.: 2024" inputMode="numeric" maxLength={4} />
-              </div>
-              <FilterSelect label="Área geral" value={filters.areaGeral} onChange={(value) => updateFilter("areaGeral", value)} options={areas} placeholder="Todas as áreas" />
-              <FilterSelect label="Conteúdo principal" value={filters.conteudoPrincipal} onChange={(value) => updateFilter("conteudoPrincipal", value)} options={conteudoOptions} placeholder={filters.areaGeral ? "Todos os conteúdos da área" : "Todos os conteúdos"} disabled={Boolean(filters.areaGeral) && conteudoOptions.length === 0} />
-              <FilterSelect label="Subconteúdo principal" value={filters.subconteudoPrincipal} onChange={(value) => updateFilter("subconteudoPrincipal", value)} options={subconteudoOptions} placeholder={filters.conteudoPrincipal ? "Todos os subconteúdos do conteúdo" : "Todos os subconteúdos"} disabled={Boolean(filters.conteudoPrincipal) && subconteudoOptions.length === 0} />
-              <div className="space-y-1.5">
-                <Label>Tipo de questão</Label>
-                <select value={filters.tipo} onChange={(event) => updateFilter("tipo", event.target.value)} className="h-10 w-full rounded-md border bg-card px-3 text-sm">
-                  <option value="">Todos os tipos</option>
-                  {TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-              </div>
-            </div>
+        {/* Results */}
+        {!hasAnalyzed && <EmptyState text="Selecione filtros (opcional) e clique em Analisar para ver os padrões da prova." />}
 
-            <div className="mt-4 flex flex-wrap justify-end gap-2">
-              <Button type="button" variant="outline" onClick={clearFilters}>Limpar</Button>
-              <Button type="button" onClick={analyze} disabled={loading} className="gap-2">
-                {loading ? <Loader2 className="size-4 animate-spin" /> : <FileSearch className="size-4" />}
-                {loading ? "Analisando..." : "Analisar prova"}
-              </Button>
-            </div>
-          </details>
-        </section>
+        {hasAnalyzed && loading && (
+          <div className="flex items-center justify-center rounded-xl border bg-card py-20 text-muted-foreground">
+            <Loader2 className="mr-2 size-5 animate-spin" /> Analisando questões...
+          </div>
+        )}
 
-        <section className="mt-4">
-          {!hasAnalyzed && <EmptyState text="Selecione os filtros e clique em Analisar prova para visualizar os padrões da prova." />}
+        {hasAnalyzed && !loading && summary && summary.total === 0 && (
+          <EmptyState text="Nenhuma questão encontrada. Revise os filtros ou cadastre metadados nas questões." />
+        )}
 
-          {hasAnalyzed && loading && (
-            <div className="flex items-center justify-center rounded-xl border bg-card py-16 text-muted-foreground">
-              <Loader2 className="mr-2 size-5 animate-spin" /> Analisando questões...
-            </div>
-          )}
-
-          {hasAnalyzed && !loading && summary && summary.total === 0 && (
-            <EmptyState text="Nenhuma questão encontrada para os filtros selecionados. Revise os filtros ou verifique se as questões possuem metadados cadastrados." />
-          )}
-
-          {hasAnalyzed && !loading && summary && summary.total > 0 && <AnalysisResult summary={summary} filters={appliedFilters} />}
-        </section>
+        {hasAnalyzed && !loading && summary && summary.total > 0 && (
+          <AnalysisResult summary={summary} filters={appliedFilters} />
+        )}
       </div>
     </AppLayout>
   );
 }
 
 function FilterSelect({ label, value, onChange, options, placeholder, disabled }: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: CatalogItem[];
-  placeholder: string;
-  disabled?: boolean;
+  label: string; value: string; onChange: (v: string) => void; options: CatalogItem[]; placeholder: string; disabled?: boolean;
 }) {
-  const visibleOptions = options.filter((item) => item.ativo || item.nome === value);
+  const visible = options.filter((i) => i.ativo || i.nome === value);
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
-      <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="h-10 w-full rounded-md border bg-card px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60">
+      <select value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className="h-10 w-full rounded-md border bg-card px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60">
         <option value="">{placeholder}</option>
-        {visibleOptions.map((item) => <option key={item.id} value={item.nome}>{item.nome}{item.ativo ? "" : " (inativo)"}</option>)}
+        {visible.map((i) => <option key={i.id} value={i.nome}>{i.nome}{i.ativo ? "" : " (inativo)"}</option>)}
       </select>
     </div>
   );
@@ -284,9 +286,9 @@ function FilterSelect({ label, value, onChange, options, placeholder, disabled }
 
 function EmptyState({ text }: { text: string }) {
   return (
-    <div className="rounded-xl border border-dashed bg-card px-4 py-14 text-center">
-      <BarChart3 className="mx-auto mb-3 size-10 text-muted-foreground" />
-      <p className="mx-auto max-w-xl text-sm text-muted-foreground">{text}</p>
+    <div className="rounded-xl border border-dashed bg-card px-4 py-16 text-center">
+      <BarChart3 className="mx-auto mb-3 size-8 text-muted-foreground/60" />
+      <p className="mx-auto max-w-md text-sm text-muted-foreground">{text}</p>
     </div>
   );
 }
@@ -297,158 +299,85 @@ function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; f
 
   return (
     <div className="space-y-4">
-      {summary.total < 10 && <SmallSampleAlert total={summary.total} />}
-      <SummaryCards summary={summary} period={period} />
-      <AnalysisNavigator activeTab={activeTab} onChange={setActiveTab} />
+      {summary.total < 10 && (
+        <div className="rounded-lg border-l-4 border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          <strong>Amostra pequena ({summary.total}):</strong> as tendências podem não representar um padrão sólido.
+        </div>
+      )}
 
-      {activeTab === "geral" && (
-        <div className="space-y-4">
-          <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
-            <div className="space-y-4">
-              <SearchSummary filters={filters} period={period} />
-              <TopContentCards summary={summary} />
-            </div>
+      <SummaryStrip summary={summary} period={period} />
+
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as AnalysisTab)}>
+        <TabsList className="w-full justify-start overflow-x-auto">
+          <TabsTrigger value="geral">Visão geral</TabsTrigger>
+          <TabsTrigger value="conteudos">Conteúdos</TabsTrigger>
+          <TabsTrigger value="linguagem">Linguagem</TabsTrigger>
+          <TabsTrigger value="referencias">Textos-base</TabsTrigger>
+          <TabsTrigger value="cruzamentos">Cruzamentos</TabsTrigger>
+          <TabsTrigger value="ia" className="gap-1"><Sparkles className="size-3.5" />IA</TabsTrigger>
+          <TabsTrigger value="qualidade">Qualidade</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="geral" className="mt-4 space-y-4">
+          <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+            <HorizontalBarChart title="Conteúdos mais cobrados" rows={summary.contentFrequency} emptyText="Nenhum conteúdo principal encontrado." />
             <TypeBreakdownCard summary={summary} />
           </div>
-          <ChartsPanel summary={summary} />
-        </div>
-      )}
-
-      {activeTab === "conteudos" && (
-        <div className="space-y-4">
-          <div className="grid gap-4 xl:grid-cols-2">
-            <HorizontalBarChart title="Conteúdos mais cobrados" rows={summary.contentFrequency} emptyText="Nenhum conteúdo principal encontrado." />
-            <DonutChart title="Distribuição por área geral" rows={summary.areaFrequency} total={summary.total} />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <VerticalBarChart title="Questões por ano" rows={summary.questionsByYear} />
+            <DonutChart title="Distribuição por área" rows={summary.areaFrequency} total={summary.total} />
           </div>
-          <div className="grid gap-4 xl:grid-cols-2">
-            <VisualFrequencyTable title="Conteúdos mais cobrados" rows={summary.contentFrequency} total={summary.total} highlightFirst />
-            <VisualFrequencyTable title="Subconteúdos mais cobrados" rows={summary.subcontentFrequency} total={summary.total} highlightFirst />
-            <VisualFrequencyTable title="Tags mais frequentes" rows={summary.tagFrequency} total={summary.total} emptyText="Nenhuma tag cadastrada nas questões analisadas." />
-            <VisualFrequencyTable title="Conteúdos relacionados mais frequentes" rows={summary.relatedContentFrequency} total={summary.total} emptyText="Nenhum conteúdo relacionado cadastrado." />
-          </div>
-        </div>
-      )}
+        </TabsContent>
 
-      {activeTab === "linguagem" && <AnalysisLanguagePanel summary={summary} />}
-      {activeTab === "referencias" && <AnalysisReferencePanel summary={summary} />}
-      {activeTab === "cruzamentos" && <AnalysisCrossPanel summary={summary} />}
-      {activeTab === "ia" && (
-        <div className="space-y-4">
+        <TabsContent value="conteudos" className="mt-4 space-y-4">
+          <HeatmapChart title="Mapa Ano × Conteúdo" {...buildContentYearMatrix(summary)} />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <VisualFrequencyTable title="Conteúdos" rows={summary.contentFrequency} total={summary.total} highlightFirst />
+            <VisualFrequencyTable title="Subconteúdos" rows={summary.subcontentFrequency} total={summary.total} highlightFirst />
+            <VisualFrequencyTable title="Tags" rows={summary.tagFrequency} total={summary.total} emptyText="Nenhuma tag cadastrada." />
+            <VisualFrequencyTable title="Conteúdos relacionados" rows={summary.relatedContentFrequency} total={summary.total} emptyText="Nenhum relacionado cadastrado." />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="linguagem" className="mt-4"><AnalysisLanguagePanel summary={summary} /></TabsContent>
+        <TabsContent value="referencias" className="mt-4"><AnalysisReferencePanel summary={summary} /></TabsContent>
+        <TabsContent value="cruzamentos" className="mt-4"><AnalysisCrossPanel summary={summary} /></TabsContent>
+        <TabsContent value="ia" className="mt-4 space-y-4">
           <div className="grid gap-4 xl:grid-cols-2">
             <AnalysisGeneralSummaryPanel summary={summary} />
             <AnalysisSimulationSuggestionPanel summary={summary} />
           </div>
           <AnalysisDeepAIPanel summary={summary} filters={filters} />
-        </div>
-      )}
-      {activeTab === "qualidade" && <AnalysisDataQualityPanel summary={summary} />}
+        </TabsContent>
+        <TabsContent value="qualidade" className="mt-4"><AnalysisDataQualityPanel summary={summary} /></TabsContent>
+      </Tabs>
     </div>
   );
 }
 
-function AnalysisNavigator({ activeTab, onChange }: { activeTab: AnalysisTab; onChange: (tab: AnalysisTab) => void }) {
-  const tabs: Array<{ id: AnalysisTab; label: string; description: string }> = [
-    { id: "geral", label: "Visão geral", description: "métricas e gráficos principais" },
-    { id: "conteudos", label: "Conteúdos", description: "frequência e ranking" },
-    { id: "linguagem", label: "Linguagem", description: "termos e comandos" },
-    { id: "referencias", label: "Textos-base", description: "referências e agrupamentos" },
-    { id: "cruzamentos", label: "Cruzamentos", description: "relações entre dados" },
-    { id: "ia", label: "IA e simulado", description: "interpretação e sugestões" },
-    { id: "qualidade", label: "Qualidade", description: "dados incompletos" },
+function SummaryStrip({ summary, period }: { summary: ProvaAnalysisSummary; period: string }) {
+  const stats = [
+    { label: "Questões", value: summary.total, icon: <FileSearch className="size-4" /> },
+    { label: "Anos", value: summary.years.length, hint: period, icon: <BarChart3 className="size-4" /> },
+    { label: "Com referência", value: summary.withReference, hint: percentage(summary.withReference, summary.total), icon: <TextSearch className="size-4" /> },
+    { label: "Com imagem", value: summary.withImage, hint: percentage(summary.withImage, summary.total), icon: <ImageIcon className="size-4" /> },
+    { label: "Com alternativas", value: summary.withAlternatives, hint: percentage(summary.withAlternatives, summary.total), icon: <ListChecks className="size-4" /> },
+    { label: "Com equação", value: summary.withEquation, hint: percentage(summary.withEquation, summary.total), icon: <Sigma className="size-4" /> },
   ];
-
   return (
-    <div className="sticky top-16 z-20 rounded-xl border bg-background/95 p-2 shadow-sm backdrop-blur">
-      <div className="mb-2 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Mapa da análise</div>
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {tabs.map((tab) => {
-          const active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => onChange(tab.id)}
-              className={`min-w-[150px] rounded-lg border px-3 py-2 text-left transition ${active ? "border-primary bg-primary text-primary-foreground shadow-sm" : "bg-card hover:bg-muted"}`}
-            >
-              <span className="block text-sm font-semibold">{tab.label}</span>
-              <span className={`block text-[11px] ${active ? "text-primary-foreground/80" : "text-muted-foreground"}`}>{tab.description}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function SmallSampleAlert({ total }: { total: number }) {
-  return (
-    <div className="flex gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-      <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-      <div>
-        <strong>Amostra pequena:</strong> a análise foi feita com {total} questão{total === 1 ? "" : "ões"}. As visualizações podem indicar tendências, mas ainda não representam um padrão sólido da prova.
-      </div>
-    </div>
-  );
-}
-
-function SummaryCards({ summary, period }: { summary: ProvaAnalysisSummary; period: string }) {
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-      <SummaryCard title="Total de questões" value={summary.total} icon={<FileSearch className="size-5" />} />
-      <SummaryCard title="Total de anos" value={summary.years.length} description={period} icon={<BarChart3 className="size-5" />} />
-      <SummaryCard title="Com referência" value={summary.withReference} description={percentage(summary.withReference, summary.total)} icon={<TextSearch className="size-5" />} />
-      <SummaryCard title="Com imagem" value={summary.withImage} description={percentage(summary.withImage, summary.total)} icon={<ImageIcon className="size-5" />} />
-      <SummaryCard title="Com alternativas" value={summary.withAlternatives} description={percentage(summary.withAlternatives, summary.total)} icon={<ListChecks className="size-5" />} />
-      <SummaryCard title="Com equação" value={summary.withEquation} description={percentage(summary.withEquation, summary.total)} icon={<Sigma className="size-5" />} />
-    </div>
-  );
-}
-
-function SearchSummary({ filters, period }: { filters: AnalysisFilters; period: string }) {
-  return (
-    <div className="rounded-xl border bg-card p-4">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="font-semibold">Resumo da busca</h2>
-        <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">Filtros aplicados</span>
-      </div>
-      <div className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
-        <Info label="Prova" value={filters.prova || "Todas"} />
-        <Info label="Instituição" value={filters.instituicao || "Todas"} />
-        <Info label="Período" value={period} />
-        <Info label="Tipo" value={filters.tipo ? formatType(filters.tipo) : "Todos"} />
-        <Info label="Área geral" value={filters.areaGeral || "Todas"} />
-        <Info label="Conteúdo principal" value={filters.conteudoPrincipal || "Todos"} />
-        <Info label="Subconteúdo principal" value={filters.subconteudoPrincipal || "Todos"} />
-      </div>
-    </div>
-  );
-}
-
-function TopContentCards({ summary }: { summary: ProvaAnalysisSummary }) {
-  return (
-    <div className="grid gap-3 md:grid-cols-3">
-      <TopMetricCard title="Conteúdo líder" row={summary.contentFrequency[0]} icon={<BookOpenCheck className="size-4" />} empty="Sem conteúdo principal" />
-      <TopMetricCard title="Subconteúdo líder" row={summary.subcontentFrequency[0]} icon={<Layers className="size-4" />} empty="Sem subconteúdo" />
-      <TopMetricCard title="Tag líder" row={summary.tagFrequency[0]} icon={<Tags className="size-4" />} empty="Sem tags" />
-    </div>
-  );
-}
-
-function TopMetricCard({ title, row, icon, empty }: { title: string; row?: FrequencyRow; icon: ReactNode; empty: string }) {
-  return (
-    <div className="rounded-xl border bg-card p-4">
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        {icon}
-        {title}
-      </div>
-      {row ? (
-        <>
-          <p className="mt-3 line-clamp-2 text-lg font-semibold">{row.value}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{row.count} questão{row.count === 1 ? "" : "ões"} · {formatPercent(row.percent)} · {row.years.length > 0 ? `anos: ${row.years.join(", ")}` : "sem ano"}</p>
-        </>
-      ) : (
-        <p className="mt-3 text-sm text-muted-foreground">{empty}</p>
-      )}
+    <div className="grid grid-cols-2 gap-2 rounded-xl border bg-card p-2 sm:grid-cols-3 lg:grid-cols-6">
+      {stats.map((s) => (
+        <div key={s.label} className="rounded-lg px-3 py-2 hover:bg-muted/40">
+          <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            {s.icon}
+            {s.label}
+          </div>
+          <div className="mt-1 flex items-baseline gap-2">
+            <span className="text-2xl font-semibold tabular-nums">{s.value}</span>
+            {s.hint && <span className="text-xs text-muted-foreground">{s.hint}</span>}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -456,16 +385,13 @@ function TopMetricCard({ title, row, icon, empty }: { title: string; row?: Frequ
 function TypeBreakdownCard({ summary }: { summary: ProvaAnalysisSummary }) {
   return (
     <div className="rounded-xl border bg-card p-4">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="font-semibold">Questões por tipo</h2>
-        <span className="text-xs text-muted-foreground">{summary.total} no total</span>
-      </div>
-      <div className="space-y-3">
+      <h2 className="mb-3 text-sm font-semibold">Por tipo de questão</h2>
+      <div className="space-y-2.5">
         {summary.typeCounts.map((item) => (
           <div key={item.value}>
-            <div className="mb-1 flex items-center justify-between gap-2 text-sm">
-              <span>{formatType(item.value)}</span>
-              <strong>{item.count}</strong>
+            <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+              <span className="text-muted-foreground">{formatType(item.value)}</span>
+              <span><strong className="tabular-nums">{item.count}</strong> · {formatPercent(item.percent)}</span>
             </div>
             <ProgressBar percent={item.percent} />
           </div>
@@ -475,30 +401,18 @@ function TypeBreakdownCard({ summary }: { summary: ProvaAnalysisSummary }) {
   );
 }
 
-function ChartsPanel({ summary }: { summary: ProvaAnalysisSummary }) {
-  const matrix = buildContentYearMatrix(summary);
-  return (
-    <div className="grid gap-4 xl:grid-cols-2">
-      <HorizontalBarChart title="Barras horizontais: conteúdos mais cobrados" rows={summary.contentFrequency} emptyText="Nenhum conteúdo principal encontrado." />
-      <VerticalBarChart title="Barras verticais: questões por ano" rows={summary.questionsByYear} />
-      <DonutChart title="Distribuição por área geral" rows={summary.areaFrequency} total={summary.total} />
-      <HeatmapChart title="Mapa Ano × Conteúdo" years={matrix.years} rows={matrix.rows} />
-    </div>
-  );
-}
-
 function HorizontalBarChart({ title, rows, emptyText }: { title: string; rows: FrequencyRow[]; emptyText: string }) {
-  const visible = rows.filter((row) => row.count > 0).slice(0, 10);
-  const max = Math.max(...visible.map((row) => row.count), 0);
+  const visible = rows.filter((r) => r.count > 0).slice(0, 10);
+  const max = Math.max(...visible.map((r) => r.count), 0);
   return (
-    <ChartCard title={title} description="Mostra os conteúdos com maior presença na base filtrada.">
+    <ChartCard title={title}>
       {visible.length === 0 ? <p className="text-sm text-muted-foreground">{emptyText}</p> : (
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {visible.map((row) => (
-            <div key={row.value} className="grid gap-2 sm:grid-cols-[180px_1fr_72px] sm:items-center">
-              <span className="line-clamp-1 text-sm font-medium" title={row.value}>{row.value}</span>
+            <div key={row.value} className="grid gap-2 sm:grid-cols-[160px_1fr_80px] sm:items-center">
+              <span className="line-clamp-1 text-sm" title={row.value}>{row.value}</span>
               <ProgressBar percent={max > 0 ? (row.count / max) * 100 : 0} />
-              <span className="text-right text-xs text-muted-foreground">{row.count} · {formatPercent(row.percent)}</span>
+              <span className="text-right text-xs text-muted-foreground tabular-nums">{row.count} · {formatPercent(row.percent)}</span>
             </div>
           ))}
         </div>
@@ -508,17 +422,17 @@ function HorizontalBarChart({ title, rows, emptyText }: { title: string; rows: F
 }
 
 function VerticalBarChart({ title, rows }: { title: string; rows: Array<{ year: string; count: number }> }) {
-  const visible = rows.filter((row) => row.count > 0).slice(-12);
-  const max = Math.max(...visible.map((row) => row.count), 0);
+  const visible = rows.filter((r) => r.count > 0).slice(-12);
+  const max = Math.max(...visible.map((r) => r.count), 0);
   return (
-    <ChartCard title={title} description="Mostra a distribuição temporal das questões analisadas.">
-      {visible.length === 0 ? <p className="text-sm text-muted-foreground">Nenhum ano informado nas questões analisadas.</p> : (
-        <div className="flex h-64 items-end gap-2 overflow-x-auto rounded-lg bg-muted/30 p-3">
+    <ChartCard title={title}>
+      {visible.length === 0 ? <p className="text-sm text-muted-foreground">Nenhum ano informado.</p> : (
+        <div className="flex h-56 items-end gap-2 overflow-x-auto rounded-lg bg-muted/20 p-3">
           {visible.map((row) => (
-            <div key={row.year} className="flex min-w-12 flex-1 flex-col items-center justify-end gap-2">
-              <span className="text-xs font-semibold">{row.count}</span>
-              <div className="w-full rounded-t-md bg-primary/70" style={{ height: `${Math.max(8, max > 0 ? (row.count / max) * 180 : 0)}px` }} />
-              <span className="text-xs text-muted-foreground">{row.year}</span>
+            <div key={row.year} className="flex min-w-10 flex-1 flex-col items-center justify-end gap-1.5">
+              <span className="text-xs font-semibold tabular-nums">{row.count}</span>
+              <div className="w-full rounded-t bg-primary/70" style={{ height: `${Math.max(6, max > 0 ? (row.count / max) * 160 : 0)}px` }} />
+              <span className="text-[11px] text-muted-foreground">{row.year}</span>
             </div>
           ))}
         </div>
@@ -528,26 +442,26 @@ function VerticalBarChart({ title, rows }: { title: string; rows: Array<{ year: 
 }
 
 function DonutChart({ title, rows, total }: { title: string; rows: FrequencyRow[]; total: number }) {
-  const visible = rows.filter((row) => row.count > 0).slice(0, 6);
+  const visible = rows.filter((r) => r.count > 0).slice(0, 6);
   const gradient = buildDonutGradient(visible, total);
   return (
-    <ChartCard title={title} description="Mostra a participação das áreas gerais na base analisada.">
-      {visible.length === 0 ? <p className="text-sm text-muted-foreground">Nenhuma área geral encontrada.</p> : (
-        <div className="grid gap-4 sm:grid-cols-[180px_1fr] sm:items-center">
-          <div className="relative mx-auto size-40 rounded-full" style={{ background: gradient }}>
-            <div className="absolute inset-10 flex flex-col items-center justify-center rounded-full bg-card text-center">
-              <strong className="text-2xl">{total}</strong>
+    <ChartCard title={title}>
+      {visible.length === 0 ? <p className="text-sm text-muted-foreground">Nenhuma área encontrada.</p> : (
+        <div className="grid gap-4 sm:grid-cols-[140px_1fr] sm:items-center">
+          <div className="relative mx-auto size-32 rounded-full" style={{ background: gradient }}>
+            <div className="absolute inset-8 flex flex-col items-center justify-center rounded-full bg-card">
+              <strong className="text-xl tabular-nums">{total}</strong>
               <span className="text-[10px] text-muted-foreground">questões</span>
             </div>
           </div>
-          <div className="space-y-2">
-            {visible.map((row, index) => (
+          <div className="space-y-1.5">
+            {visible.map((row, i) => (
               <div key={row.value} className="flex items-center justify-between gap-2 text-sm">
                 <span className="inline-flex min-w-0 items-center gap-2">
-                  <span className="size-3 shrink-0 rounded-full" style={{ backgroundColor: DONUT_COLORS[index % DONUT_COLORS.length] }} />
+                  <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: DONUT_COLORS[i % DONUT_COLORS.length] }} />
                   <span className="line-clamp-1">{row.value}</span>
                 </span>
-                <strong>{formatPercent(row.percent)}</strong>
+                <strong className="tabular-nums">{formatPercent(row.percent)}</strong>
               </div>
             ))}
           </div>
@@ -558,28 +472,28 @@ function DonutChart({ title, rows, total }: { title: string; rows: FrequencyRow[
 }
 
 function HeatmapChart({ title, years, rows }: { title: string; years: string[]; rows: MatrixRow[] }) {
-  const max = Math.max(...rows.flatMap((row) => Object.values(row.byYear)), 0);
+  const max = Math.max(...rows.flatMap((r) => Object.values(r.byYear)), 0);
   return (
-    <ChartCard title={title} description="Cruzamento visual entre ano e conteúdo principal.">
-      {years.length === 0 || rows.length === 0 ? <p className="text-sm text-muted-foreground">Não há anos ou conteúdos suficientes para montar o mapa.</p> : (
+    <ChartCard title={title}>
+      {years.length === 0 || rows.length === 0 ? <p className="text-sm text-muted-foreground">Dados insuficientes.</p> : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b text-xs text-muted-foreground">
                 <th className="sticky left-0 bg-card py-2 pr-2 text-left font-medium">Conteúdo</th>
-                {years.map((year) => <th key={year} className="px-2 py-2 text-center font-medium">{year}</th>)}
+                {years.map((y) => <th key={y} className="px-2 py-2 text-center font-medium">{y}</th>)}
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
                 <tr key={row.content} className="border-b last:border-0">
-                  <td className="sticky left-0 max-w-52 bg-card py-2 pr-2 font-medium"><span className="line-clamp-1" title={row.content}>{row.content}</span></td>
-                  {years.map((year) => {
-                    const value = row.byYear[year] ?? 0;
+                  <td className="sticky left-0 max-w-52 bg-card py-2 pr-2 text-sm"><span className="line-clamp-1" title={row.content}>{row.content}</span></td>
+                  {years.map((y) => {
+                    const v = row.byYear[y] ?? 0;
                     return (
-                      <td key={year} className="p-1 text-center">
-                        <span className="inline-flex h-8 w-full items-center justify-center rounded-md text-xs font-semibold" style={{ backgroundColor: heatmapCellColor(value, max) }}>
-                          {value || ""}
+                      <td key={y} className="p-1 text-center">
+                        <span className="inline-flex h-7 w-full items-center justify-center rounded text-xs font-semibold tabular-nums" style={{ backgroundColor: heatmapCellColor(v, max) }}>
+                          {v || ""}
                         </span>
                       </td>
                     );
@@ -594,81 +508,39 @@ function HeatmapChart({ title, years, rows }: { title: string; years: string[]; 
   );
 }
 
-function ChartCard({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+function ChartCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-xl border bg-card p-4">
-      <div className="mb-4">
-        <h2 className="font-semibold">{title}</h2>
-        <p className="text-xs text-muted-foreground">{description}</p>
-      </div>
+      <h2 className="mb-3 text-sm font-semibold">{title}</h2>
       {children}
     </div>
   );
 }
 
-function SummaryCard({ title, value, description, icon }: { title: string; value: number; description?: string; icon: ReactNode }) {
+function VisualFrequencyTable({ title, rows, total, emptyText = "Sem dados.", highlightFirst }: { title: string; rows: FrequencyRow[]; total: number; emptyText?: string; highlightFirst?: boolean }) {
+  const visible = rows.slice(0, 10);
   return (
     <div className="rounded-xl border bg-card p-4">
-      <div className="flex items-center justify-between gap-2 text-muted-foreground">
-        <span className="text-xs font-medium uppercase tracking-wide">{title}</span>
-        {icon}
-      </div>
-      <div className="mt-3 text-3xl font-bold">{value}</div>
-      {description && <p className="mt-1 text-xs text-muted-foreground">{description}</p>}
-    </div>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg bg-muted/40 px-3 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="font-medium">{value}</p>
-    </div>
-  );
-}
-
-function VisualFrequencyTable({ title, rows, total, emptyText = "Sem dados suficientes.", highlightFirst }: { title: string; rows: FrequencyRow[]; total: number; emptyText?: string; highlightFirst?: boolean }) {
-  const visible = rows.slice(0, 12);
-  return (
-    <div className="rounded-xl border bg-card p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="font-semibold">{title}</h2>
-          <p className="text-xs text-muted-foreground">Quantidade, porcentagem e anos em que apareceu.</p>
-        </div>
-        <span className="text-xs text-muted-foreground">Base: {total} questão{total === 1 ? "" : "ões"}</span>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">{title}</h2>
+        <span className="text-xs text-muted-foreground">Base: {total}</span>
       </div>
       {visible.length === 0 ? (
         <p className="text-sm text-muted-foreground">{emptyText}</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs text-muted-foreground">
-              <tr className="border-b">
-                <th className="min-w-56 py-2 pr-2 font-medium">Item</th>
-                <th className="py-2 pr-2 text-right font-medium">Qtd.</th>
-                <th className="py-2 pr-2 text-right font-medium">%</th>
-                <th className="min-w-32 py-2 font-medium">Anos</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((row, index) => (
-                <tr key={row.value} className="border-b last:border-0">
-                  <td className="py-2 pr-2 align-top">
-                    <div className="flex items-center gap-2">
-                      {highlightFirst && index === 0 && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">mais cobrado</span>}
-                      <span className="font-medium">{row.value}</span>
-                    </div>
-                    <div className="mt-2 max-w-xs"><ProgressBar percent={row.percent} /></div>
-                  </td>
-                  <td className="py-2 pr-2 text-right align-top font-semibold">{row.count}</td>
-                  <td className="py-2 pr-2 text-right align-top">{formatPercent(row.percent)}</td>
-                  <td className="py-2 align-top text-xs text-muted-foreground">{row.years.length > 0 ? row.years.join(", ") : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-2">
+          {visible.map((row, i) => (
+            <div key={row.value} className="group">
+              <div className="mb-1 flex items-baseline justify-between gap-2 text-sm">
+                <span className="flex items-center gap-2 truncate">
+                  {highlightFirst && i === 0 && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">#1</span>}
+                  <span className="truncate" title={row.value}>{row.value}</span>
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{row.count} · {formatPercent(row.percent)}</span>
+              </div>
+              <ProgressBar percent={row.percent} />
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -677,10 +549,22 @@ function VisualFrequencyTable({ title, rows, total, emptyText = "Sem dados sufic
 
 function ProgressBar({ percent }: { percent: number }) {
   return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-      <div className="h-full rounded-full bg-primary/70" style={{ width: `${Math.max(4, Math.min(100, percent))}%` }} />
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+      <div className="h-full rounded-full bg-primary/70" style={{ width: `${Math.max(2, Math.min(100, percent))}%` }} />
     </div>
   );
+}
+
+function buildFilterChips(f: AnalysisFilters): Array<{ key: string; label: string; value: string }> {
+  const chips: Array<{ key: string; label: string; value: string }> = [];
+  if (f.prova) chips.push({ key: "prova", label: "Prova", value: f.prova });
+  if (f.instituicao) chips.push({ key: "instituicao", label: "Instituição", value: f.instituicao });
+  if (f.anoInicial || f.anoFinal) chips.push({ key: "ano", label: "Período", value: `${f.anoInicial || "…"}–${f.anoFinal || "…"}` });
+  if (f.areaGeral) chips.push({ key: "areaGeral", label: "Área", value: f.areaGeral });
+  if (f.conteudoPrincipal) chips.push({ key: "conteudoPrincipal", label: "Conteúdo", value: f.conteudoPrincipal });
+  if (f.subconteudoPrincipal) chips.push({ key: "subconteudoPrincipal", label: "Subconteúdo", value: f.subconteudoPrincipal });
+  if (f.tipo) chips.push({ key: "tipo", label: "Tipo", value: formatType(f.tipo) });
+  return chips;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -696,55 +580,49 @@ function applyFiltersToQuery(query: any, filters: AnalysisFilters) {
   return query;
 }
 
-function normalizeFilters(filters: AnalysisFilters): AnalysisFilters {
+function normalizeFilters(f: AnalysisFilters): AnalysisFilters {
   return {
-    prova: filters.prova.trim(),
-    instituicao: filters.instituicao.trim(),
-    anoInicial: filters.anoInicial.trim(),
-    anoFinal: filters.anoFinal.trim(),
-    areaGeral: filters.areaGeral.trim(),
-    conteudoPrincipal: filters.conteudoPrincipal.trim(),
-    subconteudoPrincipal: filters.subconteudoPrincipal.trim(),
-    tipo: filters.tipo.trim(),
+    prova: f.prova.trim(), instituicao: f.instituicao.trim(),
+    anoInicial: f.anoInicial.trim(), anoFinal: f.anoFinal.trim(),
+    areaGeral: f.areaGeral.trim(), conteudoPrincipal: f.conteudoPrincipal.trim(),
+    subconteudoPrincipal: f.subconteudoPrincipal.trim(), tipo: f.tipo.trim(),
   };
 }
 
-function isValidYearRange(filters: AnalysisFilters) {
-  const start = filters.anoInicial ? Number(filters.anoInicial) : null;
-  const end = filters.anoFinal ? Number(filters.anoFinal) : null;
-  if (filters.anoInicial && (!Number.isFinite(start) || filters.anoInicial.length !== 4)) return false;
-  if (filters.anoFinal && (!Number.isFinite(end) || filters.anoFinal.length !== 4)) return false;
-  if (start && end && start > end) return false;
+function isValidYearRange(f: AnalysisFilters) {
+  const s = f.anoInicial ? Number(f.anoInicial) : null;
+  const e = f.anoFinal ? Number(f.anoFinal) : null;
+  if (f.anoInicial && (!Number.isFinite(s) || f.anoInicial.length !== 4)) return false;
+  if (f.anoFinal && (!Number.isFinite(e) || f.anoFinal.length !== 4)) return false;
+  if (s && e && s > e) return false;
   return true;
 }
 
 function buildContentYearMatrix(summary: ProvaAnalysisSummary) {
   const years = summary.years.slice(-10);
-  const topContents = summary.contentFrequency.slice(0, 8).map((row) => row.value);
+  const topContents = summary.contentFrequency.slice(0, 8).map((r) => r.value);
   const rows = topContents.map((content) => ({ content, byYear: {} as Record<string, number>, total: 0 }));
-  const rowMap = new Map(rows.map((row) => [row.content, row]));
-
-  for (const question of summary.questions) {
-    const content = question.conteudo_principal || "Sem conteúdo principal";
-    const year = question.ano;
+  const rowMap = new Map(rows.map((r) => [r.content, r]));
+  for (const q of summary.questions) {
+    const content = q.conteudo_principal || "Sem conteúdo principal";
+    const year = q.ano;
     if (!year || !years.includes(year)) continue;
     const row = rowMap.get(content);
     if (!row) continue;
     row.byYear[year] = (row.byYear[year] ?? 0) + 1;
     row.total += 1;
   }
-
-  return { years, rows: rows.filter((row) => row.total > 0) };
+  return { years, rows: rows.filter((r) => r.total > 0) };
 }
 
 function buildDonutGradient(rows: FrequencyRow[], total: number) {
   if (rows.length === 0 || total === 0) return "#e5e7eb";
   let current = 0;
   const parts: string[] = [];
-  rows.forEach((row, index) => {
+  rows.forEach((row, i) => {
     const start = current;
     const end = current + (row.count / total) * 100;
-    parts.push(`${DONUT_COLORS[index % DONUT_COLORS.length]} ${start}% ${end}%`);
+    parts.push(`${DONUT_COLORS[i % DONUT_COLORS.length]} ${start}% ${end}%`);
     current = end;
   });
   if (current < 100) parts.push(`#e5e7eb ${current}% 100%`);
@@ -766,16 +644,16 @@ function formatPercent(value: number) {
   return `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 }
 
-function formatPeriod(filters: AnalysisFilters, years: string[]) {
-  if (filters.anoInicial && filters.anoFinal) return `${filters.anoInicial}–${filters.anoFinal}`;
-  if (filters.anoInicial) return `A partir de ${filters.anoInicial}`;
-  if (filters.anoFinal) return `Até ${filters.anoFinal}`;
+function formatPeriod(f: AnalysisFilters, years: string[]) {
+  if (f.anoInicial && f.anoFinal) return `${f.anoInicial}–${f.anoFinal}`;
+  if (f.anoInicial) return `Desde ${f.anoInicial}`;
+  if (f.anoFinal) return `Até ${f.anoFinal}`;
   if (years.length > 0) return `${years[0]}–${years[years.length - 1]}`;
-  return "Todos os anos";
+  return "Todos";
 }
 
-function onlyYearDigits(value: string) {
-  return value.replace(/\D/g, "").slice(0, 4);
+function onlyYearDigits(v: string) {
+  return v.replace(/\D/g, "").slice(0, 4);
 }
 
 function formatType(tipo: string) {
