@@ -9,7 +9,6 @@ import { RenderedPdfPreview } from "./RenderedPdfPreview";
 import { StepBlock } from "./StepBlock";
 import {
   MAX_PDF_PAGES,
-  MAX_PDF_QUEUE_BATCH_SIZE,
   MAX_PDF_RENDER_PAGES,
   MAX_PDF_SIZE,
   PDF_QUEUE_BATCH_SIZE,
