@@ -3,7 +3,7 @@ import { BarChart3, Database } from "lucide-react";
 import type { ProvaAnalysisSummary } from "@/lib/prova-analysis";
 import { generateAISummaryFromData, type AISummaryResult } from "@/lib/prova-ai-summary";
 
-export function AnalysisGeneralSummaryPanel({ summary }: { summary: ProvaAnalysisSummary }) {
+export function AnalysisGeneralSummaryPanel({ summary, onEvidenceClick }: { summary: ProvaAnalysisSummary; onEvidenceClick?: (title: string, evidence: string[], recommendations?: string[]) => void }) {
   const result = useMemo(() => generateAISummaryFromData(summary), [summary]);
 
   return (
@@ -31,7 +31,12 @@ export function AnalysisGeneralSummaryPanel({ summary }: { summary: ProvaAnalysi
 
         <div className="grid gap-3 lg:grid-cols-2">
           {result.sections.map((section) => (
-            <div key={section.title} className="rounded-lg border bg-background p-4">
+            <button
+              key={section.title}
+              type="button"
+              onClick={() => onEvidenceClick?.(section.title, section.evidence, [section.text])}
+              className="rounded-lg border bg-background p-4 text-left transition hover:border-primary/40 hover:bg-muted/30"
+            >
               <h3 className="font-semibold">{section.title}</h3>
               <p className="mt-2 text-sm">{section.text}</p>
               <div className="mt-3 rounded-md bg-muted/50 p-3">
@@ -40,7 +45,7 @@ export function AnalysisGeneralSummaryPanel({ summary }: { summary: ProvaAnalysi
                   {section.evidence.map((item) => <li key={item}>• {item}</li>)}
                 </ul>
               </div>
-            </div>
+            </button>
           ))}
         </div>
 
