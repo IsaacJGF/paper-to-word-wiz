@@ -8,12 +8,15 @@ export const MAX_PDF_SIZE = 30 * 1024 * 1024;
 export const MAX_PDF_PAGES = 80;
 export const MAX_VISIBLE_PAGE_CARDS = 48;
 export const MAX_PDF_RENDER_PAGES = 10;
+export const PDF_QUEUE_BATCH_SIZE = 1;
+export const PDF_QUEUE_DELAY_MS = 900;
 export const PDF_RENDER_SCALE = 2;
 export const PDF_RENDER_MAX_WIDTH = 1800;
 export const PDF_QUEUE_KEY = "digitalizador.pdfQueue";
 
 export type UploadMode = "image" | "pdf";
 export type PdfQueueStatus = "pending" | "processing" | "done" | "error";
+export type PdfQueueRunMode = "idle" | "pending" | "errors";
 
 export type SelectedImage = {
   file: File;
