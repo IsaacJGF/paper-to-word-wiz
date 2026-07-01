@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppLayout } from "@/components/AppLayout";
 import { digitizeQuestion } from "@/lib/digitize.functions";
-import { saveDraft, type DraftDigitization } from "@/lib/draft-store";
+import { saveDraft, type DraftDigitization, type DraftQuestion } from "@/lib/draft-store";
 import {
   formatFileSize,
   isPdfFile,
@@ -51,6 +51,7 @@ type PdfQueueResult = {
   draft: DraftDigitization;
   imageDataUrl: string;
   imageSize: number;
+  questionCount: number;
   processedAt: string;
 };
 
@@ -60,6 +61,8 @@ type PdfQueueJob = {
   status: PdfQueueStatus;
   error?: string;
   result?: PdfQueueResult;
+  reviewed?: boolean;
+  reviewedAt?: string;
 };
 
 async function fileToDataURL(file: File, rotateDeg: number): Promise<string> {
@@ -478,6 +481,7 @@ function Page() {
         draft,
         imageDataUrl: rendered.imageDataUrl,
         imageSize: estimateDataUrlBytes(rendered.imageDataUrl),
+        questionCount: draft.questoes.length,
         processedAt: new Date().toISOString(),
       };
 
@@ -498,8 +502,31 @@ function Page() {
       toast.info("Esse lote ainda não tem resultado para revisar.");
       return;
     }
+    markQueueJobsAsReviewed([jobId], "individual");
     saveDraft(job.result.draft);
     navigate({ to: "/revisar" });
+  };
+
+  const openMassQueueReview = () => {
+    const doneJobs = pdfQueue.filter((job) => job.status === "done" && job.result);
+    if (doneJobs.length === 0) {
+      toast.info("Processe ao menos um lote antes de abrir a revisão em massa.");
+      return;
+    }
+
+    const draft = mergeQueueJobsIntoDraft(doneJobs);
+    markQueueJobsAsReviewed(doneJobs.map((job) => job.id), "mass");
+    saveDraft(draft);
+    toast.success(`${draft.questoes.length} item${draft.questoes.length > 1 ? "s" : ""} enviado${draft.questoes.length > 1 ? "s" : ""} para revisão em massa.`);
+    navigate({ to: "/revisar" });
+  };
+
+  const markQueueJobsAsReviewed = (ids: string[], mode: "individual" | "mass") => {
+    const now = new Date().toISOString();
+    setAndStorePdfQueue((current) => current.map((job) => ids.includes(job.id)
+      ? { ...job, reviewed: true, reviewedAt: now, error: job.error ? job.error : undefined }
+      : job));
+    if (mode === "mass") return;
   };
 
   return (
@@ -527,7 +554,7 @@ function Page() {
             className={`rounded-lg px-3 py-3 text-left transition ${mode === "pdf" ? "bg-primary text-primary-foreground shadow-sm" : "hover:bg-muted"}`}
           >
             <span className="flex items-center gap-2 font-semibold"><FileText className="size-4" /> PDF</span>
-            <span className={`mt-1 block text-xs ${mode === "pdf" ? "text-primary-foreground/80" : "text-muted-foreground"}`}>Selecione páginas, crie fila e revise.</span>
+            <span className={`mt-1 block text-xs ${mode === "pdf" ? "text-primary-foreground/80" : "text-muted-foreground"}`}>Selecione páginas, crie fila e revise em massa.</span>
           </button>
         </div>
 
@@ -575,6 +602,7 @@ function Page() {
             onProcessNextQueueJob={processNextQueueJob}
             onProcessQueueJob={(id) => { void processQueueJob(id); }}
             onOpenQueueJobReview={openQueueJobReview}
+            onOpenMassQueueReview={openMassQueueReview}
             onClearQueue={clearPdfQueue}
           />
         )}
@@ -733,6 +761,7 @@ function PdfUploadPanel({
   onProcessNextQueueJob,
   onProcessQueueJob,
   onOpenQueueJobReview,
+  onOpenMassQueueReview,
   onClearQueue,
 }: {
   pdfInfo: PdfDocumentSummary | null;
@@ -763,6 +792,7 @@ function PdfUploadPanel({
   onProcessNextQueueJob: () => void;
   onProcessQueueJob: (id: string) => void;
   onOpenQueueJobReview: (id: string) => void;
+  onOpenMassQueueReview: () => void;
   onClearQueue: () => void;
 }) {
   if (!pdfInfo) {
@@ -792,9 +822,9 @@ function PdfUploadPanel({
 
         <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
           <div className="mb-2 flex items-center gap-2 font-medium text-foreground">
-            <AlertTriangle className="size-4" /> Suporte a PDF com fila
+            <AlertTriangle className="size-4" /> Suporte a PDF com revisão em massa
           </div>
-          Envie um PDF para criar uma fila de lotes. Resultados já processados ficam guardados temporariamente nesta sessão.
+          Envie um PDF para criar lotes. Lotes concluídos podem ser revisados individualmente ou juntos, sem apagar o progresso da fila.
         </div>
 
         {queue.length > 0 && (
@@ -806,6 +836,7 @@ function PdfUploadPanel({
             onProcessNext={onProcessNextQueueJob}
             onProcessJob={onProcessQueueJob}
             onOpenReview={onOpenQueueJobReview}
+            onOpenMassReview={onOpenMassQueueReview}
             onClearQueue={onClearQueue}
           />
         )}
@@ -831,7 +862,7 @@ function PdfUploadPanel({
               <span className="truncate">{pdfInfo.fileName}</span>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Selecione páginas, crie uma fila e processe lote por lote. Cada lote concluído pode ser aberto em revisão.
+              Selecione páginas, crie uma fila e processe lote por lote. Depois, revise um lote ou vários lotes juntos.
             </p>
           </div>
           <Button type="button" variant="ghost" onClick={onReset} disabled={isBusy}>
@@ -945,6 +976,7 @@ function PdfUploadPanel({
           onProcessNext={onProcessNextQueueJob}
           onProcessJob={onProcessQueueJob}
           onOpenReview={onOpenQueueJobReview}
+          onOpenMassReview={onOpenMassQueueReview}
           onClearQueue={onClearQueue}
         />
       )}
@@ -978,13 +1010,13 @@ function PdfUploadPanel({
       )}
 
       <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
-        Para PDFs longos, selecione um intervalo grande, crie a fila e processe um lote por vez. Cada resultado fica guardado temporariamente até você abrir em revisão.
+        Para PDFs longos, selecione um intervalo grande, crie a fila e processe um lote por vez. Depois use <strong>Revisar concluídos em massa</strong> para revisar vários lotes sem perder o progresso já processado.
       </div>
     </div>
   );
 }
 
-function PdfQueuePanel({ queue, activeQueueJobId, isBusy, canProcess, onProcessNext, onProcessJob, onOpenReview, onClearQueue }: {
+function PdfQueuePanel({ queue, activeQueueJobId, isBusy, canProcess, onProcessNext, onProcessJob, onOpenReview, onOpenMassReview, onClearQueue }: {
   queue: PdfQueueJob[];
   activeQueueJobId: string | null;
   isBusy: boolean;
@@ -992,11 +1024,14 @@ function PdfQueuePanel({ queue, activeQueueJobId, isBusy, canProcess, onProcessN
   onProcessNext: () => void;
   onProcessJob: (id: string) => void;
   onOpenReview: (id: string) => void;
+  onOpenMassReview: () => void;
   onClearQueue: () => void;
 }) {
   const doneCount = queue.filter((job) => job.status === "done").length;
+  const reviewedCount = queue.filter((job) => job.reviewed).length;
   const errorCount = queue.filter((job) => job.status === "error").length;
   const pendingCount = queue.filter((job) => job.status === "pending").length;
+  const questionCount = queue.reduce((sum, job) => sum + (job.result?.questionCount ?? job.result?.draft.questoes.length ?? 0), 0);
   const percent = queue.length > 0 ? Math.round((doneCount / queue.length) * 100) : 0;
 
   return (
@@ -1005,13 +1040,17 @@ function PdfQueuePanel({ queue, activeQueueJobId, isBusy, canProcess, onProcessN
         <div>
           <h2 className="font-semibold">Fila de digitalização do PDF</h2>
           <p className="text-sm text-muted-foreground">
-            {queue.length} lote{queue.length > 1 ? "s" : ""} criado{queue.length > 1 ? "s" : ""} · {doneCount} concluído{doneCount === 1 ? "" : "s"} · {pendingCount} pendente{pendingCount === 1 ? "" : "s"}{errorCount > 0 ? ` · ${errorCount} com erro` : ""}
+            {queue.length} lote{queue.length > 1 ? "s" : ""} · {doneCount} concluído{doneCount === 1 ? "" : "s"} · {reviewedCount} revisado{reviewedCount === 1 ? "" : "s"} · {pendingCount} pendente{pendingCount === 1 ? "" : "s"}{errorCount > 0 ? ` · ${errorCount} com erro` : ""}
           </p>
+          {questionCount > 0 && <p className="mt-1 text-xs text-muted-foreground">{questionCount} item{questionCount === 1 ? "" : "s"} extraído{questionCount === 1 ? "" : "s"} temporariamente.</p>}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" disabled={!canProcess || isBusy || pendingCount === 0} onClick={onProcessNext} className="gap-2">
             {activeQueueJobId ? <Loader2 className="size-4 animate-spin" /> : <ScanLine className="size-4" />}
             Processar próximo lote
+          </Button>
+          <Button type="button" variant="default" disabled={isBusy || doneCount === 0} onClick={onOpenMassReview} className="gap-2">
+            <FileText className="size-4" /> Revisar concluídos em massa
           </Button>
           <Button type="button" variant="ghost" disabled={isBusy} onClick={onClearQueue}>Limpar fila</Button>
         </div>
@@ -1019,12 +1058,15 @@ function PdfQueuePanel({ queue, activeQueueJobId, isBusy, canProcess, onProcessN
 
       <div className="border-b bg-muted/20 p-4">
         <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-          <span>Progresso</span>
+          <span>Progresso de processamento</span>
           <span>{percent}%</span>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-muted">
           <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${percent}%` }} />
         </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Abrir uma revisão não apaga a fila. O progresso fica guardado temporariamente para você voltar e revisar outros lotes.
+        </p>
       </div>
 
       <div className="divide-y">
@@ -1036,13 +1078,15 @@ function PdfQueuePanel({ queue, activeQueueJobId, isBusy, canProcess, onProcessN
                 <div className="flex flex-wrap items-center gap-2">
                   <strong className="text-sm">Lote {index + 1}</strong>
                   <StatusBadge status={job.status} />
+                  {job.reviewed && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800">revisão aberta</span>}
                   <span className="text-xs text-muted-foreground">Páginas {formatPages(job.pages)}</span>
                 </div>
                 {job.result && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Resultado temporário guardado · {formatFileSize(job.result.imageSize)} · {new Date(job.result.processedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                    Resultado temporário guardado · {job.result.questionCount} item{job.result.questionCount === 1 ? "" : "s"} · {formatFileSize(job.result.imageSize)} · {new Date(job.result.processedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                   </p>
                 )}
+                {job.reviewedAt && <p className="mt-1 text-xs text-muted-foreground">Revisão aberta às {new Date(job.reviewedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.</p>}
                 {job.error && <p className="mt-1 text-xs text-destructive">{job.error}</p>}
               </div>
               <div className="flex flex-wrap gap-2 md:justify-end">
@@ -1098,6 +1142,71 @@ function chunkPages(pages: number[], size: number) {
   const chunks: number[][] = [];
   for (let index = 0; index < pages.length; index += size) chunks.push(pages.slice(index, index + size));
   return chunks;
+}
+
+function mergeQueueJobsIntoDraft(jobs: PdfQueueJob[]): DraftDigitization {
+  const completedJobs = jobs.filter((job) => job.result);
+  const imageDataUrls = completedJobs.map((job) => job.result?.imageDataUrl).filter((url): url is string => Boolean(url));
+  const allQuestions = completedJobs.flatMap((job, jobIndex) => {
+    const draft = job.result!.draft;
+    return draft.questoes.map((question, questionIndex) => withBatchMetadata(question, job.pages, jobIndex, questionIndex));
+  });
+
+  const references = uniqueNonEmpty(completedJobs.map((job) => buildReferenceText(job.result!.draft)));
+  const sources = uniqueNonEmpty(completedJobs.map((job) => job.result!.draft.referencia_fonte));
+  const batchSummary = completedJobs.map((job, index) => `Lote ${index + 1}: páginas ${formatPages(job.pages)}`).join("\n");
+
+  return {
+    referencia_texto: references.length === 1
+      ? references[0]
+      : [`Revisão em massa de PDF com ${completedJobs.length} lote${completedJobs.length === 1 ? "" : "s"}.`, batchSummary, references.length > 0 ? `\nReferências detectadas por lote:\n${references.map((ref, index) => `Referência ${index + 1}: ${ref}`).join("\n\n")}` : ""].filter(Boolean).join("\n\n"),
+    referencia_fonte: sources.length === 1 ? sources[0] : "PDF digitalizado em lotes",
+    imageDataUrl: imageDataUrls[0],
+    imageDataUrls,
+    questoes: allQuestions.length > 0 ? allQuestions : [emptyQuestion()],
+  };
+}
+
+function withBatchMetadata(question: DraftQuestion, pages: number[], jobIndex: number, questionIndex: number): DraftQuestion {
+  const pageLabel = `PDF páginas ${formatPages(pages)}`;
+  const source = question.fonte ? `${question.fonte} · ${pageLabel}` : pageLabel;
+  const originNote = `Origem: ${pageLabel}.`;
+  return {
+    ...question,
+    numero: question.numero || `${jobIndex + 1}.${questionIndex + 1}`,
+    fonte: source,
+    observacoes: [question.observacoes, originNote].filter(Boolean).join("\n"),
+  };
+}
+
+function buildReferenceText(draft: DraftDigitization) {
+  return [draft.referencia_texto, draft.referencia_texto_apos].filter(Boolean).join("\n").trim();
+}
+
+function uniqueNonEmpty(values: Array<string | undefined | null>) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  values.map((value) => (value ?? "").trim()).filter(Boolean).forEach((value) => {
+    const key = value.replace(/\s+/g, " ").toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(value);
+  });
+  return result;
+}
+
+function emptyQuestion(): DraftQuestion {
+  return {
+    numero: "",
+    enunciado: "",
+    alternativas: [],
+    tipo: "discursiva",
+    resposta: "",
+    fonte: "",
+    tem_equacao: false,
+    tem_imagem: false,
+    baixa_confianca: [],
+  };
 }
 
 function formatPages(pages: number[]) {
@@ -1164,7 +1273,9 @@ function loadPdfQueue(): PdfQueueJob[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as PdfQueueJob[];
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((job) => Array.isArray(job.pages) && job.pages.length > 0 && ["pending", "processing", "done", "error"].includes(job.status));
+    return parsed
+      .filter((job) => Array.isArray(job.pages) && job.pages.length > 0 && ["pending", "processing", "done", "error"].includes(job.status))
+      .map((job) => job.status === "processing" ? { ...job, status: "pending" } : job);
   } catch {
     return [];
   }
