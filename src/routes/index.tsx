@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppLayout } from "@/components/AppLayout";
 import { digitizeQuestion } from "@/lib/digitize.functions";
-import { saveDraft } from "@/lib/draft-store";
+import { saveDraft, type DraftDigitization } from "@/lib/draft-store";
 import {
   formatFileSize,
   isPdfFile,
@@ -37,12 +37,29 @@ const MAX_VISIBLE_PAGE_CARDS = 48;
 const MAX_PDF_RENDER_PAGES = 10;
 const PDF_RENDER_SCALE = 2;
 const PDF_RENDER_MAX_WIDTH = 1800;
+const PDF_QUEUE_KEY = "digitalizador.pdfQueue";
 
 type UploadMode = "image" | "pdf";
+type PdfQueueStatus = "pending" | "processing" | "done" | "error";
 
 type SelectedImage = {
   file: File;
   preview: string;
+};
+
+type PdfQueueResult = {
+  draft: DraftDigitization;
+  imageDataUrl: string;
+  imageSize: number;
+  processedAt: string;
+};
+
+type PdfQueueJob = {
+  id: string;
+  pages: number[];
+  status: PdfQueueStatus;
+  error?: string;
+  result?: PdfQueueResult;
 };
 
 async function fileToDataURL(file: File, rotateDeg: number): Promise<string> {
@@ -143,7 +160,17 @@ function Page() {
   const [pdfRendering, setPdfRendering] = useState(false);
   const [pdfDigitizing, setPdfDigitizing] = useState(false);
   const [renderedPdfImage, setRenderedPdfImage] = useState<PdfRenderedImage | null>(null);
+  const [pdfQueue, setPdfQueue] = useState<PdfQueueJob[]>(() => loadPdfQueue());
+  const [activeQueueJobId, setActiveQueueJobId] = useState<string | null>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
+
+  const setAndStorePdfQueue = (updater: PdfQueueJob[] | ((current: PdfQueueJob[]) => PdfQueueJob[])) => {
+    setPdfQueue((current) => {
+      const next = typeof updater === "function" ? updater(current) : updater;
+      persistPdfQueue(next);
+      return next;
+    });
+  };
 
   const handleFiles = useCallback((list: FileList | File[] | undefined | null) => {
     const incoming = Array.from(list ?? []);
@@ -196,6 +223,8 @@ function Page() {
     setPdfFile(null);
     setSelectedPdfPages(new Set());
     setRenderedPdfImage(null);
+    setPdfQueue([]);
+    clearPdfQueueStorage();
     try {
       const summary = await readPdfDocumentSummary(file, { maxPages: MAX_PDF_PAGES });
       setPdfFile(file);
@@ -260,6 +289,16 @@ function Page() {
     setSelectedPdfPages(new Set(pages));
     setRenderedPdfImage(null);
     toast.success(`${pages.length} página${pages.length > 1 ? "s" : ""} selecionada${pages.length > 1 ? "s" : ""}.`);
+  };
+
+  const selectAllPreparedPdfPages = () => {
+    if (!pdfInfo) return;
+    const pages = pageRange(1, pdfInfo.readablePageCount, pdfInfo.readablePageCount);
+    setSelectedPdfPages(new Set(pages));
+    setRangeStart("1");
+    setRangeEnd(String(pdfInfo.readablePageCount));
+    setRenderedPdfImage(null);
+    toast.success(`${pages.length} páginas preparadas selecionadas.`);
   };
 
   const selectFirstPdfPages = () => {
@@ -339,7 +378,7 @@ function Page() {
       return;
     }
     if (pages.length > MAX_PDF_RENDER_PAGES) {
-      toast.error(`Digitalize no máximo ${MAX_PDF_RENDER_PAGES} páginas por lote pequeno.`);
+      toast.error(`Digitalize no máximo ${MAX_PDF_RENDER_PAGES} páginas por lote pequeno ou crie uma fila de lotes.`);
       return;
     }
 
@@ -371,6 +410,98 @@ function Page() {
     }
   };
 
+  const createPdfQueueFromSelection = () => {
+    if (!pdfInfo) return;
+    const pages = sortedPages(selectedPdfPages).filter((page) => page <= pdfInfo.readablePageCount);
+    if (pages.length === 0) {
+      toast.info("Selecione páginas para criar a fila.");
+      return;
+    }
+
+    const batches = chunkPages(pages, MAX_PDF_RENDER_PAGES);
+    const createdAt = Date.now();
+    const jobs: PdfQueueJob[] = batches.map((batch, index) => ({
+      id: `${createdAt}-${index}`,
+      pages: batch,
+      status: "pending",
+    }));
+    setAndStorePdfQueue(jobs);
+    toast.success(`Fila criada com ${jobs.length} lote${jobs.length > 1 ? "s" : ""}.`);
+  };
+
+  const clearPdfQueue = () => {
+    setAndStorePdfQueue([]);
+    clearPdfQueueStorage();
+    toast.success("Fila de PDF limpa.");
+  };
+
+  const processNextQueueJob = () => {
+    const nextJob = pdfQueue.find((job) => job.status === "pending");
+    if (!nextJob) {
+      toast.info("Não há lotes pendentes na fila.");
+      return;
+    }
+    void processQueueJob(nextJob.id);
+  };
+
+  const processQueueJob = async (jobId: string) => {
+    if (!pdfFile) {
+      toast.error("Envie novamente o PDF para continuar processando a fila.");
+      return;
+    }
+    const job = pdfQueue.find((item) => item.id === jobId);
+    if (!job) return;
+
+    setActiveQueueJobId(jobId);
+    setAndStorePdfQueue((current) => current.map((item) => item.id === jobId ? { ...item, status: "processing", error: undefined } : item));
+    try {
+      const rendered = await renderPdfPagesToImageDataUrl(pdfFile, job.pages, {
+        scale: PDF_RENDER_SCALE,
+        maxPageWidth: PDF_RENDER_MAX_WIDTH,
+        imageQuality: 0.9,
+      });
+      setRenderedPdfImage(rendered);
+
+      const result = await digitizeQuestion({ data: { imageDataUrl: rendered.imageDataUrl } });
+      if (!result.ok) {
+        setAndStorePdfQueue((current) => current.map((item) => item.id === jobId ? { ...item, status: "error", error: result.message } : item));
+        toast.error(result.message);
+        return;
+      }
+
+      const draft: DraftDigitization = {
+        ...result.data,
+        imageDataUrl: rendered.imageDataUrl,
+        imageDataUrls: [rendered.imageDataUrl],
+      };
+      const queueResult: PdfQueueResult = {
+        draft,
+        imageDataUrl: rendered.imageDataUrl,
+        imageSize: estimateDataUrlBytes(rendered.imageDataUrl),
+        processedAt: new Date().toISOString(),
+      };
+
+      setAndStorePdfQueue((current) => current.map((item) => item.id === jobId ? { ...item, status: "done", error: undefined, result: queueResult } : item));
+      toast.success(`Lote ${formatPages(job.pages)} digitalizado e guardado temporariamente.`);
+    } catch (error) {
+      console.error(error);
+      setAndStorePdfQueue((current) => current.map((item) => item.id === jobId ? { ...item, status: "error", error: errorMessage(error) } : item));
+      showDigitizeError(error);
+    } finally {
+      setActiveQueueJobId(null);
+    }
+  };
+
+  const openQueueJobReview = (jobId: string) => {
+    const job = pdfQueue.find((item) => item.id === jobId);
+    if (!job?.result) {
+      toast.info("Esse lote ainda não tem resultado para revisar.");
+      return;
+    }
+    saveDraft(job.result.draft);
+    navigate({ to: "/revisar" });
+  };
+
   return (
     <AppLayout>
       <div className="mx-auto max-w-4xl px-4 py-8">
@@ -396,7 +527,7 @@ function Page() {
             className={`rounded-lg px-3 py-3 text-left transition ${mode === "pdf" ? "bg-primary text-primary-foreground shadow-sm" : "hover:bg-muted"}`}
           >
             <span className="flex items-center gap-2 font-semibold"><FileText className="size-4" /> PDF</span>
-            <span className={`mt-1 block text-xs ${mode === "pdf" ? "text-primary-foreground/80" : "text-muted-foreground"}`}>Selecione páginas e digitalize.</span>
+            <span className={`mt-1 block text-xs ${mode === "pdf" ? "text-primary-foreground/80" : "text-muted-foreground"}`}>Selecione páginas, crie fila e revise.</span>
           </button>
         </div>
 
@@ -426,6 +557,8 @@ function Page() {
             rangeStart={rangeStart}
             rangeEnd={rangeEnd}
             renderedImage={renderedPdfImage}
+            queue={pdfQueue}
+            activeQueueJobId={activeQueueJobId}
             onDragOverChange={setPdfDragOver}
             onFile={handlePdfFile}
             onReset={resetPdf}
@@ -434,9 +567,15 @@ function Page() {
             onRangeEndChange={setRangeEnd}
             onSelectRange={selectPdfRange}
             onSelectFirstPages={selectFirstPdfPages}
+            onSelectAllPreparedPages={selectAllPreparedPdfPages}
             onClearSelection={clearPdfSelection}
             onRenderPages={() => { void renderSelectedPdfPages(); }}
             onDigitizePdf={() => { void onDigitizePdf(); }}
+            onCreateQueue={createPdfQueueFromSelection}
+            onProcessNextQueueJob={processNextQueueJob}
+            onProcessQueueJob={(id) => { void processQueueJob(id); }}
+            onOpenQueueJobReview={openQueueJobReview}
+            onClearQueue={clearPdfQueue}
           />
         )}
       </div>
@@ -576,6 +715,8 @@ function PdfUploadPanel({
   rangeStart,
   rangeEnd,
   renderedImage,
+  queue,
+  activeQueueJobId,
   onDragOverChange,
   onFile,
   onReset,
@@ -584,9 +725,15 @@ function PdfUploadPanel({
   onRangeEndChange,
   onSelectRange,
   onSelectFirstPages,
+  onSelectAllPreparedPages,
   onClearSelection,
   onRenderPages,
   onDigitizePdf,
+  onCreateQueue,
+  onProcessNextQueueJob,
+  onProcessQueueJob,
+  onOpenQueueJobReview,
+  onClearQueue,
 }: {
   pdfInfo: PdfDocumentSummary | null;
   loading: boolean;
@@ -598,6 +745,8 @@ function PdfUploadPanel({
   rangeStart: string;
   rangeEnd: string;
   renderedImage: PdfRenderedImage | null;
+  queue: PdfQueueJob[];
+  activeQueueJobId: string | null;
   onDragOverChange: (value: boolean) => void;
   onFile: (list: FileList | File[] | undefined | null) => void;
   onReset: () => void;
@@ -606,9 +755,15 @@ function PdfUploadPanel({
   onRangeEndChange: (value: string) => void;
   onSelectRange: () => void;
   onSelectFirstPages: () => void;
+  onSelectAllPreparedPages: () => void;
   onClearSelection: () => void;
   onRenderPages: () => void;
   onDigitizePdf: () => void;
+  onCreateQueue: () => void;
+  onProcessNextQueueJob: () => void;
+  onProcessQueueJob: (id: string) => void;
+  onOpenQueueJobReview: (id: string) => void;
+  onClearQueue: () => void;
 }) {
   if (!pdfInfo) {
     return (
@@ -637,10 +792,23 @@ function PdfUploadPanel({
 
         <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
           <div className="mb-2 flex items-center gap-2 font-medium text-foreground">
-            <AlertTriangle className="size-4" /> Suporte a PDF em lote pequeno
+            <AlertTriangle className="size-4" /> Suporte a PDF com fila
           </div>
-          Neste passo, selecione até {MAX_PDF_RENDER_PAGES} páginas, gere a imagem e envie para a mesma IA usada na digitalização por imagem.
+          Envie um PDF para criar uma fila de lotes. Resultados já processados ficam guardados temporariamente nesta sessão.
         </div>
+
+        {queue.length > 0 && (
+          <PdfQueuePanel
+            queue={queue}
+            activeQueueJobId={activeQueueJobId}
+            isBusy={false}
+            canProcess={false}
+            onProcessNext={onProcessNextQueueJob}
+            onProcessJob={onProcessQueueJob}
+            onOpenReview={onOpenQueueJobReview}
+            onClearQueue={onClearQueue}
+          />
+        )}
       </div>
     );
   }
@@ -648,8 +816,10 @@ function PdfUploadPanel({
   const visiblePages = Array.from({ length: Math.min(pdfInfo.readablePageCount, MAX_VISIBLE_PAGE_CARDS) }, (_, index) => index + 1);
   const hiddenPageCount = Math.max(0, pdfInfo.readablePageCount - visiblePages.length);
   const selectedCount = selectedPages.size;
-  const isBusy = rendering || digitizing;
+  const isBusy = rendering || digitizing || Boolean(activeQueueJobId);
   const canUseBatch = selectedCount > 0 && selectedCount <= MAX_PDF_RENDER_PAGES && !isBusy;
+  const canCreateQueue = selectedCount > 0 && !isBusy;
+  const queueBatchCount = selectedCount > 0 ? Math.ceil(selectedCount / MAX_PDF_RENDER_PAGES) : 0;
 
   return (
     <div className="space-y-4">
@@ -661,7 +831,7 @@ function PdfUploadPanel({
               <span className="truncate">{pdfInfo.fileName}</span>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Selecione uma página ou intervalo. O sistema transforma esse lote em imagem e envia para a IA atual.
+              Selecione páginas, crie uma fila e processe lote por lote. Cada lote concluído pode ser aberto em revisão.
             </p>
           </div>
           <Button type="button" variant="ghost" onClick={onReset} disabled={isBusy}>
@@ -680,7 +850,7 @@ function PdfUploadPanel({
           <div className="flex gap-2 border-b border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             <span>
-              O PDF tem {pdfInfo.pageCount} páginas. Para não travar o navegador, este fluxo prepara até {MAX_PDF_PAGES} páginas. PDFs maiores devem ser processados por fila/lotes nos próximos PRs.
+              O PDF tem {pdfInfo.pageCount} páginas. Para não travar o navegador, este fluxo prepara até {MAX_PDF_PAGES} páginas. PDFs maiores devem ser divididos em arquivos menores ou tratados por uma fila mais avançada no futuro.
             </span>
           </div>
         )}
@@ -689,10 +859,11 @@ function PdfUploadPanel({
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="font-semibold">Selecionar páginas</h2>
-              <p className="text-xs text-muted-foreground">Escolha páginas específicas nos cards ou selecione um intervalo. Digitalização limitada a {MAX_PDF_RENDER_PAGES} páginas por lote.</p>
+              <p className="text-xs text-muted-foreground">Escolha páginas específicas ou um intervalo. A fila divide automaticamente em lotes de até {MAX_PDF_RENDER_PAGES} páginas.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" onClick={onSelectFirstPages} disabled={isBusy}>Primeiras {Math.min(MAX_PDF_RENDER_PAGES, pdfInfo.readablePageCount)}</Button>
+              <Button type="button" variant="outline" size="sm" onClick={onSelectAllPreparedPages} disabled={isBusy}>Todas preparadas</Button>
               <Button type="button" variant="ghost" size="sm" onClick={onClearSelection} disabled={isBusy}>Limpar</Button>
             </div>
           </div>
@@ -723,14 +894,17 @@ function PdfUploadPanel({
               </Button>
               <Button type="button" disabled={!canUseBatch} variant="default" className="gap-2" onClick={onDigitizePdf}>
                 {digitizing ? <Loader2 className="size-4 animate-spin" /> : <ScanLine className="size-4" />}
-                {digitizing ? "Digitalizando..." : "Digitalizar PDF e revisar"}
+                {digitizing ? "Digitalizando..." : "Digitalizar e revisar"}
+              </Button>
+              <Button type="button" disabled={!canCreateQueue} variant="secondary" className="gap-2" onClick={onCreateQueue}>
+                <ListOrdered className="size-4" /> Criar fila{queueBatchCount > 0 ? ` (${queueBatchCount})` : ""}
               </Button>
             </div>
           </div>
 
           {selectedCount > MAX_PDF_RENDER_PAGES && (
             <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-              Você selecionou {selectedCount} páginas. Reduza para no máximo {MAX_PDF_RENDER_PAGES} páginas por lote pequeno.
+              Você selecionou {selectedCount} páginas. Para digitalizar direto, reduza para {MAX_PDF_RENDER_PAGES}. Para PDF maior, clique em <strong>Criar fila</strong>.
             </div>
           )}
 
@@ -762,13 +936,26 @@ function PdfUploadPanel({
         </div>
       </div>
 
+      {queue.length > 0 && (
+        <PdfQueuePanel
+          queue={queue}
+          activeQueueJobId={activeQueueJobId}
+          isBusy={isBusy}
+          canProcess={Boolean(pdfInfo)}
+          onProcessNext={onProcessNextQueueJob}
+          onProcessJob={onProcessQueueJob}
+          onOpenReview={onOpenQueueJobReview}
+          onClearQueue={onClearQueue}
+        />
+      )}
+
       {renderedImage && (
         <div className="overflow-hidden rounded-xl border bg-card">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b p-4">
             <div>
               <h2 className="font-semibold">Imagem gerada do PDF</h2>
               <p className="text-sm text-muted-foreground">
-                Esta é a imagem que será enviada para a IA, reaproveitando o mesmo fluxo da digitalização por imagem.
+                Esta é a imagem enviada para a IA, reaproveitando o mesmo fluxo da digitalização por imagem.
               </p>
             </div>
             <div className="text-right text-xs text-muted-foreground">
@@ -791,10 +978,102 @@ function PdfUploadPanel({
       )}
 
       <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
-        Este fluxo processa um lote pequeno por vez. Para PDFs longos, selecione páginas em grupos de até {MAX_PDF_RENDER_PAGES} e revise cada extração antes de salvar.
+        Para PDFs longos, selecione um intervalo grande, crie a fila e processe um lote por vez. Cada resultado fica guardado temporariamente até você abrir em revisão.
       </div>
     </div>
   );
+}
+
+function PdfQueuePanel({ queue, activeQueueJobId, isBusy, canProcess, onProcessNext, onProcessJob, onOpenReview, onClearQueue }: {
+  queue: PdfQueueJob[];
+  activeQueueJobId: string | null;
+  isBusy: boolean;
+  canProcess: boolean;
+  onProcessNext: () => void;
+  onProcessJob: (id: string) => void;
+  onOpenReview: (id: string) => void;
+  onClearQueue: () => void;
+}) {
+  const doneCount = queue.filter((job) => job.status === "done").length;
+  const errorCount = queue.filter((job) => job.status === "error").length;
+  const pendingCount = queue.filter((job) => job.status === "pending").length;
+  const percent = queue.length > 0 ? Math.round((doneCount / queue.length) * 100) : 0;
+
+  return (
+    <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b p-4">
+        <div>
+          <h2 className="font-semibold">Fila de digitalização do PDF</h2>
+          <p className="text-sm text-muted-foreground">
+            {queue.length} lote{queue.length > 1 ? "s" : ""} criado{queue.length > 1 ? "s" : ""} · {doneCount} concluído{doneCount === 1 ? "" : "s"} · {pendingCount} pendente{pendingCount === 1 ? "" : "s"}{errorCount > 0 ? ` · ${errorCount} com erro` : ""}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" disabled={!canProcess || isBusy || pendingCount === 0} onClick={onProcessNext} className="gap-2">
+            {activeQueueJobId ? <Loader2 className="size-4 animate-spin" /> : <ScanLine className="size-4" />}
+            Processar próximo lote
+          </Button>
+          <Button type="button" variant="ghost" disabled={isBusy} onClick={onClearQueue}>Limpar fila</Button>
+        </div>
+      </div>
+
+      <div className="border-b bg-muted/20 p-4">
+        <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+          <span>Progresso</span>
+          <span>{percent}%</span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-muted">
+          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${percent}%` }} />
+        </div>
+      </div>
+
+      <div className="divide-y">
+        {queue.map((job, index) => {
+          const processing = job.status === "processing" || activeQueueJobId === job.id;
+          return (
+            <div key={job.id} className="grid gap-3 p-4 md:grid-cols-[1fr_auto] md:items-center">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <strong className="text-sm">Lote {index + 1}</strong>
+                  <StatusBadge status={job.status} />
+                  <span className="text-xs text-muted-foreground">Páginas {formatPages(job.pages)}</span>
+                </div>
+                {job.result && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Resultado temporário guardado · {formatFileSize(job.result.imageSize)} · {new Date(job.result.processedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                )}
+                {job.error && <p className="mt-1 text-xs text-destructive">{job.error}</p>}
+              </div>
+              <div className="flex flex-wrap gap-2 md:justify-end">
+                {job.status === "done" && <Button type="button" size="sm" onClick={() => onOpenReview(job.id)}>Abrir revisão</Button>}
+                {job.status === "pending" && <Button type="button" size="sm" variant="outline" disabled={!canProcess || isBusy} onClick={() => onProcessJob(job.id)}>Processar</Button>}
+                {job.status === "error" && <Button type="button" size="sm" variant="outline" disabled={!canProcess || isBusy} onClick={() => onProcessJob(job.id)}>Tentar novamente</Button>}
+                {processing && <Button type="button" size="sm" variant="outline" disabled className="gap-2"><Loader2 className="size-3 animate-spin" /> Processando</Button>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: PdfQueueStatus }) {
+  const labels: Record<PdfQueueStatus, string> = {
+    pending: "pendente",
+    processing: "processando",
+    done: "concluído",
+    error: "erro",
+  };
+  const className = status === "done"
+    ? "bg-emerald-100 text-emerald-800"
+    : status === "error"
+      ? "bg-destructive/10 text-destructive"
+      : status === "processing"
+        ? "bg-primary/10 text-primary"
+        : "bg-muted text-muted-foreground";
+  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${className}`}>{labels[status]}</span>;
 }
 
 function PdfMetric({ label, value }: { label: string; value: string }) {
@@ -815,6 +1094,33 @@ function samePages(a: number[], b: number[]) {
   return a.every((page, index) => page === b[index]);
 }
 
+function chunkPages(pages: number[], size: number) {
+  const chunks: number[][] = [];
+  for (let index = 0; index < pages.length; index += size) chunks.push(pages.slice(index, index + size));
+  return chunks;
+}
+
+function formatPages(pages: number[]) {
+  if (pages.length === 0) return "—";
+  if (pages.length === 1) return String(pages[0]);
+  const sorted = [...pages].sort((a, b) => a - b);
+  const ranges: string[] = [];
+  let start = sorted[0];
+  let previous = sorted[0];
+  for (let index = 1; index < sorted.length; index++) {
+    const page = sorted[index];
+    if (page === previous + 1) {
+      previous = page;
+      continue;
+    }
+    ranges.push(start === previous ? String(start) : `${start}–${previous}`);
+    start = page;
+    previous = page;
+  }
+  ranges.push(start === previous ? String(start) : `${start}–${previous}`);
+  return ranges.join(", ");
+}
+
 function pageInputToNumber(value: string, fallback: number) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -831,9 +1137,40 @@ function estimateDataUrlBytes(dataUrl: string) {
 }
 
 function showDigitizeError(error: unknown) {
-  const msg = error instanceof Error ? error.message : String(error);
+  const msg = errorMessage(error);
   if (msg.includes("LOVABLE_API_KEY")) toast.error("Digitalização por IA não configurada. Configure a chave LOVABLE_API_KEY no ambiente do projeto.");
   else if (msg.includes("429")) toast.error("Limite de IA atingido. Aguarde alguns instantes.");
   else if (msg.includes("402")) toast.error("Créditos de IA esgotados. Adicione créditos no workspace.");
   else toast.error("Falha ao digitalizar. Tente novamente.");
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function persistPdfQueue(queue: PdfQueueJob[]) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(PDF_QUEUE_KEY, JSON.stringify(queue));
+  } catch (error) {
+    console.warn("Não foi possível guardar a fila temporária do PDF:", error);
+  }
+}
+
+function loadPdfQueue(): PdfQueueJob[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(PDF_QUEUE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as PdfQueueJob[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((job) => Array.isArray(job.pages) && job.pages.length > 0 && ["pending", "processing", "done", "error"].includes(job.status));
+  } catch {
+    return [];
+  }
+}
+
+function clearPdfQueueStorage() {
+  if (typeof window === "undefined") return;
+  try { sessionStorage.removeItem(PDF_QUEUE_KEY); } catch {}
 }
