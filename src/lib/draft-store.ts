@@ -136,7 +136,7 @@ function normalizeDraft(draft: DraftDigitization | DraftQuestion): DraftDigitiza
   };
 }
 
-export const LETRAS = ["A", "B", "C", "D", "E", "F", "H"] as const;
+export const LETRAS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;
 export function reletter(alts: Alternativa[]): Alternativa[] {
   return alts.map((a, i) => ({ ...a, letra: LETRAS[i] ?? a.letra }));
 }
