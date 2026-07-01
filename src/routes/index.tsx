@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, type RefObject } from "react";
 import { AlertTriangle, FileText, ImageIcon, ListOrdered, Loader2, RotateCw, ScanLine, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppLayout } from "@/components/AppLayout";
@@ -314,7 +314,7 @@ function ImageUploadPanel({
   loading: boolean;
   rotation: number;
   dragOver: boolean;
-  inputRef: React.RefObject<HTMLInputElement | null>;
+  inputRef: RefObject<HTMLInputElement | null>;
   onDragOverChange: (value: boolean) => void;
   onFiles: (list: FileList | File[] | undefined | null) => void;
   onRemoveImage: (index: number) => void;
@@ -430,7 +430,7 @@ function PdfUploadPanel({
   pdfInfo: PdfDocumentSummary | null;
   loading: boolean;
   dragOver: boolean;
-  inputRef: React.RefObject<HTMLInputElement | null>;
+  inputRef: RefObject<HTMLInputElement | null>;
   onDragOverChange: (value: boolean) => void;
   onFile: (list: FileList | File[] | undefined | null) => void;
   onReset: () => void;
