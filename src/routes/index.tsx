@@ -141,6 +141,7 @@ function Page() {
   const [rangeStart, setRangeStart] = useState("1");
   const [rangeEnd, setRangeEnd] = useState("1");
   const [pdfRendering, setPdfRendering] = useState(false);
+  const [pdfDigitizing, setPdfDigitizing] = useState(false);
   const [renderedPdfImage, setRenderedPdfImage] = useState<PdfRenderedImage | null>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
@@ -275,16 +276,16 @@ function Page() {
     setRenderedPdfImage(null);
   };
 
-  const renderSelectedPdfPages = async () => {
-    if (!pdfFile || !pdfInfo) return;
+  const renderSelectedPdfPages = async (showSuccessToast = true): Promise<PdfRenderedImage | null> => {
+    if (!pdfFile || !pdfInfo) return null;
     const pages = sortedPages(selectedPdfPages).filter((page) => page <= pdfInfo.readablePageCount);
     if (pages.length === 0) {
       toast.info("Selecione ao menos uma página do PDF.");
-      return;
+      return null;
     }
     if (pages.length > MAX_PDF_RENDER_PAGES) {
-      toast.error(`Renderize no máximo ${MAX_PDF_RENDER_PAGES} páginas por vez neste passo.`);
-      return;
+      toast.error(`Use no máximo ${MAX_PDF_RENDER_PAGES} páginas por lote pequeno.`);
+      return null;
     }
 
     setPdfRendering(true);
@@ -296,10 +297,12 @@ function Page() {
         imageQuality: 0.9,
       });
       setRenderedPdfImage(rendered);
-      toast.success("Imagem do PDF gerada com sucesso.");
+      if (showSuccessToast) toast.success("Imagem do PDF gerada com sucesso.");
+      return rendered;
     } catch (error) {
       console.error(error);
       toast.error("Não foi possível renderizar as páginas selecionadas.");
+      return null;
     } finally {
       setPdfRendering(false);
     }
@@ -322,13 +325,49 @@ function Page() {
       navigate({ to: "/revisar" });
     } catch (e) {
       console.error(e);
-      const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes("LOVABLE_API_KEY")) toast.error("Digitalização por IA não configurada. Configure a chave LOVABLE_API_KEY no ambiente do projeto.");
-      else if (msg.includes("429")) toast.error("Limite de IA atingido. Aguarde alguns instantes.");
-      else if (msg.includes("402")) toast.error("Créditos de IA esgotados. Adicione créditos no workspace.");
-      else toast.error("Falha ao digitalizar. Tente novamente.");
+      showDigitizeError(e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const onDigitizePdf = async () => {
+    if (!pdfFile || !pdfInfo) return;
+    const pages = sortedPages(selectedPdfPages).filter((page) => page <= pdfInfo.readablePageCount);
+    if (pages.length === 0) {
+      toast.info("Selecione ao menos uma página do PDF.");
+      return;
+    }
+    if (pages.length > MAX_PDF_RENDER_PAGES) {
+      toast.error(`Digitalize no máximo ${MAX_PDF_RENDER_PAGES} páginas por lote pequeno.`);
+      return;
+    }
+
+    setPdfDigitizing(true);
+    try {
+      const rendered = renderedPdfImage && samePages(renderedPdfImage.pages, pages)
+        ? renderedPdfImage
+        : await renderSelectedPdfPages(false);
+      if (!rendered) return;
+
+      const result = await digitizeQuestion({ data: { imageDataUrl: rendered.imageDataUrl } });
+      if (!result.ok) {
+        toast.error(result.message);
+        return;
+      }
+
+      saveDraft({
+        ...result.data,
+        imageDataUrl: rendered.imageDataUrl,
+        imageDataUrls: [rendered.imageDataUrl],
+      });
+      toast.success(`PDF digitalizado: página${pages.length > 1 ? "s" : ""} ${pages.join(", ")}.`);
+      navigate({ to: "/revisar" });
+    } catch (error) {
+      console.error(error);
+      showDigitizeError(error);
+    } finally {
+      setPdfDigitizing(false);
     }
   };
 
@@ -357,7 +396,7 @@ function Page() {
             className={`rounded-lg px-3 py-3 text-left transition ${mode === "pdf" ? "bg-primary text-primary-foreground shadow-sm" : "hover:bg-muted"}`}
           >
             <span className="flex items-center gap-2 font-semibold"><FileText className="size-4" /> PDF</span>
-            <span className={`mt-1 block text-xs ${mode === "pdf" ? "text-primary-foreground/80" : "text-muted-foreground"}`}>Selecione páginas e gere imagem.</span>
+            <span className={`mt-1 block text-xs ${mode === "pdf" ? "text-primary-foreground/80" : "text-muted-foreground"}`}>Selecione páginas e digitalize.</span>
           </button>
         </div>
 
@@ -380,6 +419,7 @@ function Page() {
             pdfInfo={pdfInfo}
             loading={pdfLoading}
             rendering={pdfRendering}
+            digitizing={pdfDigitizing}
             dragOver={pdfDragOver}
             inputRef={pdfInputRef}
             selectedPages={selectedPdfPages}
@@ -395,7 +435,8 @@ function Page() {
             onSelectRange={selectPdfRange}
             onSelectFirstPages={selectFirstPdfPages}
             onClearSelection={clearPdfSelection}
-            onRenderPages={renderSelectedPdfPages}
+            onRenderPages={() => { void renderSelectedPdfPages(); }}
+            onDigitizePdf={() => { void onDigitizePdf(); }}
           />
         )}
       </div>
@@ -528,6 +569,7 @@ function PdfUploadPanel({
   pdfInfo,
   loading,
   rendering,
+  digitizing,
   dragOver,
   inputRef,
   selectedPages,
@@ -544,10 +586,12 @@ function PdfUploadPanel({
   onSelectFirstPages,
   onClearSelection,
   onRenderPages,
+  onDigitizePdf,
 }: {
   pdfInfo: PdfDocumentSummary | null;
   loading: boolean;
   rendering: boolean;
+  digitizing: boolean;
   dragOver: boolean;
   inputRef: RefObject<HTMLInputElement | null>;
   selectedPages: Set<number>;
@@ -564,6 +608,7 @@ function PdfUploadPanel({
   onSelectFirstPages: () => void;
   onClearSelection: () => void;
   onRenderPages: () => void;
+  onDigitizePdf: () => void;
 }) {
   if (!pdfInfo) {
     return (
@@ -592,9 +637,9 @@ function PdfUploadPanel({
 
         <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
           <div className="mb-2 flex items-center gap-2 font-medium text-foreground">
-            <AlertTriangle className="size-4" /> Suporte a PDF em evolução
+            <AlertTriangle className="size-4" /> Suporte a PDF em lote pequeno
           </div>
-          Neste passo, o sistema lê o PDF e renderiza páginas selecionadas como imagem compatível com a IA atual. O envio dessa imagem para a IA entra no próximo PR.
+          Neste passo, selecione até {MAX_PDF_RENDER_PAGES} páginas, gere a imagem e envie para a mesma IA usada na digitalização por imagem.
         </div>
       </div>
     );
@@ -603,7 +648,8 @@ function PdfUploadPanel({
   const visiblePages = Array.from({ length: Math.min(pdfInfo.readablePageCount, MAX_VISIBLE_PAGE_CARDS) }, (_, index) => index + 1);
   const hiddenPageCount = Math.max(0, pdfInfo.readablePageCount - visiblePages.length);
   const selectedCount = selectedPages.size;
-  const canRender = selectedCount > 0 && selectedCount <= MAX_PDF_RENDER_PAGES && !rendering;
+  const isBusy = rendering || digitizing;
+  const canUseBatch = selectedCount > 0 && selectedCount <= MAX_PDF_RENDER_PAGES && !isBusy;
 
   return (
     <div className="space-y-4">
@@ -615,10 +661,10 @@ function PdfUploadPanel({
               <span className="truncate">{pdfInfo.fileName}</span>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Selecione uma página ou intervalo e gere uma imagem única compatível com o campo <strong>imageDataUrl</strong> da IA atual.
+              Selecione uma página ou intervalo. O sistema transforma esse lote em imagem e envia para a IA atual.
             </p>
           </div>
-          <Button type="button" variant="ghost" onClick={onReset}>
+          <Button type="button" variant="ghost" onClick={onReset} disabled={isBusy}>
             <X className="size-4" /> Remover PDF
           </Button>
         </div>
@@ -643,24 +689,24 @@ function PdfUploadPanel({
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="font-semibold">Selecionar páginas</h2>
-              <p className="text-xs text-muted-foreground">Escolha páginas específicas nos cards ou selecione um intervalo. Renderização limitada a {MAX_PDF_RENDER_PAGES} páginas por vez.</p>
+              <p className="text-xs text-muted-foreground">Escolha páginas específicas nos cards ou selecione um intervalo. Digitalização limitada a {MAX_PDF_RENDER_PAGES} páginas por lote.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={onSelectFirstPages}>Primeiras {Math.min(MAX_PDF_RENDER_PAGES, pdfInfo.readablePageCount)}</Button>
-              <Button type="button" variant="ghost" size="sm" onClick={onClearSelection}>Limpar</Button>
+              <Button type="button" variant="outline" size="sm" onClick={onSelectFirstPages} disabled={isBusy}>Primeiras {Math.min(MAX_PDF_RENDER_PAGES, pdfInfo.readablePageCount)}</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={onClearSelection} disabled={isBusy}>Limpar</Button>
             </div>
           </div>
 
           <div className="grid gap-2 rounded-lg border bg-muted/20 p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground" htmlFor="pdf-range-start">Página inicial</label>
-              <Input id="pdf-range-start" value={rangeStart} onChange={(event) => onRangeStartChange(onlyDigits(event.target.value))} inputMode="numeric" placeholder="1" />
+              <Input id="pdf-range-start" value={rangeStart} onChange={(event) => onRangeStartChange(onlyDigits(event.target.value))} inputMode="numeric" placeholder="1" disabled={isBusy} />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground" htmlFor="pdf-range-end">Página final</label>
-              <Input id="pdf-range-end" value={rangeEnd} onChange={(event) => onRangeEndChange(onlyDigits(event.target.value))} inputMode="numeric" placeholder="1" />
+              <Input id="pdf-range-end" value={rangeEnd} onChange={(event) => onRangeEndChange(onlyDigits(event.target.value))} inputMode="numeric" placeholder="1" disabled={isBusy} />
             </div>
-            <Button type="button" onClick={onSelectRange}>Selecionar intervalo</Button>
+            <Button type="button" onClick={onSelectRange} disabled={isBusy}>Selecionar intervalo</Button>
           </div>
         </div>
 
@@ -670,15 +716,21 @@ function PdfUploadPanel({
               <h2 className="font-semibold">Páginas detectadas</h2>
               <p className="text-xs text-muted-foreground">Clique em uma página para marcar ou desmarcar.</p>
             </div>
-            <Button type="button" disabled={!canRender} variant="default" className="gap-2" onClick={onRenderPages}>
-              {rendering ? <Loader2 className="size-4 animate-spin" /> : <ScanLine className="size-4" />}
-              {rendering ? "Renderizando..." : "Gerar imagem das páginas"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" disabled={!canUseBatch} variant="outline" className="gap-2" onClick={onRenderPages}>
+                {rendering ? <Loader2 className="size-4 animate-spin" /> : <FileText className="size-4" />}
+                {rendering ? "Renderizando..." : "Gerar imagem"}
+              </Button>
+              <Button type="button" disabled={!canUseBatch} variant="default" className="gap-2" onClick={onDigitizePdf}>
+                {digitizing ? <Loader2 className="size-4 animate-spin" /> : <ScanLine className="size-4" />}
+                {digitizing ? "Digitalizando..." : "Digitalizar PDF e revisar"}
+              </Button>
+            </div>
           </div>
 
           {selectedCount > MAX_PDF_RENDER_PAGES && (
             <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-              Você selecionou {selectedCount} páginas. Reduza para no máximo {MAX_PDF_RENDER_PAGES} páginas por renderização.
+              Você selecionou {selectedCount} páginas. Reduza para no máximo {MAX_PDF_RENDER_PAGES} páginas por lote pequeno.
             </div>
           )}
 
@@ -690,7 +742,8 @@ function PdfUploadPanel({
                   key={page}
                   type="button"
                   onClick={() => onTogglePage(page)}
-                  className={`rounded-lg border p-2 text-center text-xs transition ${selected ? "border-primary bg-primary text-primary-foreground shadow-sm" : "bg-background hover:bg-muted"}`}
+                  disabled={isBusy}
+                  className={`rounded-lg border p-2 text-center text-xs transition disabled:cursor-not-allowed disabled:opacity-70 ${selected ? "border-primary bg-primary text-primary-foreground shadow-sm" : "bg-background hover:bg-muted"}`}
                 >
                   <div className={`mb-1 flex h-14 items-center justify-center rounded ${selected ? "bg-primary-foreground/15" : "bg-muted/50"}`}>
                     <FileText className="size-5" />
@@ -715,7 +768,7 @@ function PdfUploadPanel({
             <div>
               <h2 className="font-semibold">Imagem gerada do PDF</h2>
               <p className="text-sm text-muted-foreground">
-                imageDataUrl pronto para ser usado no mesmo formato da digitalização por imagem.
+                Esta é a imagem que será enviada para a IA, reaproveitando o mesmo fluxo da digitalização por imagem.
               </p>
             </div>
             <div className="text-right text-xs text-muted-foreground">
@@ -729,15 +782,16 @@ function PdfUploadPanel({
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 border-t p-4 text-sm text-muted-foreground">
             <span>Páginas renderizadas: {renderedImage.pages.join(", ")}</span>
-            <Button type="button" disabled variant="outline" className="gap-2">
-              <ScanLine className="size-4" /> Enviar para IA no próximo PR
+            <Button type="button" disabled={isBusy} variant="default" className="gap-2" onClick={onDigitizePdf}>
+              {digitizing ? <Loader2 className="size-4 animate-spin" /> : <ScanLine className="size-4" />}
+              {digitizing ? "Digitalizando..." : "Digitalizar e abrir revisão"}
             </Button>
           </div>
         </div>
       )}
 
       <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
-        Próximo PR recomendado: usar esta imagem renderizada como entrada de <strong>digitizeQuestion</strong>, gerar rascunho e abrir a tela de revisão.
+        Este fluxo processa um lote pequeno por vez. Para PDFs longos, selecione páginas em grupos de até {MAX_PDF_RENDER_PAGES} e revise cada extração antes de salvar.
       </div>
     </div>
   );
@@ -756,6 +810,11 @@ function sortedPages(pages: Set<number>) {
   return Array.from(pages).sort((a, b) => a - b);
 }
 
+function samePages(a: number[], b: number[]) {
+  if (a.length !== b.length) return false;
+  return a.every((page, index) => page === b[index]);
+}
+
 function pageInputToNumber(value: string, fallback: number) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -769,4 +828,12 @@ function estimateDataUrlBytes(dataUrl: string) {
   const comma = dataUrl.indexOf(",");
   const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
   return Math.round((base64.length * 3) / 4);
+}
+
+function showDigitizeError(error: unknown) {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (msg.includes("LOVABLE_API_KEY")) toast.error("Digitalização por IA não configurada. Configure a chave LOVABLE_API_KEY no ambiente do projeto.");
+  else if (msg.includes("429")) toast.error("Limite de IA atingido. Aguarde alguns instantes.");
+  else if (msg.includes("402")) toast.error("Créditos de IA esgotados. Adicione créditos no workspace.");
+  else toast.error("Falha ao digitalizar. Tente novamente.");
 }
