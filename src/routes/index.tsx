@@ -2,10 +2,19 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useRef, useCallback, type RefObject } from "react";
 import { AlertTriangle, FileText, ImageIcon, ListOrdered, Loader2, RotateCw, ScanLine, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { AppLayout } from "@/components/AppLayout";
 import { digitizeQuestion } from "@/lib/digitize.functions";
 import { saveDraft } from "@/lib/draft-store";
-import { formatFileSize, isPdfFile, readPdfDocumentSummary, type PdfDocumentSummary } from "@/lib/pdf-reader";
+import {
+  formatFileSize,
+  isPdfFile,
+  pageRange,
+  readPdfDocumentSummary,
+  renderPdfPagesToImageDataUrl,
+  type PdfDocumentSummary,
+  type PdfRenderedImage,
+} from "@/lib/pdf-reader";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/")({
@@ -25,6 +34,9 @@ const IMAGE_GAP = 36;
 const MAX_PDF_SIZE = 30 * 1024 * 1024;
 const MAX_PDF_PAGES = 80;
 const MAX_VISIBLE_PAGE_CARDS = 48;
+const MAX_PDF_RENDER_PAGES = 10;
+const PDF_RENDER_SCALE = 2;
+const PDF_RENDER_MAX_WIDTH = 1800;
 
 type UploadMode = "image" | "pdf";
 
@@ -121,9 +133,15 @@ function Page() {
   const [dragOver, setDragOver] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfInfo, setPdfInfo] = useState<PdfDocumentSummary | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfDragOver, setPdfDragOver] = useState(false);
+  const [selectedPdfPages, setSelectedPdfPages] = useState<Set<number>>(new Set());
+  const [rangeStart, setRangeStart] = useState("1");
+  const [rangeEnd, setRangeEnd] = useState("1");
+  const [pdfRendering, setPdfRendering] = useState(false);
+  const [renderedPdfImage, setRenderedPdfImage] = useState<PdfRenderedImage | null>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = useCallback((list: FileList | File[] | undefined | null) => {
@@ -174,11 +192,18 @@ function Page() {
 
     setPdfLoading(true);
     setPdfInfo(null);
+    setPdfFile(null);
+    setSelectedPdfPages(new Set());
+    setRenderedPdfImage(null);
     try {
       const summary = await readPdfDocumentSummary(file, { maxPages: MAX_PDF_PAGES });
+      setPdfFile(file);
       setPdfInfo(summary);
+      setSelectedPdfPages(new Set([1]));
+      setRangeStart("1");
+      setRangeEnd("1");
       if (summary.isOverPageLimit) {
-        toast.warning(`PDF lido com ${summary.pageCount} páginas. Neste primeiro PR, vamos preparar até ${MAX_PDF_PAGES} páginas para seleção.`);
+        toast.warning(`PDF lido com ${summary.pageCount} páginas. Neste fluxo, vamos preparar até ${MAX_PDF_PAGES} páginas para seleção.`);
       } else {
         toast.success(`PDF lido: ${summary.pageCount} página${summary.pageCount > 1 ? "s" : ""}.`);
       }
@@ -207,8 +232,77 @@ function Page() {
   };
 
   const resetPdf = () => {
+    setPdfFile(null);
     setPdfInfo(null);
+    setSelectedPdfPages(new Set());
+    setRangeStart("1");
+    setRangeEnd("1");
+    setRenderedPdfImage(null);
     if (pdfInputRef.current) pdfInputRef.current.value = "";
+  };
+
+  const togglePdfPage = (page: number) => {
+    setRenderedPdfImage(null);
+    setSelectedPdfPages((current) => {
+      const next = new Set(current);
+      if (next.has(page)) next.delete(page);
+      else next.add(page);
+      return next;
+    });
+  };
+
+  const selectPdfRange = () => {
+    if (!pdfInfo) return;
+    const start = pageInputToNumber(rangeStart, 1);
+    const end = pageInputToNumber(rangeEnd, start);
+    const pages = pageRange(start, end, pdfInfo.readablePageCount);
+    setSelectedPdfPages(new Set(pages));
+    setRenderedPdfImage(null);
+    toast.success(`${pages.length} página${pages.length > 1 ? "s" : ""} selecionada${pages.length > 1 ? "s" : ""}.`);
+  };
+
+  const selectFirstPdfPages = () => {
+    if (!pdfInfo) return;
+    const pages = pageRange(1, Math.min(MAX_PDF_RENDER_PAGES, pdfInfo.readablePageCount), pdfInfo.readablePageCount);
+    setSelectedPdfPages(new Set(pages));
+    setRangeStart("1");
+    setRangeEnd(String(pages[pages.length - 1] ?? 1));
+    setRenderedPdfImage(null);
+  };
+
+  const clearPdfSelection = () => {
+    setSelectedPdfPages(new Set());
+    setRenderedPdfImage(null);
+  };
+
+  const renderSelectedPdfPages = async () => {
+    if (!pdfFile || !pdfInfo) return;
+    const pages = sortedPages(selectedPdfPages).filter((page) => page <= pdfInfo.readablePageCount);
+    if (pages.length === 0) {
+      toast.info("Selecione ao menos uma página do PDF.");
+      return;
+    }
+    if (pages.length > MAX_PDF_RENDER_PAGES) {
+      toast.error(`Renderize no máximo ${MAX_PDF_RENDER_PAGES} páginas por vez neste passo.`);
+      return;
+    }
+
+    setPdfRendering(true);
+    setRenderedPdfImage(null);
+    try {
+      const rendered = await renderPdfPagesToImageDataUrl(pdfFile, pages, {
+        scale: PDF_RENDER_SCALE,
+        maxPageWidth: PDF_RENDER_MAX_WIDTH,
+        imageQuality: 0.9,
+      });
+      setRenderedPdfImage(rendered);
+      toast.success("Imagem do PDF gerada com sucesso.");
+    } catch (error) {
+      console.error(error);
+      toast.error("Não foi possível renderizar as páginas selecionadas.");
+    } finally {
+      setPdfRendering(false);
+    }
   };
 
   const onDigitize = async () => {
@@ -263,7 +357,7 @@ function Page() {
             className={`rounded-lg px-3 py-3 text-left transition ${mode === "pdf" ? "bg-primary text-primary-foreground shadow-sm" : "hover:bg-muted"}`}
           >
             <span className="flex items-center gap-2 font-semibold"><FileText className="size-4" /> PDF</span>
-            <span className={`mt-1 block text-xs ${mode === "pdf" ? "text-primary-foreground/80" : "text-muted-foreground"}`}>Novo: upload e leitura de páginas.</span>
+            <span className={`mt-1 block text-xs ${mode === "pdf" ? "text-primary-foreground/80" : "text-muted-foreground"}`}>Selecione páginas e gere imagem.</span>
           </button>
         </div>
 
@@ -285,11 +379,23 @@ function Page() {
           <PdfUploadPanel
             pdfInfo={pdfInfo}
             loading={pdfLoading}
+            rendering={pdfRendering}
             dragOver={pdfDragOver}
             inputRef={pdfInputRef}
+            selectedPages={selectedPdfPages}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            renderedImage={renderedPdfImage}
             onDragOverChange={setPdfDragOver}
             onFile={handlePdfFile}
             onReset={resetPdf}
+            onTogglePage={togglePdfPage}
+            onRangeStartChange={setRangeStart}
+            onRangeEndChange={setRangeEnd}
+            onSelectRange={selectPdfRange}
+            onSelectFirstPages={selectFirstPdfPages}
+            onClearSelection={clearPdfSelection}
+            onRenderPages={renderSelectedPdfPages}
           />
         )}
       </div>
@@ -421,19 +527,43 @@ function ImageUploadPanel({
 function PdfUploadPanel({
   pdfInfo,
   loading,
+  rendering,
   dragOver,
   inputRef,
+  selectedPages,
+  rangeStart,
+  rangeEnd,
+  renderedImage,
   onDragOverChange,
   onFile,
   onReset,
+  onTogglePage,
+  onRangeStartChange,
+  onRangeEndChange,
+  onSelectRange,
+  onSelectFirstPages,
+  onClearSelection,
+  onRenderPages,
 }: {
   pdfInfo: PdfDocumentSummary | null;
   loading: boolean;
+  rendering: boolean;
   dragOver: boolean;
   inputRef: RefObject<HTMLInputElement | null>;
+  selectedPages: Set<number>;
+  rangeStart: string;
+  rangeEnd: string;
+  renderedImage: PdfRenderedImage | null;
   onDragOverChange: (value: boolean) => void;
   onFile: (list: FileList | File[] | undefined | null) => void;
   onReset: () => void;
+  onTogglePage: (page: number) => void;
+  onRangeStartChange: (value: string) => void;
+  onRangeEndChange: (value: string) => void;
+  onSelectRange: () => void;
+  onSelectFirstPages: () => void;
+  onClearSelection: () => void;
+  onRenderPages: () => void;
 }) {
   if (!pdfInfo) {
     return (
@@ -462,9 +592,9 @@ function PdfUploadPanel({
 
         <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
           <div className="mb-2 flex items-center gap-2 font-medium text-foreground">
-            <AlertTriangle className="size-4" /> Primeiro passo do suporte a PDF
+            <AlertTriangle className="size-4" /> Suporte a PDF em evolução
           </div>
-          Neste PR, o sistema apenas faz upload e leitura do PDF: nome, tamanho, quantidade de páginas e preparação visual para seleção. A digitalização das páginas por IA entra no próximo PR.
+          Neste passo, o sistema lê o PDF e renderiza páginas selecionadas como imagem compatível com a IA atual. O envio dessa imagem para a IA entra no próximo PR.
         </div>
       </div>
     );
@@ -472,6 +602,8 @@ function PdfUploadPanel({
 
   const visiblePages = Array.from({ length: Math.min(pdfInfo.readablePageCount, MAX_VISIBLE_PAGE_CARDS) }, (_, index) => index + 1);
   const hiddenPageCount = Math.max(0, pdfInfo.readablePageCount - visiblePages.length);
+  const selectedCount = selectedPages.size;
+  const canRender = selectedCount > 0 && selectedCount <= MAX_PDF_RENDER_PAGES && !rendering;
 
   return (
     <div className="space-y-4">
@@ -483,7 +615,7 @@ function PdfUploadPanel({
               <span className="truncate">{pdfInfo.fileName}</span>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              PDF lido com sucesso. A próxima etapa será renderizar páginas selecionadas para a IA.
+              Selecione uma página ou intervalo e gere uma imagem única compatível com o campo <strong>imageDataUrl</strong> da IA atual.
             </p>
           </div>
           <Button type="button" variant="ghost" onClick={onReset}>
@@ -495,38 +627,78 @@ function PdfUploadPanel({
           <PdfMetric label="Tamanho" value={formatFileSize(pdfInfo.fileSize)} />
           <PdfMetric label="Páginas" value={String(pdfInfo.pageCount)} />
           <PdfMetric label="Preparadas" value={String(pdfInfo.readablePageCount)} />
-          <PdfMetric label="Primeira página" value={pdfInfo.firstPageSize ? `${pdfInfo.firstPageSize.width}×${pdfInfo.firstPageSize.height}` : "não lida"} />
+          <PdfMetric label="Selecionadas" value={String(selectedCount)} />
         </div>
 
         {pdfInfo.isOverPageLimit && (
           <div className="flex gap-2 border-b border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             <span>
-              O PDF tem {pdfInfo.pageCount} páginas. Para não travar o navegador, este primeiro fluxo prepara até {MAX_PDF_PAGES} páginas. O processamento completo deve entrar por fila/lotes nos próximos PRs.
+              O PDF tem {pdfInfo.pageCount} páginas. Para não travar o navegador, este fluxo prepara até {MAX_PDF_PAGES} páginas. PDFs maiores devem ser processados por fila/lotes nos próximos PRs.
             </span>
           </div>
         )}
+
+        <div className="border-b p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-semibold">Selecionar páginas</h2>
+              <p className="text-xs text-muted-foreground">Escolha páginas específicas nos cards ou selecione um intervalo. Renderização limitada a {MAX_PDF_RENDER_PAGES} páginas por vez.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={onSelectFirstPages}>Primeiras {Math.min(MAX_PDF_RENDER_PAGES, pdfInfo.readablePageCount)}</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={onClearSelection}>Limpar</Button>
+            </div>
+          </div>
+
+          <div className="grid gap-2 rounded-lg border bg-muted/20 p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="pdf-range-start">Página inicial</label>
+              <Input id="pdf-range-start" value={rangeStart} onChange={(event) => onRangeStartChange(onlyDigits(event.target.value))} inputMode="numeric" placeholder="1" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="pdf-range-end">Página final</label>
+              <Input id="pdf-range-end" value={rangeEnd} onChange={(event) => onRangeEndChange(onlyDigits(event.target.value))} inputMode="numeric" placeholder="1" />
+            </div>
+            <Button type="button" onClick={onSelectRange}>Selecionar intervalo</Button>
+          </div>
+        </div>
 
         <div className="p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="font-semibold">Páginas detectadas</h2>
-              <p className="text-xs text-muted-foreground">Prévia estrutural das páginas lidas. Ainda não há renderização nem envio para IA neste PR.</p>
+              <p className="text-xs text-muted-foreground">Clique em uma página para marcar ou desmarcar.</p>
             </div>
-            <Button type="button" disabled variant="outline" className="gap-2">
-              <ScanLine className="size-4" /> Digitalizar PDF em breve
+            <Button type="button" disabled={!canRender} variant="default" className="gap-2" onClick={onRenderPages}>
+              {rendering ? <Loader2 className="size-4 animate-spin" /> : <ScanLine className="size-4" />}
+              {rendering ? "Renderizando..." : "Gerar imagem das páginas"}
             </Button>
           </div>
 
+          {selectedCount > MAX_PDF_RENDER_PAGES && (
+            <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+              Você selecionou {selectedCount} páginas. Reduza para no máximo {MAX_PDF_RENDER_PAGES} páginas por renderização.
+            </div>
+          )}
+
           <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-12">
-            {visiblePages.map((page) => (
-              <div key={page} className="rounded-lg border bg-background p-2 text-center text-xs">
-                <div className="mb-1 flex h-14 items-center justify-center rounded bg-muted/50">
-                  <FileText className="size-5 text-muted-foreground" />
-                </div>
-                Página {page}
-              </div>
-            ))}
+            {visiblePages.map((page) => {
+              const selected = selectedPages.has(page);
+              return (
+                <button
+                  key={page}
+                  type="button"
+                  onClick={() => onTogglePage(page)}
+                  className={`rounded-lg border p-2 text-center text-xs transition ${selected ? "border-primary bg-primary text-primary-foreground shadow-sm" : "bg-background hover:bg-muted"}`}
+                >
+                  <div className={`mb-1 flex h-14 items-center justify-center rounded ${selected ? "bg-primary-foreground/15" : "bg-muted/50"}`}>
+                    <FileText className="size-5" />
+                  </div>
+                  Página {page}
+                </button>
+              );
+            })}
             {hiddenPageCount > 0 && (
               <div className="rounded-lg border border-dashed bg-muted/20 p-2 text-center text-xs text-muted-foreground">
                 <div className="mb-1 flex h-14 items-center justify-center rounded bg-muted/50">+{hiddenPageCount}</div>
@@ -537,8 +709,35 @@ function PdfUploadPanel({
         </div>
       </div>
 
+      {renderedImage && (
+        <div className="overflow-hidden rounded-xl border bg-card">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b p-4">
+            <div>
+              <h2 className="font-semibold">Imagem gerada do PDF</h2>
+              <p className="text-sm text-muted-foreground">
+                imageDataUrl pronto para ser usado no mesmo formato da digitalização por imagem.
+              </p>
+            </div>
+            <div className="text-right text-xs text-muted-foreground">
+              <p>{renderedImage.pages.length} página{renderedImage.pages.length > 1 ? "s" : ""}</p>
+              <p>{renderedImage.width}×{renderedImage.height}px</p>
+              <p>{formatFileSize(estimateDataUrlBytes(renderedImage.imageDataUrl))}</p>
+            </div>
+          </div>
+          <div className="bg-muted/20 p-4">
+            <img src={renderedImage.imageDataUrl} alt="Páginas renderizadas do PDF" className="mx-auto max-h-[640px] max-w-full rounded-lg border bg-white object-contain" />
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t p-4 text-sm text-muted-foreground">
+            <span>Páginas renderizadas: {renderedImage.pages.join(", ")}</span>
+            <Button type="button" disabled variant="outline" className="gap-2">
+              <ScanLine className="size-4" /> Enviar para IA no próximo PR
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
-        Próximo PR recomendado: renderizar páginas selecionadas em canvas, criar seletor de intervalo e enviar um lote pequeno para a mesma IA usada nas imagens.
+        Próximo PR recomendado: usar esta imagem renderizada como entrada de <strong>digitizeQuestion</strong>, gerar rascunho e abrir a tela de revisão.
       </div>
     </div>
   );
@@ -551,4 +750,23 @@ function PdfMetric({ label, value }: { label: string; value: string }) {
       <p className="font-semibold">{value}</p>
     </div>
   );
+}
+
+function sortedPages(pages: Set<number>) {
+  return Array.from(pages).sort((a, b) => a - b);
+}
+
+function pageInputToNumber(value: string, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function onlyDigits(value: string) {
+  return value.replace(/\D/g, "").slice(0, 4);
+}
+
+function estimateDataUrlBytes(dataUrl: string) {
+  const comma = dataUrl.indexOf(",");
+  const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  return Math.round((base64.length * 3) / 4);
 }
