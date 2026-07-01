@@ -38,7 +38,16 @@ export type DraftDigitization = {
 const KEY = "digitalizador.draft";
 
 export function saveDraft(q: DraftDigitization | DraftQuestion) {
-  try { sessionStorage.setItem(KEY, JSON.stringify(q)); } catch {}
+  if (trySaveDraft(q)) return true;
+
+  const compact = compactDraftForStorage(q);
+  if (compact && trySaveDraft(compact)) {
+    console.warn("Rascunho salvo em modo compacto porque as imagens originais ficaram grandes demais para o armazenamento temporário.");
+    return true;
+  }
+
+  console.warn("Não foi possível salvar o rascunho temporário da revisão.");
+  return false;
 }
 export function loadDraft(): DraftDigitization | null {
   try {
@@ -48,6 +57,45 @@ export function loadDraft(): DraftDigitization | null {
 }
 export function clearDraft() {
   try { sessionStorage.removeItem(KEY); } catch {}
+}
+
+function trySaveDraft(q: DraftDigitization | DraftQuestion) {
+  try {
+    sessionStorage.setItem(KEY, JSON.stringify(q));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function compactDraftForStorage(q: DraftDigitization | DraftQuestion): DraftDigitization | null {
+  const draft = normalizeDraft(q);
+  const compact: DraftDigitization = {
+    ...draft,
+    imageDataUrl: undefined,
+    imageDataUrls: undefined,
+  };
+
+  if (compact.referencia_imagem && isLargeDataUrl(compact.referencia_imagem)) {
+    compact.referencia_imagem = undefined;
+    compact.referencia_imagem_pos = undefined;
+    compact.referencia_imagem_layout = undefined;
+  }
+
+  compact.questoes = compact.questoes.map((question) => ({
+    ...question,
+    enunciado_imagem: isLargeDataUrl(question.enunciado_imagem) ? undefined : question.enunciado_imagem,
+    alternativas: question.alternativas.map((alternativa) => ({
+      ...alternativa,
+      imagem: isLargeDataUrl(alternativa.imagem) ? undefined : alternativa.imagem,
+    })),
+  }));
+
+  return compact;
+}
+
+function isLargeDataUrl(value?: string | null) {
+  return Boolean(value?.startsWith("data:image") && value.length > 1_500_000);
 }
 
 function normalizeDraft(draft: DraftDigitization | DraftQuestion): DraftDigitization {
