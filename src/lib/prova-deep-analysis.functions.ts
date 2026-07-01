@@ -177,14 +177,16 @@ function normalizeReport(report: Partial<DeepAnalysisReport>): DeepAnalysisRepor
 
 function normalizePatterns(value: unknown): DeepPattern[] {
   if (!Array.isArray(value)) return [];
-  return value.map((item) => {
+  return value.map((item): DeepPattern => {
     const pattern = item && typeof item === "object" ? item as Record<string, unknown> : {};
     const confidence = asString(pattern.nivel_confianca);
+    const nivel: DeepPattern["nivel_confianca"] =
+      confidence === "alto" || confidence === "médio" || confidence === "baixo" ? confidence : "baixo";
     return {
       titulo: asString(pattern.titulo),
       explicacao: asString(pattern.explicacao),
       evidencia: asString(pattern.evidencia),
-      nivel_confianca: confidence === "alto" || confidence === "médio" || confidence === "baixo" ? confidence : "baixo",
+      nivel_confianca: nivel,
     };
   }).filter((pattern) => pattern.titulo || pattern.explicacao || pattern.evidencia);
 }
