@@ -1,6 +1,7 @@
 import type { RefObject } from "react";
 import { ImageIcon, ListOrdered, Loader2, RotateCw, ScanLine, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { StepBlock } from "./StepBlock";
 import { MAX_FILES, type SelectedImage } from "./types";
 
 export function ImageUploadPanel({
@@ -125,17 +126,5 @@ export function ImageUploadPanel({
         </StepBlock>
       )}
     </div>
-  );
-}
-
-function StepBlock({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-xl border bg-card p-4">
-      <div className="mb-3">
-        <h2 className="font-semibold">{title}</h2>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </div>
-      {children}
-    </section>
   );
 }
