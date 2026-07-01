@@ -1,114 +1,99 @@
-import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { FileText, ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppLayout } from "@/components/AppLayout";
-import { digitizeQuestion } from "@/lib/digitize.functions";
-import { saveDraft, type DraftDigitization, type DraftQuestion } from "@/lib/draft-store";
-import { formatFileSize, isPdfFile, pageRange, readPdfDocumentSummary, renderPdfPagesToImageDataUrl, type PdfDocumentSummary, type PdfRenderedImage } from "@/lib/pdf-reader";
-import { toast } from "sonner";
 import { ImageUploadPanel } from "./ImageUploadPanel";
 import { PdfUploadPanel } from "./PdfUploadPanel";
-import { clearPdfQueueStorage, loadPdfQueue, persistPdfQueue } from "./storage";
-import {
-  MAX_FILES,
-  MAX_PDF_PAGES,
-  MAX_PDF_RENDER_PAGES,
-  MAX_PDF_SIZE,
-  MAX_SIZE,
-  PDF_RENDER_MAX_WIDTH,
-  PDF_RENDER_SCALE,
-  type PdfQueueJob,
-  type PdfQueueResult,
-  type SelectedImage,
-  type UploadMode,
-} from "./types";
-import {
-  chunkPages,
-  errorMessage,
-  estimateDataUrlBytes,
-  fileToDataURL,
-  formatPages,
-  loadImage,
-  mergeQueueJobsIntoDraft,
-  pageInputToNumber,
-  samePages,
-  sortedPages,
-} from "./utils";
+import { useDigitalizarController } from "./useDigitalizarController";
 
 export function DigitalizarPage() {
-  const navigate = useNavigate();
-  const [mode, setMode] = useState<UploadMode>("image");
-  const [images, setImages] = useState<SelectedImage[]>([]);
-  const [rotation, setRotation] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
-  const imageInputRef = useRef<HTMLInputElement>(null);
+  const c = useDigitalizarController();
 
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [pdfInfo, setPdfInfo] = useState<PdfDocumentSummary | null>(null);
-  const [pdfLoading, setPdfLoading] = useState(false);
-  const [pdfDragOver, setPdfDragOver] = useState(false);
-  const [selectedPdfPages, setSelectedPdfPages] = useState<Set<number>>(new Set());
-  const [rangeStart, setRangeStart] = useState("1");
-  const [rangeEnd, setRangeEnd] = useState("1");
-  const [pdfRendering, setPdfRendering] = useState(false);
-  const [pdfDigitizing, setPdfDigitizing] = useState(false);
-  const [renderedPdfImage, setRenderedPdfImage] = useState<PdfRenderedImage | null>(null);
-  const [pdfQueue, setPdfQueue] = useState<PdfQueueJob[]>(() => loadPdfQueue());
-  const [activeQueueJobId, setActiveQueueJobId] = useState<string | null>(null);
-  const pdfInputRef = useRef<HTMLInputElement>(null);
+  return (
+    <AppLayout>
+      <div className="mx-auto max-w-5xl px-4 py-8">
+        <header className="mb-6">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Digitalizar questão</h1>
+          <p className="mt-1 text-muted-foreground">Escolha a origem, envie o arquivo, selecione as partes e mande para revisão.</p>
+        </header>
 
-  const setAndStorePdfQueue = (updater: PdfQueueJob[] | ((current: PdfQueueJob[]) => PdfQueueJob[])) => {
-    setPdfQueue((current) => {
-      const next = typeof updater === "function" ? updater(current) : updater;
-      persistPdfQueue(next);
-      return next;
-    });
-  };
+        <section className="mb-5 rounded-xl border bg-card p-4">
+          <div className="mb-3">
+            <h2 className="font-semibold">Etapa 1 — Escolher origem</h2>
+            <p className="text-sm text-muted-foreground">Use imagem para uma questão rápida ou PDF para provas maiores.</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <ModeButton active={c.mode === "image"} icon={<ImageIcon className="size-4" />} title="Imagens" description="JPG, PNG ou WEBP em partes sequenciais." onClick={() => c.setMode("image")} />
+            <ModeButton active={c.mode === "pdf"} icon={<FileText className="size-4" />} title="PDF" description="Selecione páginas, crie fila e revise em massa." onClick={() => c.setMode("pdf")} />
+          </div>
+        </section>
 
-  const saveDraftAndReview = (draft: DraftDigitization | DraftQuestion, successMessage?: string) => {
-    const saved = saveDraft(draft);
-    if (!saved) {
-      toast.error("Não foi possível preparar a revisão. Tente reduzir o lote ou revisar menos páginas por vez.");
-      return;
-    }
-    if (successMessage) toast.success(successMessage);
-    navigate({ to: "/revisar" });
-  };
+        {c.mode === "image" ? (
+          <ImageUploadPanel
+            images={c.images}
+            loading={c.loading}
+            rotation={c.rotation}
+            dragOver={c.dragOver}
+            inputRef={c.imageInputRef}
+            onDragOverChange={c.setDragOver}
+            onFiles={c.handleFiles}
+            onRemoveImage={c.removeImage}
+            onReset={c.resetImages}
+            onRotate={() => c.setRotation((r) => (r + 90) % 360)}
+            onDigitize={c.onDigitize}
+          />
+        ) : (
+          <PdfUploadPanel
+            steps={c.pdfSteps}
+            pdfInfo={c.pdfInfo}
+            loading={c.pdfLoading}
+            rendering={c.pdfRendering}
+            digitizing={c.pdfDigitizing}
+            dragOver={c.pdfDragOver}
+            inputRef={c.pdfInputRef}
+            selectedPages={c.selectedPdfPages}
+            rangeStart={c.rangeStart}
+            rangeEnd={c.rangeEnd}
+            renderedImage={c.renderedPdfImage}
+            queue={c.pdfQueue}
+            activeQueueJobId={c.activeQueueJobId}
+            queueRunMode={c.queueRunMode}
+            queuePaused={c.queuePaused}
+            onDragOverChange={c.setPdfDragOver}
+            onFile={c.handlePdfFile}
+            onReset={c.resetPdf}
+            onTogglePage={c.togglePdfPage}
+            onRangeStartChange={c.setRangeStart}
+            onRangeEndChange={c.setRangeEnd}
+            onSelectRange={c.selectPdfRange}
+            onSelectFirstPages={c.selectFirstPdfPages}
+            onSelectAllPreparedPages={c.selectAllPreparedPdfPages}
+            onClearSelection={c.clearPdfSelection}
+            onRenderPages={() => { void c.renderSelectedPdfPages(); }}
+            onDigitizePdf={() => { void c.onDigitizePdf(); }}
+            onCreateQueue={c.createPdfQueueFromSelection}
+            onProcessNextQueueJob={c.processNextQueueJob}
+            onProcessAllQueueJobs={() => { void c.processQueueContinuously("pending"); }}
+            onProcessErrorQueueJobs={() => { void c.processQueueContinuously("errors"); }}
+            onPauseQueue={c.pauseQueueProcessing}
+            onResumeQueue={c.resumeQueueProcessing}
+            onCancelQueue={c.cancelQueueProcessing}
+            onProcessQueueJob={(id) => { void c.processQueueJob(id); }}
+            onOpenQueueJobReview={c.openQueueJobReview}
+            onOpenMassQueueReview={c.openMassQueueReview}
+            onClearQueue={c.clearPdfQueue}
+          />
+        )}
+      </div>
+    </AppLayout>
+  );
+}
 
-  const handleFiles = useCallback((list: FileList | File[] | undefined | null) => {
-    const incoming = Array.from(list ?? []);
-    if (incoming.length === 0) return;
-
-    const valid: SelectedImage[] = [];
-    for (const f of incoming) {
-      if (!/^image\/(jpe?g|png|webp)$/i.test(f.type)) {
-        toast.error("Use apenas JPG, JPEG, PNG ou WEBP.");
-        continue;
-      }
-      if (f.size > MAX_SIZE) {
-        toast.error(`Imagem acima de 10MB: ${f.name}`);
-        continue;
-      }
-      valid.push({ file: f, preview: URL.createObjectURL(f) });
-    }
-
-    if (valid.length === 0) return;
-    setImages((current) => {
-      const room = MAX_FILES - current.length;
-      if (room <= 0) {
-        valid.forEach((img) => URL.revokeObjectURL(img.preview));
-        toast.error(`Você pode enviar no máximo ${MAX_FILES} imagens por digitalização.`);
-        return current;
-      }
-      const accepted = valid.slice(0, room);
-      valid.slice(room).forEach((img) => URL.revokeObjectURL(img.preview));
-      if (valid.length > room) toast.warning(`Adicionei apenas ${room} imagem(ns), respeitando o limite de ${MAX_FILES}.`);
-      return [...current, ...accepted];
-    });
-    setRotation(0);
-  }, []);
-
-  return <div />;
+function ModeButton({ active, icon, title, description, onClick }: { active: boolean; icon: ReactNode; title: string; description: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className={`rounded-lg border px-3 py-3 text-left transition ${active ? "border-primary bg-primary text-primary-foreground shadow-sm" : "bg-background hover:bg-muted"}`}>
+      <span className="flex items-center gap-2 font-semibold">{icon} {title}</span>
+      <span className={`mt-1 block text-xs ${active ? "text-primary-foreground/80" : "text-muted-foreground"}`}>{description}</span>
+    </button>
+  );
 }
