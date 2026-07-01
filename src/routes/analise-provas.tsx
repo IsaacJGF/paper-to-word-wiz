@@ -1,15 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  AlertTriangle,
   BarChart3,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
   FileSearch,
   Filter,
   Image as ImageIcon,
-  ListChecks,
+  Info,
+  Layers,
   Loader2,
+  Search,
   Sigma,
   Sparkles,
+  Target,
   TextSearch,
+  TrendingUp,
   X,
 } from "lucide-react";
 import { AppLayout } from "@/components/AppLayout";
@@ -56,6 +65,16 @@ type AnalysisFilters = {
 type QuestionRow = ProvaAnalysisQuestion;
 type MatrixRow = { content: string; byYear: Record<string, number>; total: number };
 type AnalysisTab = "geral" | "conteudos" | "linguagem" | "referencias" | "cruzamentos" | "ia" | "qualidade";
+type FilterChipData = { key: keyof AnalysisFilters; label: string; value: string; clearKeys?: Array<keyof AnalysisFilters> };
+type QuickFilterMatch = { key: keyof AnalysisFilters; label: string; value: string };
+type DrilldownRequest = {
+  title: string;
+  subtitle?: string;
+  evidence: string[];
+  recommendations: string[];
+  questions: ProvaAnalysisQuestion[];
+};
+type FrequencyKind = "area" | "conteudo" | "subconteudo" | "relacionado" | "tag" | "tipo";
 
 const EMPTY_FILTERS: AnalysisFilters = {
   prova: "", instituicao: "", anoInicial: "", anoFinal: "",
@@ -77,6 +96,8 @@ const ANALYSIS_COLUMNS = [
 ].join(",");
 
 const DONUT_COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed", "#0891b2", "#64748b"];
+const FILTER_STORAGE_KEY = "paper-to-word-wiz.analysis.filters";
+const FREQUENCY_PAGE_SIZE = 12;
 
 function Page() {
   const [filters, setFilters] = useState<AnalysisFilters>(EMPTY_FILTERS);
@@ -90,6 +111,7 @@ function Page() {
   const [summary, setSummary] = useState<ProvaAnalysisSummary | null>(null);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [filterSearch, setFilterSearch] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -108,6 +130,15 @@ function Page() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    const saved = readStoredFilters();
+    if (saved) setFilters(saved);
+  }, []);
+
+  useEffect(() => {
+    writeStoredFilters(filters);
+  }, [filters]);
 
   const selectedArea = areas.find((item) => item.nome === filters.areaGeral);
   const conteudoOptions = selectedArea ? conteudos.filter((item) => item.area_id === selectedArea.id) : conteudos;
@@ -135,8 +166,8 @@ function Page() {
     setHasAnalyzed(false);
   };
 
-  const analyze = async () => {
-    const normalizedFilters = normalizeFilters(filters);
+  const analyze = async (overrideFilters = filters) => {
+    const normalizedFilters = normalizeFilters(overrideFilters);
     if (!isValidYearRange(normalizedFilters)) {
       toast.error("Confira o intervalo de anos antes de analisar.");
       return;
@@ -164,20 +195,34 @@ function Page() {
   };
 
   const appliedChips = buildFilterChips(appliedFilters);
+  const draftChips = buildFilterChips(filters);
+  const quickFilterMatches = useMemo(
+    () => buildQuickFilterMatches(filterSearch, { provas, instituicoes, areas, conteudos: conteudoOptions, subconteudos: subconteudoOptions }),
+    [areas, conteudoOptions, filterSearch, instituicoes, provas, subconteudoOptions],
+  );
+
+  const removeDraftFilter = (chip: FilterChipData) => {
+    setFilters((current) => clearFilterChip(current, chip));
+  };
+  const removeAppliedFilter = (chip: FilterChipData) => {
+    const next = clearFilterChip(appliedFilters, chip);
+    setFilters(next);
+    void analyze(next);
+  };
 
   return (
     <AppLayout>
-      <div className="mx-auto max-w-6xl px-4 py-6">
+      <div className="mx-auto max-w-6xl px-3 py-4 sm:px-4 sm:py-6">
         {/* Compact header */}
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-4 flex flex-col gap-3 sm:mb-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Análise de Provas</h1>
             <p className="text-sm text-muted-foreground">Padrões de conteúdo, linguagem e cobrança da banca.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
             <Sheet open={filterOpen} onOpenChange={setFilterOpen}>
               <SheetTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2">
+                <Button variant="outline" size="sm" className="flex-1 gap-2 sm:flex-none">
                   <Filter className="size-4" />
                   Filtros
                   {activeFilterCount > 0 && (
@@ -187,14 +232,57 @@ function Page() {
                   )}
                 </Button>
               </SheetTrigger>
-              <SheetContent className="w-full overflow-y-auto sm:max-w-md">
+              <SheetContent className="flex w-full flex-col overflow-y-auto sm:max-w-md">
                 <SheetHeader>
-                  <SheetTitle>Filtros</SheetTitle>
-                  <SheetDescription>Refine a base de questões analisadas.</SheetDescription>
+                  <SheetTitle>Filtro avançado</SheetTitle>
+                  <SheetDescription>Use busca rápida, chips e seleção hierárquica para analisar em menos cliques.</SheetDescription>
                 </SheetHeader>
                 <div className="grid gap-3 py-4">
-                  <FilterSelect label="Prova" value={filters.prova} onChange={(v) => updateFilter("prova", v)} options={provas} placeholder="Todas" />
-                  <FilterSelect label="Instituição" value={filters.instituicao} onChange={(v) => updateFilter("instituicao", v)} options={instituicoes} placeholder="Todas" />
+                  <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                    <Label htmlFor="analysis-filter-search">Busca rápida</Label>
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="analysis-filter-search"
+                        value={filterSearch}
+                        onChange={(event) => setFilterSearch(event.target.value)}
+                        placeholder="Digite ENEM, UnB, Mecânica..."
+                        className="pl-9"
+                      />
+                    </div>
+                    {quickFilterMatches.length > 0 && (
+                      <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
+                        {quickFilterMatches.map((match) => (
+                          <button
+                            key={`${match.key}-${match.value}`}
+                            type="button"
+                            onClick={() => {
+                              updateFilter(match.key, match.value);
+                              setFilterSearch("");
+                            }}
+                            className="rounded-full border bg-background px-2 py-1 text-left text-xs hover:bg-muted"
+                          >
+                            <span className="text-muted-foreground">{match.label}: </span>
+                            <strong>{match.value}</strong>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {draftChips.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">Filtros escolhidos</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {draftChips.map((chip) => (
+                          <FilterChip key={chip.key} chip={chip} onRemove={() => removeDraftFilter(chip)} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <FilterSelect label="Prova" value={filters.prova} onChange={(v) => updateFilter("prova", v)} options={provas} placeholder="Todas" search={filterSearch} />
+                  <FilterSelect label="Instituição" value={filters.instituicao} onChange={(v) => updateFilter("instituicao", v)} options={instituicoes} placeholder="Todas" search={filterSearch} />
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label>Ano inicial</Label>
@@ -205,9 +293,9 @@ function Page() {
                       <Input value={filters.anoFinal} onChange={(e) => updateFilter("anoFinal", onlyYearDigits(e.target.value))} placeholder="2024" inputMode="numeric" maxLength={4} />
                     </div>
                   </div>
-                  <FilterSelect label="Área geral" value={filters.areaGeral} onChange={(v) => updateFilter("areaGeral", v)} options={areas} placeholder="Todas" />
-                  <FilterSelect label="Conteúdo principal" value={filters.conteudoPrincipal} onChange={(v) => updateFilter("conteudoPrincipal", v)} options={conteudoOptions} placeholder="Todos" disabled={Boolean(filters.areaGeral) && conteudoOptions.length === 0} />
-                  <FilterSelect label="Subconteúdo" value={filters.subconteudoPrincipal} onChange={(v) => updateFilter("subconteudoPrincipal", v)} options={subconteudoOptions} placeholder="Todos" disabled={Boolean(filters.conteudoPrincipal) && subconteudoOptions.length === 0} />
+                  <FilterSelect label="Área geral" value={filters.areaGeral} onChange={(v) => updateFilter("areaGeral", v)} options={areas} placeholder="Todas" search={filterSearch} />
+                  <FilterSelect label="Conteúdo principal" value={filters.conteudoPrincipal} onChange={(v) => updateFilter("conteudoPrincipal", v)} options={conteudoOptions} placeholder="Todos" disabled={Boolean(filters.areaGeral) && conteudoOptions.length === 0} search={filterSearch} />
+                  <FilterSelect label="Subconteúdo" value={filters.subconteudoPrincipal} onChange={(v) => updateFilter("subconteudoPrincipal", v)} options={subconteudoOptions} placeholder="Todos" disabled={Boolean(filters.conteudoPrincipal) && subconteudoOptions.length === 0} search={filterSearch} />
                   <div className="space-y-1.5">
                     <Label>Tipo de questão</Label>
                     <select value={filters.tipo} onChange={(e) => updateFilter("tipo", e.target.value)} className="h-10 w-full rounded-md border bg-card px-3 text-sm">
@@ -216,9 +304,9 @@ function Page() {
                     </select>
                   </div>
                 </div>
-                <SheetFooter className="gap-2 sm:justify-between">
+                <SheetFooter className="mt-auto grid grid-cols-2 gap-2 sm:flex sm:justify-between">
                   <Button variant="ghost" onClick={() => setFilters(EMPTY_FILTERS)}>Limpar campos</Button>
-                  <Button onClick={analyze} disabled={loading} className="gap-2">
+                  <Button onClick={() => analyze()} disabled={loading} className="gap-2">
                     {loading ? <Loader2 className="size-4 animate-spin" /> : <FileSearch className="size-4" />}
                     Analisar
                   </Button>
@@ -228,7 +316,7 @@ function Page() {
             {hasAnalyzed && (
               <Button variant="ghost" size="sm" onClick={clearFilters}>Limpar</Button>
             )}
-            <Button size="sm" onClick={analyze} disabled={loading} className="gap-2">
+            <Button size="sm" onClick={() => analyze()} disabled={loading} className="flex-1 gap-2 sm:flex-none">
               {loading ? <Loader2 className="size-4 animate-spin" /> : <FileSearch className="size-4" />}
               Analisar
             </Button>
@@ -240,10 +328,7 @@ function Page() {
           <div className="mb-4 flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Filtros:</span>
             {appliedChips.map((chip) => (
-              <span key={chip.key} className="inline-flex items-center gap-1 rounded-full border bg-muted/40 px-2 py-0.5 text-xs">
-                <span className="text-muted-foreground">{chip.label}:</span>
-                <strong className="font-medium">{chip.value}</strong>
-              </span>
+              <FilterChip key={chip.key} chip={chip} onRemove={() => removeAppliedFilter(chip)} />
             ))}
           </div>
         )}
@@ -252,9 +337,7 @@ function Page() {
         {!hasAnalyzed && <EmptyState text="Selecione filtros (opcional) e clique em Analisar para ver os padrões da prova." />}
 
         {hasAnalyzed && loading && (
-          <div className="flex items-center justify-center rounded-xl border bg-card py-20 text-muted-foreground">
-            <Loader2 className="mr-2 size-5 animate-spin" /> Analisando questões...
-          </div>
+          <AnalysisSkeleton />
         )}
 
         {hasAnalyzed && !loading && summary && summary.total === 0 && (
@@ -269,10 +352,14 @@ function Page() {
   );
 }
 
-function FilterSelect({ label, value, onChange, options, placeholder, disabled }: {
-  label: string; value: string; onChange: (v: string) => void; options: CatalogItem[]; placeholder: string; disabled?: boolean;
+function FilterSelect({ label, value, onChange, options, placeholder, disabled, search = "" }: {
+  label: string; value: string; onChange: (v: string) => void; options: CatalogItem[]; placeholder: string; disabled?: boolean; search?: string;
 }) {
-  const visible = options.filter((i) => i.ativo || i.nome === value);
+  const normalizedSearch = normalizeSearch(search);
+  const visible = options
+    .filter((i) => i.ativo || i.nome === value)
+    .filter((i) => !normalizedSearch || normalizeSearch(i.nome).includes(normalizedSearch) || i.nome === value)
+    .slice(0, 80);
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
@@ -281,6 +368,18 @@ function FilterSelect({ label, value, onChange, options, placeholder, disabled }
         {visible.map((i) => <option key={i.id} value={i.nome}>{i.nome}{i.ativo ? "" : " (inativo)"}</option>)}
       </select>
     </div>
+  );
+}
+
+function FilterChip({ chip, onRemove }: { chip: FilterChipData; onRemove: () => void }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1 rounded-full border bg-background px-2 py-1 text-xs shadow-sm">
+      <span className="shrink-0 text-muted-foreground">{chip.label}:</span>
+      <strong className="truncate font-medium">{chip.value}</strong>
+      <button type="button" onClick={onRemove} className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={`Remover filtro ${chip.label}`}>
+        <X className="size-3" />
+      </button>
+    </span>
   );
 }
 
@@ -293,9 +392,38 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
+function AnalysisSkeleton() {
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-2 rounded-xl border bg-card p-2 sm:grid-cols-2 lg:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, index) => <SkeletonBlock key={index} className="h-24" />)}
+      </div>
+      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+        <SkeletonBlock className="h-72" />
+        <SkeletonBlock className="h-72" />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SkeletonBlock className="h-64" />
+        <SkeletonBlock className="h-64" />
+      </div>
+    </div>
+  );
+}
+
+function SkeletonBlock({ className }: { className: string }) {
+  return <div className={`animate-pulse rounded-lg bg-muted ${className}`} />;
+}
+
 function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; filters: AnalysisFilters }) {
   const [activeTab, setActiveTab] = useState<AnalysisTab>("geral");
+  const [drilldown, setDrilldown] = useState<DrilldownRequest | null>(null);
   const period = formatPeriod(filters, summary.years);
+  const openFrequencyDrilldown = (title: string, kind: FrequencyKind, row: FrequencyRow) => {
+    setDrilldown(buildFrequencyDrilldown(summary, title, kind, row));
+  };
+  const openTextDrilldown = (title: string, evidence: string[], recommendations: string[] = []) => {
+    setDrilldown(buildTextDrilldown(summary, title, evidence, recommendations));
+  };
 
   return (
     <div className="space-y-4">
@@ -308,20 +436,25 @@ function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; f
       <SummaryStrip summary={summary} period={period} />
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as AnalysisTab)}>
-        <TabsList className="w-full justify-start overflow-x-auto">
-          <TabsTrigger value="geral">Visão geral</TabsTrigger>
-          <TabsTrigger value="conteudos">Conteúdos</TabsTrigger>
-          <TabsTrigger value="linguagem">Linguagem</TabsTrigger>
-          <TabsTrigger value="referencias">Textos-base</TabsTrigger>
-          <TabsTrigger value="cruzamentos">Cruzamentos</TabsTrigger>
-          <TabsTrigger value="ia" className="gap-1"><Sparkles className="size-3.5" />IA</TabsTrigger>
-          <TabsTrigger value="qualidade">Qualidade</TabsTrigger>
+        <TabsList className="flex h-auto w-full justify-start overflow-x-auto rounded-lg p-1 [scrollbar-width:none]">
+          <TabsTrigger value="geral" className="shrink-0">Visão geral</TabsTrigger>
+          <TabsTrigger value="conteudos" className="shrink-0">Conteúdos</TabsTrigger>
+          <TabsTrigger value="linguagem" className="shrink-0">Linguagem</TabsTrigger>
+          <TabsTrigger value="referencias" className="shrink-0">Textos-base</TabsTrigger>
+          <TabsTrigger value="cruzamentos" className="shrink-0">Cruzamentos</TabsTrigger>
+          <TabsTrigger value="ia" className="shrink-0 gap-1"><Sparkles className="size-3.5" />IA</TabsTrigger>
+          <TabsTrigger value="qualidade" className="shrink-0">Qualidade</TabsTrigger>
         </TabsList>
 
         <TabsContent value="geral" className="mt-4 space-y-4">
           <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-            <HorizontalBarChart title="Conteúdos mais cobrados" rows={summary.contentFrequency} emptyText="Nenhum conteúdo principal encontrado." />
-            <TypeBreakdownCard summary={summary} />
+            <HorizontalBarChart
+              title="Conteúdos mais cobrados"
+              rows={summary.contentFrequency}
+              emptyText="Nenhum conteúdo principal encontrado."
+              onRowClick={(row) => openFrequencyDrilldown("Conteúdo mais cobrado", "conteudo", row)}
+            />
+            <TypeBreakdownCard summary={summary} onTypeClick={(row) => openFrequencyDrilldown("Tipo de questão", "tipo", row)} />
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
             <VerticalBarChart title="Questões por ano" rows={summary.questionsByYear} />
@@ -332,10 +465,10 @@ function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; f
         <TabsContent value="conteudos" className="mt-4 space-y-4">
           <HeatmapChart title="Mapa Ano × Conteúdo" {...buildContentYearMatrix(summary)} />
           <div className="grid gap-4 lg:grid-cols-2">
-            <VisualFrequencyTable title="Conteúdos" rows={summary.contentFrequency} total={summary.total} highlightFirst />
-            <VisualFrequencyTable title="Subconteúdos" rows={summary.subcontentFrequency} total={summary.total} highlightFirst />
-            <VisualFrequencyTable title="Tags" rows={summary.tagFrequency} total={summary.total} emptyText="Nenhuma tag cadastrada." />
-            <VisualFrequencyTable title="Conteúdos relacionados" rows={summary.relatedContentFrequency} total={summary.total} emptyText="Nenhum relacionado cadastrado." />
+            <VisualFrequencyTable title="Conteúdos" rows={summary.contentFrequency} total={summary.total} highlightFirst onRowClick={(row) => openFrequencyDrilldown("Conteúdo", "conteudo", row)} />
+            <VisualFrequencyTable title="Subconteúdos" rows={summary.subcontentFrequency} total={summary.total} highlightFirst onRowClick={(row) => openFrequencyDrilldown("Subconteúdo", "subconteudo", row)} />
+            <VisualFrequencyTable title="Tags" rows={summary.tagFrequency} total={summary.total} emptyText="Nenhuma tag cadastrada." onRowClick={(row) => openFrequencyDrilldown("Tag", "tag", row)} />
+            <VisualFrequencyTable title="Conteúdos relacionados" rows={summary.relatedContentFrequency} total={summary.total} emptyText="Nenhum relacionado cadastrado." onRowClick={(row) => openFrequencyDrilldown("Conteúdo relacionado", "relacionado", row)} />
           </div>
         </TabsContent>
 
@@ -344,64 +477,120 @@ function AnalysisResult({ summary, filters }: { summary: ProvaAnalysisSummary; f
         <TabsContent value="cruzamentos" className="mt-4"><AnalysisCrossPanel summary={summary} /></TabsContent>
         <TabsContent value="ia" className="mt-4 space-y-4">
           <div className="grid gap-4 xl:grid-cols-2">
-            <AnalysisGeneralSummaryPanel summary={summary} />
+            <AnalysisGeneralSummaryPanel summary={summary} onEvidenceClick={openTextDrilldown} />
             <AnalysisSimulationSuggestionPanel summary={summary} />
           </div>
-          <AnalysisDeepAIPanel summary={summary} filters={filters} />
+          <AnalysisDeepAIPanel
+            summary={summary}
+            filters={filters}
+            onPatternClick={(pattern, sectionTitle) => {
+              openTextDrilldown(
+                `${sectionTitle}: ${pattern.titulo}`,
+                [pattern.evidencia, pattern.explicacao].filter(Boolean),
+                sectionTitle.toLowerCase().includes("recomenda") ? [pattern.explicacao] : [],
+              );
+            }}
+            onEvidenceClick={(value, sectionTitle) => openTextDrilldown(sectionTitle, [value])}
+          />
         </TabsContent>
         <TabsContent value="qualidade" className="mt-4"><AnalysisDataQualityPanel summary={summary} /></TabsContent>
       </Tabs>
+      <DrilldownSheet request={drilldown} onOpenChange={(open) => !open && setDrilldown(null)} />
     </div>
   );
 }
 
 function SummaryStrip({ summary, period }: { summary: ProvaAnalysisSummary; period: string }) {
-  const stats = [
-    { label: "Questões", value: summary.total, icon: <FileSearch className="size-4" /> },
-    { label: "Anos", value: summary.years.length, hint: period, icon: <BarChart3 className="size-4" /> },
-    { label: "Com referência", value: summary.withReference, hint: percentage(summary.withReference, summary.total), icon: <TextSearch className="size-4" /> },
-    { label: "Com imagem", value: summary.withImage, hint: percentage(summary.withImage, summary.total), icon: <ImageIcon className="size-4" /> },
-    { label: "Com alternativas", value: summary.withAlternatives, hint: percentage(summary.withAlternatives, summary.total), icon: <ListChecks className="size-4" /> },
-    { label: "Com equação", value: summary.withEquation, hint: percentage(summary.withEquation, summary.total), icon: <Sigma className="size-4" /> },
+  const topContent = summary.contentFrequency.find((row) => row.count > 0);
+  const missingCore = summary.missingMetadata.area + summary.missingMetadata.content + summary.missingMetadata.subcontent;
+  const missingCorePercent = summary.total > 0 ? Math.round((missingCore / (summary.total * 3)) * 100) : 0;
+  const resourceRows = [
+    { label: "texto-base", count: summary.withReference, icon: <TextSearch className="size-4" /> },
+    { label: "imagem", count: summary.withImage, icon: <ImageIcon className="size-4" /> },
+    { label: "equação", count: summary.withEquation, icon: <Sigma className="size-4" /> },
+  ].sort((a, b) => b.count - a.count);
+  const mainResource = resourceRows[0];
+  const dominantType = summary.typeCounts[0];
+  const cards = [
+    {
+      label: "Base analisada",
+      value: `${summary.total}`,
+      detail: `${summary.years.length || 0} ano(s) · ${period}`,
+      icon: <FileSearch className="size-4" />,
+      tone: summary.total < 10 ? "warning" : "good",
+    },
+    {
+      label: "Conteúdo dominante",
+      value: topContent?.value ?? "Sem conteúdo",
+      detail: topContent ? `${topContent.count} itens · ${formatPercent(topContent.percent)}` : "Classifique as questões para ativar este dado",
+      icon: topContent && topContent.percent >= 45 ? <Target className="size-4" /> : <TrendingUp className="size-4" />,
+      tone: topContent && topContent.percent >= 45 ? "warning" : "info",
+    },
+    {
+      label: "Classificação",
+      value: missingCore === 0 ? "Completa" : `${missingCore} lacuna(s)`,
+      detail: missingCore === 0 ? "Área, conteúdo e subconteúdo preenchidos" : `${missingCorePercent}% dos campos essenciais vazios`,
+      icon: missingCore === 0 ? <CheckCircle2 className="size-4" /> : <AlertTriangle className="size-4" />,
+      tone: missingCore === 0 ? "good" : missingCorePercent >= 20 ? "critical" : "warning",
+    },
+    {
+      label: "Recurso mais usado",
+      value: mainResource.count > 0 ? mainResource.label : "Só texto",
+      detail: mainResource.count > 0 ? `${mainResource.count} itens · ${percentage(mainResource.count, summary.total)}` : "Nenhum texto-base, imagem ou equação marcado",
+      icon: mainResource.count > 0 ? mainResource.icon : <Info className="size-4" />,
+      tone: mainResource.label === "imagem" && mainResource.count > 0 ? "warning" : "info",
+    },
+    {
+      label: "Tipo principal",
+      value: dominantType ? formatType(dominantType.value) : "Sem tipo",
+      detail: dominantType ? `${dominantType.count} itens · ${formatPercent(dominantType.percent)}` : "Cadastre o tipo para cruzamentos melhores",
+      icon: <Layers className="size-4" />,
+      tone: dominantType?.value === "Sem tipo" ? "warning" : "info",
+    },
   ];
   return (
-    <div className="grid grid-cols-2 gap-2 rounded-xl border bg-card p-2 sm:grid-cols-3 lg:grid-cols-6">
-      {stats.map((s) => (
-        <div key={s.label} className="rounded-lg px-3 py-2 hover:bg-muted/40">
+    <div className="grid gap-2 rounded-xl border bg-card p-2 sm:grid-cols-2 lg:grid-cols-5">
+      {cards.map((s) => (
+        <div key={s.label} className={`rounded-lg border px-3 py-2 ${metricToneClass(s.tone)}`}>
           <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             {s.icon}
             {s.label}
           </div>
-          <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-semibold tabular-nums">{s.value}</span>
-            {s.hint && <span className="text-xs text-muted-foreground">{s.hint}</span>}
-          </div>
+          <div className="mt-1 line-clamp-1 text-xl font-semibold tabular-nums" title={s.value}>{s.value}</div>
+          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{s.detail}</p>
         </div>
       ))}
     </div>
   );
 }
 
-function TypeBreakdownCard({ summary }: { summary: ProvaAnalysisSummary }) {
+function metricToneClass(tone: string) {
+  if (tone === "critical") return "border-red-200 bg-red-50";
+  if (tone === "warning") return "border-amber-200 bg-amber-50";
+  if (tone === "good") return "border-emerald-200 bg-emerald-50";
+  return "bg-background";
+}
+
+function TypeBreakdownCard({ summary, onTypeClick }: { summary: ProvaAnalysisSummary; onTypeClick?: (row: FrequencyRow) => void }) {
   return (
     <div className="rounded-xl border bg-card p-4">
       <h2 className="mb-3 text-sm font-semibold">Por tipo de questão</h2>
       <div className="space-y-2.5">
         {summary.typeCounts.map((item) => (
-          <div key={item.value}>
+          <button key={item.value} type="button" onClick={() => onTypeClick?.(item)} className="block w-full rounded-md p-1 text-left hover:bg-muted/50">
             <div className="mb-1 flex items-center justify-between gap-2 text-xs">
               <span className="text-muted-foreground">{formatType(item.value)}</span>
               <span><strong className="tabular-nums">{item.count}</strong> · {formatPercent(item.percent)}</span>
             </div>
             <ProgressBar percent={item.percent} />
-          </div>
+          </button>
         ))}
       </div>
     </div>
   );
 }
 
-function HorizontalBarChart({ title, rows, emptyText }: { title: string; rows: FrequencyRow[]; emptyText: string }) {
+function HorizontalBarChart({ title, rows, emptyText, onRowClick }: { title: string; rows: FrequencyRow[]; emptyText: string; onRowClick?: (row: FrequencyRow) => void }) {
   const visible = rows.filter((r) => r.count > 0).slice(0, 10);
   const max = Math.max(...visible.map((r) => r.count), 0);
   return (
@@ -409,11 +598,11 @@ function HorizontalBarChart({ title, rows, emptyText }: { title: string; rows: F
       {visible.length === 0 ? <p className="text-sm text-muted-foreground">{emptyText}</p> : (
         <div className="space-y-2.5">
           {visible.map((row) => (
-            <div key={row.value} className="grid gap-2 sm:grid-cols-[160px_1fr_80px] sm:items-center">
+            <button key={row.value} type="button" onClick={() => onRowClick?.(row)} className="grid w-full gap-2 rounded-md p-1 text-left hover:bg-muted/50 sm:grid-cols-[160px_1fr_80px] sm:items-center">
               <span className="line-clamp-1 text-sm" title={row.value}>{row.value}</span>
               <ProgressBar percent={max > 0 ? (row.count / max) * 100 : 0} />
               <span className="text-right text-xs text-muted-foreground tabular-nums">{row.count} · {formatPercent(row.percent)}</span>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -517,8 +706,16 @@ function ChartCard({ title, children }: { title: string; children: ReactNode }) 
   );
 }
 
-function VisualFrequencyTable({ title, rows, total, emptyText = "Sem dados.", highlightFirst }: { title: string; rows: FrequencyRow[]; total: number; emptyText?: string; highlightFirst?: boolean }) {
-  const visible = rows.slice(0, 10);
+function VisualFrequencyTable({ title, rows, total, emptyText = "Sem dados.", highlightFirst, onRowClick }: { title: string; rows: FrequencyRow[]; total: number; emptyText?: string; highlightFirst?: boolean; onRowClick?: (row: FrequencyRow) => void }) {
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(rows.length / FREQUENCY_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const start = safePage * FREQUENCY_PAGE_SIZE;
+  const visible = rows.slice(start, start + FREQUENCY_PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(0);
+  }, [rows]);
   return (
     <div className="rounded-xl border bg-card p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
@@ -530,21 +727,222 @@ function VisualFrequencyTable({ title, rows, total, emptyText = "Sem dados.", hi
       ) : (
         <div className="space-y-2">
           {visible.map((row, i) => (
-            <div key={row.value} className="group">
+            <button key={row.value} type="button" onClick={() => onRowClick?.(row)} className="group block w-full rounded-md p-1 text-left hover:bg-muted/50">
               <div className="mb-1 flex items-baseline justify-between gap-2 text-sm">
                 <span className="flex items-center gap-2 truncate">
-                  {highlightFirst && i === 0 && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">#1</span>}
+                  {highlightFirst && start + i === 0 && <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">#1</span>}
                   <span className="truncate" title={row.value}>{row.value}</span>
                 </span>
                 <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{row.count} · {formatPercent(row.percent)}</span>
               </div>
               <ProgressBar percent={row.percent} />
-            </div>
+            </button>
           ))}
+          {rows.length > FREQUENCY_PAGE_SIZE && (
+            <div className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground">
+              <span>{start + 1}-{Math.min(start + FREQUENCY_PAGE_SIZE, rows.length)} de {rows.length}</span>
+              <div className="flex items-center gap-1">
+                <Button type="button" size="sm" variant="outline" className="h-8 px-2" disabled={safePage === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>
+                  <ChevronLeft className="size-3.5" />
+                </Button>
+                <Button type="button" size="sm" variant="outline" className="h-8 px-2" disabled={safePage >= pageCount - 1} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}>
+                  <ChevronRight className="size-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
+}
+
+function DrilldownSheet({ request, onOpenChange }: { request: DrilldownRequest | null; onOpenChange: (open: boolean) => void }) {
+  const [page, setPage] = useState(0);
+  const questions = request?.questions ?? [];
+  const pageSize = 12;
+  const pageCount = Math.max(1, Math.ceil(questions.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const visible = questions.slice(safePage * pageSize, safePage * pageSize + pageSize);
+
+  useEffect(() => {
+    setPage(0);
+  }, [request?.title]);
+
+  return (
+    <Sheet open={Boolean(request)} onOpenChange={onOpenChange}>
+      <SheetContent className="flex w-full flex-col overflow-y-auto sm:max-w-xl">
+        <SheetHeader>
+          <SheetTitle>{request?.title ?? "Detalhes"}</SheetTitle>
+          {request?.subtitle && <SheetDescription>{request.subtitle}</SheetDescription>}
+        </SheetHeader>
+
+        {request && (
+          <div className="space-y-4 py-4">
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Questões relacionadas</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">{questions.length}</p>
+              <p className="text-xs text-muted-foreground">Clique em abrir para editar a questão na aba de questões salvas.</p>
+            </div>
+
+            {request.evidence.length > 0 && (
+              <DrilldownList title="Evidências" values={request.evidence} />
+            )}
+            {request.recommendations.length > 0 && (
+              <DrilldownList title="Recomendações" values={request.recommendations} />
+            )}
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold">Itens encontrados</h3>
+                {questions.length > pageSize && (
+                  <span className="text-xs text-muted-foreground">
+                    {safePage * pageSize + 1}-{Math.min((safePage + 1) * pageSize, questions.length)} de {questions.length}
+                  </span>
+                )}
+              </div>
+              {visible.length === 0 ? (
+                <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Nenhuma questão relacionada foi encontrada para este padrão.</p>
+              ) : (
+                <div className="space-y-2">
+                  {visible.map((question) => (
+                    <div key={question.id} className="rounded-lg border bg-background p-3">
+                      <div className="mb-2 flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                            <span className="font-mono">#{question.id.slice(0, 6)}</span>
+                            {question.numero && <span>Item {question.numero}</span>}
+                            {question.prova && <span>{question.prova}</span>}
+                            {question.instituicao && <span>{question.instituicao}</span>}
+                            {question.ano && <span>{question.ano}</span>}
+                          </div>
+                          <p className="mt-1 line-clamp-3 text-sm">{plainQuestionText(question) || "Sem texto cadastrado."}</p>
+                        </div>
+                        <Button asChild size="sm" variant="outline" className="h-8 shrink-0 gap-1 px-2">
+                          <a href={`/questoes?editId=${encodeURIComponent(question.id)}`}>
+                            Abrir <ExternalLink className="size-3" />
+                          </a>
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {questionMetadataChips(question).map((chip) => (
+                          <span key={chip} className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{chip}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {questions.length > pageSize && (
+                <div className="flex justify-end gap-2 border-t pt-3">
+                  <Button type="button" size="sm" variant="outline" disabled={safePage === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>
+                    <ChevronLeft className="mr-1 size-3.5" /> Anterior
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" disabled={safePage >= pageCount - 1} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}>
+                    Próxima <ChevronRight className="ml-1 size-3.5" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function DrilldownList({ title, values }: { title: string; values: string[] }) {
+  return (
+    <div className="rounded-lg border bg-card p-3">
+      <h3 className="mb-2 text-sm font-semibold">{title}</h3>
+      <ul className="space-y-1.5 text-sm text-muted-foreground">
+        {values.map((value) => <li key={value}>• {value}</li>)}
+      </ul>
+    </div>
+  );
+}
+
+function buildFrequencyDrilldown(summary: ProvaAnalysisSummary, title: string, kind: FrequencyKind, row: FrequencyRow): DrilldownRequest {
+  const questions = summary.questions.filter((question) => questionMatchesFrequency(question, kind, row.value));
+  return {
+    title: `${title}: ${row.value}`,
+    subtitle: `${row.count} questão${row.count === 1 ? "" : "ões"} · ${formatPercent(row.percent)} da base analisada`,
+    evidence: [
+      `${row.value} aparece em ${row.count} de ${summary.total} questões analisadas.`,
+      row.years.length > 0 ? `Anos associados: ${row.years.join(", ")}.` : "Sem ano cadastrado nas questões relacionadas.",
+    ],
+    recommendations: [
+      kind === "tipo"
+        ? "Use este recorte para equilibrar tipos de questão no simulado."
+        : "Abra os itens relacionados para conferir como esse conteúdo aparece no enunciado, nas alternativas e nos textos-base.",
+    ],
+    questions,
+  };
+}
+
+function buildTextDrilldown(summary: ProvaAnalysisSummary, title: string, evidence: string[], recommendations: string[] = []): DrilldownRequest {
+  const terms = evidence.flatMap(extractDrilldownTerms).slice(0, 12);
+  const questions = terms.length === 0
+    ? summary.questions.slice(0, 24)
+    : summary.questions.filter((question) => {
+      const searchable = normalizeSearch(plainQuestionText(question));
+      return terms.some((term) => searchable.includes(term));
+    });
+  return {
+    title,
+    subtitle: terms.length > 0 ? `Busca por: ${terms.slice(0, 5).join(", ")}` : "Amostra inicial da base analisada",
+    evidence,
+    recommendations,
+    questions,
+  };
+}
+
+function questionMatchesFrequency(question: ProvaAnalysisQuestion, kind: FrequencyKind, value: string) {
+  if (kind === "area") return (question.area_geral || "Sem área geral") === value;
+  if (kind === "conteudo") return (question.conteudo_principal || "Sem conteúdo principal") === value;
+  if (kind === "subconteudo") return (question.subconteudo_principal || "Sem subconteúdo principal") === value;
+  if (kind === "relacionado") return (question.conteudos_relacionados ?? []).includes(value);
+  if (kind === "tag") return [...(question.tags_livres ?? []), ...(question.tags ?? [])].includes(value);
+  if (kind === "tipo") return (question.tipo || "Sem tipo") === value;
+  return false;
+}
+
+function extractDrilldownTerms(value: string) {
+  return normalizeSearch(value)
+    .split(/[^a-z0-9]+/i)
+    .filter((term) => term.length >= 4 && !DRILLDOWN_STOP_WORDS.has(term));
+}
+
+const DRILLDOWN_STOP_WORDS = new Set([
+  "questao", "questoes", "analise", "padrao", "padroes", "conteudo", "conteudos",
+  "evidencia", "base", "itens", "item", "mais", "menos", "para", "como", "com",
+  "sem", "dos", "das", "uma", "que", "por", "quando", "sobre", "dados",
+]);
+
+function plainQuestionText(question: ProvaAnalysisQuestion) {
+  return [
+    question.referencia_texto,
+    question.referencia_texto_apos,
+    question.enunciado,
+    ...(question.alternativas ?? []).map((alt) => alt.texto),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\$+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function questionMetadataChips(question: ProvaAnalysisQuestion) {
+  return [
+    question.area_geral,
+    question.conteudo_principal,
+    question.subconteudo_principal,
+    ...(question.conteudos_relacionados ?? []).slice(0, 2),
+    ...(question.tags_livres?.length ? question.tags_livres : question.tags ?? []).slice(0, 2),
+  ].filter((value): value is string => Boolean(value));
 }
 
 function ProgressBar({ percent }: { percent: number }) {
@@ -555,16 +953,75 @@ function ProgressBar({ percent }: { percent: number }) {
   );
 }
 
-function buildFilterChips(f: AnalysisFilters): Array<{ key: string; label: string; value: string }> {
-  const chips: Array<{ key: string; label: string; value: string }> = [];
+function buildFilterChips(f: AnalysisFilters): FilterChipData[] {
+  const chips: FilterChipData[] = [];
   if (f.prova) chips.push({ key: "prova", label: "Prova", value: f.prova });
   if (f.instituicao) chips.push({ key: "instituicao", label: "Instituição", value: f.instituicao });
-  if (f.anoInicial || f.anoFinal) chips.push({ key: "ano", label: "Período", value: `${f.anoInicial || "…"}–${f.anoFinal || "…"}` });
+  if (f.anoInicial || f.anoFinal) chips.push({ key: "anoInicial", clearKeys: ["anoInicial", "anoFinal"], label: "Período", value: `${f.anoInicial || "…"}–${f.anoFinal || "…"}` });
   if (f.areaGeral) chips.push({ key: "areaGeral", label: "Área", value: f.areaGeral });
   if (f.conteudoPrincipal) chips.push({ key: "conteudoPrincipal", label: "Conteúdo", value: f.conteudoPrincipal });
   if (f.subconteudoPrincipal) chips.push({ key: "subconteudoPrincipal", label: "Subconteúdo", value: f.subconteudoPrincipal });
   if (f.tipo) chips.push({ key: "tipo", label: "Tipo", value: formatType(f.tipo) });
   return chips;
+}
+
+function clearFilterChip(filters: AnalysisFilters, chip: FilterChipData): AnalysisFilters {
+  const next = { ...filters };
+  const keys = chip.clearKeys ?? [chip.key];
+  for (const key of keys) next[key] = "";
+  if (keys.includes("areaGeral")) {
+    next.conteudoPrincipal = "";
+    next.subconteudoPrincipal = "";
+  }
+  if (keys.includes("conteudoPrincipal")) {
+    next.subconteudoPrincipal = "";
+  }
+  return next;
+}
+
+function buildQuickFilterMatches(search: string, catalogs: { provas: CatalogItem[]; instituicoes: CatalogItem[]; areas: CatalogItem[]; conteudos: CatalogItem[]; subconteudos: CatalogItem[] }): QuickFilterMatch[] {
+  const value = normalizeSearch(search);
+  if (value.length < 2) return [];
+  const sources: Array<{ key: keyof AnalysisFilters; label: string; items: CatalogItem[] }> = [
+    { key: "prova", label: "Prova", items: catalogs.provas },
+    { key: "instituicao", label: "Instituição", items: catalogs.instituicoes },
+    { key: "areaGeral", label: "Área", items: catalogs.areas },
+    { key: "conteudoPrincipal", label: "Conteúdo", items: catalogs.conteudos },
+    { key: "subconteudoPrincipal", label: "Subconteúdo", items: catalogs.subconteudos },
+  ];
+  return sources
+    .flatMap((source) => source.items
+      .filter((item) => item.ativo && normalizeSearch(item.nome).includes(value))
+      .slice(0, 6)
+      .map((item) => ({ key: source.key, label: source.label, value: item.nome })))
+    .slice(0, 18);
+}
+
+function readStoredFilters(): AnalysisFilters | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(FILTER_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return isAnalysisFilters(parsed) ? normalizeFilters(parsed) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredFilters(filters: AnalysisFilters) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filters));
+  } catch {
+    // Ignore storage limits or private browsing restrictions.
+  }
+}
+
+function isAnalysisFilters(value: unknown): value is AnalysisFilters {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return Object.keys(EMPTY_FILTERS).every((key) => typeof record[key] === "string");
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -587,6 +1044,14 @@ function normalizeFilters(f: AnalysisFilters): AnalysisFilters {
     areaGeral: f.areaGeral.trim(), conteudoPrincipal: f.conteudoPrincipal.trim(),
     subconteudoPrincipal: f.subconteudoPrincipal.trim(), tipo: f.tipo.trim(),
   };
+}
+
+function normalizeSearch(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 function isValidYearRange(f: AnalysisFilters) {

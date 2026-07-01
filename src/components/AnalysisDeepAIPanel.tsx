@@ -20,7 +20,17 @@ type DeepAnalysisFailure = {
 
 type DeepAnalysisResponse = DeepAnalysisSuccess | DeepAnalysisFailure;
 
-export function AnalysisDeepAIPanel({ summary, filters }: { summary: ProvaAnalysisSummary; filters: DeepAnalysisFilters }) {
+export function AnalysisDeepAIPanel({
+  summary,
+  filters,
+  onPatternClick,
+  onEvidenceClick,
+}: {
+  summary: ProvaAnalysisSummary;
+  filters: DeepAnalysisFilters;
+  onPatternClick?: (pattern: DeepPattern, sectionTitle: string) => void;
+  onEvidenceClick?: (value: string, sectionTitle: string) => void;
+}) {
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<DeepAnalysisReport | null>(null);
   const [model, setModel] = useState("");
@@ -131,23 +141,23 @@ export function AnalysisDeepAIPanel({ summary, filters }: { summary: ProvaAnalys
           <ReportSection title="Visão geral da prova" defaultOpen>
             <p className="text-sm leading-relaxed">{report.visao_geral}</p>
           </ReportSection>
-          <PatternSection title="Padrões de conteúdo" patterns={report.padroes_conteudo} />
-          <PatternSection title="Padrões de linguagem da banca" patterns={report.padroes_linguagem} />
-          <PatternSection title="Padrões de construção dos itens" patterns={report.padroes_construcao_itens} />
+          <PatternSection title="Padrões de conteúdo" patterns={report.padroes_conteudo} onPatternClick={onPatternClick} />
+          <PatternSection title="Padrões de linguagem da banca" patterns={report.padroes_linguagem} onPatternClick={onPatternClick} />
+          <PatternSection title="Padrões de construção dos itens" patterns={report.padroes_construcao_itens} onPatternClick={onPatternClick} />
           <ReportSection title="Uso de referência/texto-base">
             <p className="text-sm leading-relaxed">{report.uso_texto_base || "Sem observações suficientes sobre texto-base."}</p>
           </ReportSection>
-          <PatternSection title="Padrões sutis encontrados" patterns={report.padroes_sutis} />
-          <PatternSection title="Recomendações para montar simulado" patterns={report.recomendacoes_simulado} />
-          <ListSection title="Limitações da análise" values={report.limitacoes} empty="Nenhuma limitação informada pela IA." />
-          <ListSection title="Evidências usadas" values={report.evidencias_usadas} empty="Nenhuma evidência listada." />
+          <PatternSection title="Padrões sutis encontrados" patterns={report.padroes_sutis} onPatternClick={onPatternClick} />
+          <PatternSection title="Recomendações para montar simulado" patterns={report.recomendacoes_simulado} onPatternClick={onPatternClick} />
+          <ListSection title="Limitações da análise" values={report.limitacoes} empty="Nenhuma limitação informada pela IA." onValueClick={onEvidenceClick} />
+          <ListSection title="Evidências usadas" values={report.evidencias_usadas} empty="Nenhuma evidência listada." onValueClick={onEvidenceClick} />
         </div>
       )}
     </div>
   );
 }
 
-function PatternSection({ title, patterns }: { title: string; patterns: DeepPattern[] }) {
+function PatternSection({ title, patterns, onPatternClick }: { title: string; patterns: DeepPattern[]; onPatternClick?: (pattern: DeepPattern, sectionTitle: string) => void }) {
   return (
     <ReportSection title={title}>
       {patterns.length === 0 ? (
@@ -155,7 +165,12 @@ function PatternSection({ title, patterns }: { title: string; patterns: DeepPatt
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
           {patterns.map((pattern, index) => (
-            <div key={`${pattern.titulo}-${index}`} className="rounded-lg border bg-background p-3">
+            <button
+              key={`${pattern.titulo}-${index}`}
+              type="button"
+              onClick={() => onPatternClick?.(pattern, title)}
+              className="rounded-lg border bg-background p-3 text-left transition hover:border-primary/40 hover:bg-muted/30"
+            >
               <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
                 <h4 className="font-semibold">{pattern.titulo}</h4>
                 <ConfidenceBadge value={pattern.nivel_confianca} />
@@ -164,7 +179,7 @@ function PatternSection({ title, patterns }: { title: string; patterns: DeepPatt
               <p className="mt-2 rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
                 <strong>Evidência:</strong> {pattern.evidencia}
               </p>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -181,14 +196,20 @@ function ReportSection({ title, children, defaultOpen = false }: { title: string
   );
 }
 
-function ListSection({ title, values, empty }: { title: string; values: string[]; empty: string }) {
+function ListSection({ title, values, empty, onValueClick }: { title: string; values: string[]; empty: string; onValueClick?: (value: string, sectionTitle: string) => void }) {
   return (
     <ReportSection title={title}>
       {values.length === 0 ? (
         <p className="text-sm text-muted-foreground">{empty}</p>
       ) : (
         <ul className="space-y-2 text-sm">
-          {values.map((value) => <li key={value}>• {value}</li>)}
+          {values.map((value) => (
+            <li key={value}>
+              <button type="button" onClick={() => onValueClick?.(value, title)} className="text-left hover:text-foreground hover:underline">
+                • {value}
+              </button>
+            </li>
+          ))}
         </ul>
       )}
     </ReportSection>
