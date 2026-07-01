@@ -11,9 +11,7 @@ import {
   MAX_PDF_PAGES,
   MAX_PDF_RENDER_PAGES,
   MAX_PDF_SIZE,
-  PDF_QUEUE_BATCH_SIZE,
   type PdfQueueJob,
-  type PdfQueueRunMode,
 } from "./types";
 
 export function PdfUploadPanel({
@@ -30,8 +28,6 @@ export function PdfUploadPanel({
   renderedImage,
   queue,
   activeQueueJobId,
-  queueRunMode,
-  queuePaused,
   onDragOverChange,
   onFile,
   onReset,
@@ -46,11 +42,6 @@ export function PdfUploadPanel({
   onDigitizePdf,
   onCreateQueue,
   onProcessNextQueueJob,
-  onProcessAllQueueJobs,
-  onProcessErrorQueueJobs,
-  onPauseQueue,
-  onResumeQueue,
-  onCancelQueue,
   onProcessQueueJob,
   onOpenQueueJobReview,
   onOpenMassQueueReview,
@@ -69,8 +60,6 @@ export function PdfUploadPanel({
   renderedImage: PdfRenderedImage | null;
   queue: PdfQueueJob[];
   activeQueueJobId: string | null;
-  queueRunMode: PdfQueueRunMode;
-  queuePaused: boolean;
   onDragOverChange: (value: boolean) => void;
   onFile: (list: FileList | File[] | undefined | null) => void;
   onReset: () => void;
@@ -85,21 +74,16 @@ export function PdfUploadPanel({
   onDigitizePdf: () => void;
   onCreateQueue: () => void;
   onProcessNextQueueJob: () => void;
-  onProcessAllQueueJobs: () => void;
-  onProcessErrorQueueJobs: () => void;
-  onPauseQueue: () => void;
-  onResumeQueue: () => void;
-  onCancelQueue: () => void;
   onProcessQueueJob: (id: string) => void;
   onOpenQueueJobReview: (id: string) => void;
   onOpenMassQueueReview: () => void;
   onClearQueue: () => void;
 }) {
   const selectedCount = selectedPages.size;
-  const isBusy = rendering || digitizing || Boolean(activeQueueJobId) || queueRunMode !== "idle";
+  const isBusy = rendering || digitizing || Boolean(activeQueueJobId);
   const canUseBatch = selectedCount > 0 && selectedCount <= MAX_PDF_RENDER_PAGES && !isBusy;
   const canCreateQueue = selectedCount > 0 && !isBusy;
-  const queueBatchCount = selectedCount > 0 ? Math.ceil(selectedCount / PDF_QUEUE_BATCH_SIZE) : 0;
+  const queueBatchCount = selectedCount > 0 ? Math.ceil(selectedCount / MAX_PDF_RENDER_PAGES) : 0;
 
   return (
     <div className="space-y-4">
@@ -162,29 +146,6 @@ export function PdfUploadPanel({
         )}
       </StepBlock>
 
-      {!pdfInfo && queue.length > 0 && (
-        <StepBlock title="Fila temporária recuperada" description="Você ainda pode abrir revisões já concluídas. Para continuar processando pendentes, reenvie o mesmo PDF.">
-          <PdfQueuePanel
-            queue={queue}
-            activeQueueJobId={activeQueueJobId}
-            isBusy={isBusy}
-            canProcess={false}
-            runMode={queueRunMode}
-            paused={queuePaused}
-            onProcessNext={onProcessNextQueueJob}
-            onProcessAll={onProcessAllQueueJobs}
-            onProcessErrors={onProcessErrorQueueJobs}
-            onPause={onPauseQueue}
-            onResume={onResumeQueue}
-            onCancel={onCancelQueue}
-            onProcessJob={onProcessQueueJob}
-            onOpenReview={onOpenQueueJobReview}
-            onOpenMassReview={onOpenMassQueueReview}
-            onClearQueue={onClearQueue}
-          />
-        </StepBlock>
-      )}
-
       {pdfInfo && (
         <>
           {pdfInfo.isOverPageLimit && (
@@ -194,7 +155,7 @@ export function PdfUploadPanel({
             </div>
           )}
 
-          <StepBlock title="Etapa 3 — Selecionar páginas" description={`Escolha páginas específicas ou um intervalo. Para melhorar a extração, a fila divide em lotes de ${PDF_QUEUE_BATCH_SIZE} página${PDF_QUEUE_BATCH_SIZE === 1 ? "" : "s"}.`}>
+          <StepBlock title="Etapa 3 — Selecionar páginas" description={`Escolha páginas específicas ou um intervalo. A fila divide automaticamente em lotes de até ${MAX_PDF_RENDER_PAGES} páginas.`}>
             <PdfPageSelector
               pdfInfo={pdfInfo}
               selectedPages={selectedPages}
@@ -215,7 +176,7 @@ export function PdfUploadPanel({
             <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
               <div>
                 <p className="text-sm font-medium">{selectedCount} página{selectedCount === 1 ? "" : "s"} selecionada{selectedCount === 1 ? "" : "s"}</p>
-                <p className="text-xs text-muted-foreground">Para digitalizar direto, selecione até {MAX_PDF_RENDER_PAGES} páginas. Para PDF longo, crie fila por páginas e use processamento contínuo.</p>
+                <p className="text-xs text-muted-foreground">Para digitalizar direto, selecione até {MAX_PDF_RENDER_PAGES} páginas. Para mais páginas, crie uma fila.</p>
               </div>
               <div className="flex flex-wrap gap-2 lg:justify-end">
                 <Button type="button" disabled={!canUseBatch} variant="default" className="gap-2" onClick={onDigitizePdf}>
@@ -254,14 +215,7 @@ export function PdfUploadPanel({
                 activeQueueJobId={activeQueueJobId}
                 isBusy={isBusy}
                 canProcess={Boolean(pdfInfo)}
-                runMode={queueRunMode}
-                paused={queuePaused}
                 onProcessNext={onProcessNextQueueJob}
-                onProcessAll={onProcessAllQueueJobs}
-                onProcessErrors={onProcessErrorQueueJobs}
-                onPause={onPauseQueue}
-                onResume={onResumeQueue}
-                onCancel={onCancelQueue}
                 onProcessJob={onProcessQueueJob}
                 onOpenReview={onOpenQueueJobReview}
                 onOpenMassReview={onOpenMassQueueReview}
