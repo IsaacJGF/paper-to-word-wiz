@@ -96,7 +96,8 @@ export async function renderPdfPagesToImageDataUrl(
       throw new Error("Selecione ao menos uma página do PDF.");
     }
 
-    const renderedPages = await Promise.all(pages.map(async (pageNumber) => {
+    const renderedPages: Array<{ pageNumber: number; canvas: HTMLCanvasElement; width: number; height: number }> = [];
+    for (const pageNumber of pages) {
       const page = await pdf.getPage(pageNumber);
       try {
         const baseViewport = page.getViewport({ scale: 1 });
@@ -110,16 +111,16 @@ export async function renderPdfPagesToImageDataUrl(
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         await page.render({ canvasContext: ctx, viewport }).promise;
-        return {
+        renderedPages.push({
           pageNumber,
           canvas,
           width: canvas.width,
           height: canvas.height,
-        };
+        });
       } finally {
         page.cleanup();
       }
-    }));
+    }
 
     const labelHeight = renderedPages.length > 1 ? LABEL_HEIGHT : 0;
     const canvasWidth = Math.max(...renderedPages.map((page) => page.width));
