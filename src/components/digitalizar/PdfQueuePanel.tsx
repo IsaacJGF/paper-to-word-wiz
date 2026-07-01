@@ -1,15 +1,39 @@
-import { FileText, Loader2, ScanLine } from "lucide-react";
+import { FileText, Loader2, Pause, Play, RotateCcw, ScanLine, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatFileSize } from "@/lib/pdf-reader";
-import type { PdfQueueJob, PdfQueueStatus } from "./types";
+import type { PdfQueueJob, PdfQueueRunMode, PdfQueueStatus } from "./types";
 import { formatPages } from "./utils";
 
-export function PdfQueuePanel({ queue, activeQueueJobId, isBusy, canProcess, onProcessNext, onProcessJob, onOpenReview, onOpenMassReview, onClearQueue }: {
+export function PdfQueuePanel({
+  queue,
+  activeQueueJobId,
+  isBusy,
+  canProcess,
+  runMode,
+  paused,
+  onProcessNext,
+  onProcessAll,
+  onProcessErrors,
+  onPause,
+  onResume,
+  onCancel,
+  onProcessJob,
+  onOpenReview,
+  onOpenMassReview,
+  onClearQueue,
+}: {
   queue: PdfQueueJob[];
   activeQueueJobId: string | null;
   isBusy: boolean;
   canProcess: boolean;
+  runMode: PdfQueueRunMode;
+  paused: boolean;
   onProcessNext: () => void;
+  onProcessAll: () => void;
+  onProcessErrors: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onCancel: () => void;
   onProcessJob: (id: string) => void;
   onOpenReview: (id: string) => void;
   onOpenMassReview: () => void;
@@ -21,6 +45,7 @@ export function PdfQueuePanel({ queue, activeQueueJobId, isBusy, canProcess, onP
   const pendingCount = queue.filter((job) => job.status === "pending").length;
   const questionCount = queue.reduce((sum, job) => sum + (job.result?.questionCount ?? job.result?.draft.questoes.length ?? 0), 0);
   const percent = queue.length > 0 ? Math.round((doneCount / queue.length) * 100) : 0;
+  const running = runMode !== "idle";
 
   return (
     <div className="overflow-hidden rounded-xl border bg-background">
@@ -31,12 +56,24 @@ export function PdfQueuePanel({ queue, activeQueueJobId, isBusy, canProcess, onP
             {queue.length} lote{queue.length > 1 ? "s" : ""} · {doneCount} concluído{doneCount === 1 ? "" : "s"} · {reviewedCount} revisado{reviewedCount === 1 ? "" : "s"} · {pendingCount} pendente{pendingCount === 1 ? "" : "s"}{errorCount > 0 ? ` · ${errorCount} com erro` : ""}
           </p>
           {questionCount > 0 && <p className="mt-1 text-xs text-muted-foreground">{questionCount} item{questionCount === 1 ? "" : "s"} extraído{questionCount === 1 ? "" : "s"} temporariamente.</p>}
+          {!canProcess && pendingCount + errorCount > 0 && (
+            <p className="mt-1 text-xs text-amber-700">Para continuar processando lotes pendentes, reenvie o mesmo PDF. Os lotes concluídos continuam disponíveis para revisão.</p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" disabled={!canProcess || isBusy || pendingCount === 0} onClick={onProcessNext} className="gap-2">
             {activeQueueJobId ? <Loader2 className="size-4 animate-spin" /> : <ScanLine className="size-4" />}
             Processar próximo lote
           </Button>
+          <Button type="button" variant="secondary" disabled={!canProcess || isBusy || pendingCount === 0} onClick={onProcessAll} className="gap-2">
+            <Play className="size-4" /> Processar todos pendentes
+          </Button>
+          <Button type="button" variant="outline" disabled={!canProcess || isBusy || errorCount === 0} onClick={onProcessErrors} className="gap-2">
+            <RotateCcw className="size-4" /> Reprocessar erros
+          </Button>
+          {running && !paused && <Button type="button" variant="outline" onClick={onPause} className="gap-2"><Pause className="size-4" /> Pausar</Button>}
+          {running && paused && <Button type="button" variant="outline" onClick={onResume} className="gap-2"><Play className="size-4" /> Continuar</Button>}
+          {running && <Button type="button" variant="outline" onClick={onCancel} className="gap-2"><Square className="size-4" /> Cancelar</Button>}
           <Button type="button" variant="default" disabled={isBusy || doneCount === 0} onClick={onOpenMassReview} className="gap-2">
             <FileText className="size-4" /> Revisar concluídos em massa
           </Button>
@@ -53,7 +90,7 @@ export function PdfQueuePanel({ queue, activeQueueJobId, isBusy, canProcess, onP
           <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${percent}%` }} />
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          Abrir uma revisão não apaga a fila. O progresso fica guardado temporariamente para você voltar e revisar outros lotes.
+          Abrir uma revisão não apaga a fila. O processamento contínuo roda um lote por vez, com pausa curta entre lotes.
         </p>
       </div>
 
