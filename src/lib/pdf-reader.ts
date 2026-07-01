@@ -15,9 +15,25 @@ export type PdfDocumentSummary = {
   firstPageSize?: PdfPageSize;
 };
 
+export type PdfRenderedImage = {
+  imageDataUrl: string;
+  pages: number[];
+  width: number;
+  height: number;
+};
+
 export type ReadPdfOptions = {
   maxPages: number;
 };
+
+export type RenderPdfPagesOptions = {
+  scale?: number;
+  maxPageWidth?: number;
+  imageQuality?: number;
+};
+
+const PAGE_GAP = 36;
+const LABEL_HEIGHT = 34;
 
 let workerConfigured = false;
 
@@ -32,15 +48,7 @@ export async function readPdfDocumentSummary(file: File, options: ReadPdfOptions
     throw new Error("Envie um arquivo PDF válido.");
   }
 
-  configurePdfWorker();
-  const data = await file.arrayBuffer();
-  const loadingTask = pdfjs.getDocument({
-    data,
-    stopAtErrors: false,
-    isEvalSupported: false,
-  });
-
-  const pdf = await loadingTask.promise;
+  const pdf = await openPdfDocument(file);
   try {
     let firstPageSize: PdfPageSize | undefined;
     try {
@@ -66,6 +74,116 @@ export async function readPdfDocumentSummary(file: File, options: ReadPdfOptions
   } finally {
     await pdf.destroy();
   }
+}
+
+export async function renderPdfPagesToImageDataUrl(
+  file: File,
+  pageNumbers: number[],
+  options: RenderPdfPagesOptions = {},
+): Promise<PdfRenderedImage> {
+  if (!isPdfFile(file)) {
+    throw new Error("Envie um arquivo PDF válido.");
+  }
+
+  const scale = options.scale ?? 2;
+  const maxPageWidth = options.maxPageWidth ?? 1800;
+  const imageQuality = options.imageQuality ?? 0.9;
+  const pdf = await openPdfDocument(file);
+
+  try {
+    const pages = normalizePageNumbers(pageNumbers, pdf.numPages);
+    if (pages.length === 0) {
+      throw new Error("Selecione ao menos uma página do PDF.");
+    }
+
+    const renderedPages: Array<{ pageNumber: number; canvas: HTMLCanvasElement; width: number; height: number }> = [];
+    for (const pageNumber of pages) {
+      const page = await pdf.getPage(pageNumber);
+      try {
+        const baseViewport = page.getViewport({ scale: 1 });
+        const finalScale = Math.min(scale, maxPageWidth / baseViewport.width);
+        const viewport = page.getViewport({ scale: finalScale });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("Não foi possível preparar o canvas para renderizar o PDF.");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        renderedPages.push({
+          pageNumber,
+          canvas,
+          width: canvas.width,
+          height: canvas.height,
+        });
+      } finally {
+        page.cleanup();
+      }
+    }
+
+    const labelHeight = renderedPages.length > 1 ? LABEL_HEIGHT : 0;
+    const canvasWidth = Math.max(...renderedPages.map((page) => page.width));
+    const canvasHeight = renderedPages.reduce(
+      (sum, page, index) => sum + labelHeight + page.height + (index < renderedPages.length - 1 ? PAGE_GAP : 0),
+      0,
+    );
+    const combinedCanvas = document.createElement("canvas");
+    combinedCanvas.width = canvasWidth;
+    combinedCanvas.height = canvasHeight;
+    const combinedCtx = combinedCanvas.getContext("2d");
+    if (!combinedCtx) throw new Error("Não foi possível combinar as páginas renderizadas.");
+
+    combinedCtx.fillStyle = "#ffffff";
+    combinedCtx.fillRect(0, 0, combinedCanvas.width, combinedCanvas.height);
+
+    let y = 0;
+    for (const page of renderedPages) {
+      if (labelHeight) {
+        combinedCtx.fillStyle = "#111827";
+        combinedCtx.font = "22px Arial";
+        combinedCtx.fillText(`Página ${page.pageNumber} de ${pdf.numPages}`, 12, y + 24);
+        y += labelHeight;
+      }
+      const x = Math.round((canvasWidth - page.width) / 2);
+      combinedCtx.drawImage(page.canvas, x, y, page.width, page.height);
+      y += page.height + PAGE_GAP;
+    }
+
+    return {
+      imageDataUrl: combinedCanvas.toDataURL("image/jpeg", imageQuality),
+      pages,
+      width: combinedCanvas.width,
+      height: combinedCanvas.height,
+    };
+  } finally {
+    await pdf.destroy();
+  }
+}
+
+async function openPdfDocument(file: File) {
+  configurePdfWorker();
+  const data = await file.arrayBuffer();
+  const loadingTask = pdfjs.getDocument({
+    data,
+    stopAtErrors: false,
+    isEvalSupported: false,
+  });
+  return loadingTask.promise;
+}
+
+function normalizePageNumbers(pageNumbers: number[], maxPages: number) {
+  return Array.from(new Set(pageNumbers))
+    .filter((page) => Number.isInteger(page) && page >= 1 && page <= maxPages)
+    .sort((a, b) => a - b);
+}
+
+export function pageRange(start: number, end: number, maxPages: number) {
+  const safeStart = Math.max(1, Math.min(maxPages, Math.floor(start)));
+  const safeEnd = Math.max(1, Math.min(maxPages, Math.floor(end)));
+  const from = Math.min(safeStart, safeEnd);
+  const to = Math.max(safeStart, safeEnd);
+  return Array.from({ length: to - from + 1 }, (_, index) => from + index);
 }
 
 export function isPdfFile(file: File) {
