@@ -511,6 +511,7 @@ export function DigitalizarPage() {
             onOpenMassQueueReview={openMassQueueReview}
             onClearQueue={clearPdfQueue}
           />
+          </>
         )}
       </div>
     </AppLayout>
