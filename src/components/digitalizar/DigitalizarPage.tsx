@@ -56,6 +56,7 @@ export function DigitalizarPage() {
   const [pdfDigitizing, setPdfDigitizing] = useState(false);
   const [renderedPdfImage, setRenderedPdfImage] = useState<PdfRenderedImage | null>(null);
   const [pdfQueue, setPdfQueue] = useState<PdfQueueJob[]>(() => loadPdfQueue());
+  const [savedPdfMeta, setSavedPdfMeta] = useState<PdfFileMeta | null>(() => loadPdfFileMeta());
   const [activeQueueJobId, setActiveQueueJobId] = useState<string | null>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
