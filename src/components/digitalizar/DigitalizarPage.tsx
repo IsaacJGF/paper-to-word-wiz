@@ -129,16 +129,26 @@ export function DigitalizarPage() {
     setPdfFile(null);
     setSelectedPdfPages(new Set());
     setRenderedPdfImage(null);
-    setPdfQueue([]);
-    clearPdfQueueStorage();
     try {
       const summary = await readPdfDocumentSummary(file, { maxPages: MAX_PDF_PAGES });
+      const meta: PdfFileMeta = { fileName: summary.fileName, fileSize: summary.fileSize, pageCount: summary.pageCount };
+      const matchesSaved = isSamePdfFile(savedPdfMeta, meta);
+
+      // Só apaga a fila se for um PDF diferente. Reenviar o mesmo arquivo continua a fila.
+      if (!matchesSaved) {
+        setPdfQueue([]);
+        clearPdfQueueStorage();
+      }
+      persistPdfFileMeta(meta);
+      setSavedPdfMeta(meta);
       setPdfFile(file);
       setPdfInfo(summary);
       setSelectedPdfPages(new Set([1]));
       setRangeStart("1");
       setRangeEnd("1");
-      if (summary.isOverPageLimit) {
+      if (matchesSaved && pdfQueue.length > 0) {
+        toast.success(`PDF reconectado. Fila com ${pdfQueue.length} lote(s) mantida.`);
+      } else if (summary.isOverPageLimit) {
         toast.warning(`PDF lido com ${summary.pageCount} páginas. Neste fluxo, vamos preparar até ${MAX_PDF_PAGES} páginas para seleção.`);
       } else {
         toast.success(`PDF lido: ${summary.pageCount} página${summary.pageCount > 1 ? "s" : ""}.`);
@@ -150,7 +160,7 @@ export function DigitalizarPage() {
       setPdfLoading(false);
       if (pdfInputRef.current) pdfInputRef.current.value = "";
     }
-  }, []);
+  }, [savedPdfMeta, pdfQueue.length]);
 
   const removeImage = (index: number) => {
     setImages((current) => {
