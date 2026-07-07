@@ -79,14 +79,19 @@ Retorne APENAS um objeto JSON válido com este formato exato:
   ]
 }
 
+REGRAS CRÍTICAS DE SEGMENTAÇÃO DE QUESTÕES (LEIA COM ATENÇÃO):
+- Sua tarefa mais importante é IDENTIFICAR CORRETAMENTE onde termina uma questão e começa outra. Uma página de PDF pode conter 1, 2, 3 ou mais questões independentes.
+- Considere uma NOVA questão sempre que aparecer: um novo número/identificador (ex: "1.", "2)", "Questão 15", "QUESTÃO 86", "86.", "(ENEM 2020)", "(UnB/2019)"), uma nova fonte/banca, um novo enunciado que não depende do texto anterior, ou uma nova imagem/gráfico independente.
+- Cada questão identificada DEVE virar um objeto próprio dentro de "questoes". NUNCA junte duas questões numeradas diferentes em um só objeto.
+- Se a página tem 2 questões, o array "questoes" deve ter 2 objetos. Se tem 5 questões, 5 objetos. Não resuma nem combine.
+- Em provas de "julgue os itens" (certo/errado), cada item numerado (86, 87, 88…) é uma questão separada — crie um objeto por item, todos com tipo "certo_errado" e alternativas [].
+- Se um texto-base, gráfico, tabela ou comando é COMUM a várias questões da página, coloque em "referencia_texto" UMA vez e NÃO repita em cada enunciado. Cada questão fica só com seu enunciado próprio + alternativas próprias.
+- Se as questões da página NÃO compartilham texto-base, deixe "referencia_texto" = "" e coloque o contexto específico de cada uma dentro do próprio "enunciado".
+- Se a imagem tiver marcadores como "Parte 1 de 3", "Parte 2 de 3", etc., leia essas partes como sequência contínua da MESMA questão. Não trate cada parte como nova questão só por causa do marcador.
+- Se houver quebra entre partes sequenciais, junte o texto na ordem visual de cima para baixo.
+
 REGRAS CRÍTICAS DE TRANSCRIÇÃO:
 - NÃO invente texto, números ou símbolos que não estejam legíveis. Se um trecho estiver ilegível, escreva "[ilegível]" no local e adicione à lista "baixa_confianca".
-- Se a imagem tiver marcadores como "Parte 1 de 3", "Parte 2 de 3", etc., leia essas partes como sequência contínua da mesma questão/referência. Não trate cada parte como uma nova questão apenas por causa do marcador.
-- Se houver quebra entre partes sequenciais, junte o texto na ordem visual de cima para baixo.
-- Se houver um texto, imagem, tabela ou comando que vale para vários itens, coloque isso em "referencia_texto" e NÃO repita em cada "enunciado".
-- Em itens de julgamento como "julgue os próximos itens", use tipo "certo_errado", alternativas [] e crie uma questão para cada item numerado.
-- Se houver vários itens numerados (ex: 86, 87, 88), cada item deve virar um objeto próprio em "questoes".
-- Se houver apenas uma questão, retorne "questoes" com um único objeto.
 - Preserve equações usando notação LaTeX entre cifrões: $x^2 + 2x$ inline, ou $$\\frac{a}{b}$$ em linha separada.
 - Use letras gregas em LaTeX: $\\alpha$, $\\pi$, $\\Delta$.
 - Frações: $\\frac{numerador}{denominador}$. Potências: $x^{2}$. Índices: $H_{2}O$. Raízes: $\\sqrt{x}$.
