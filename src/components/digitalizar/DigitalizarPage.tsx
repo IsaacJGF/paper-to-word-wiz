@@ -468,6 +468,16 @@ export function DigitalizarPage() {
             onDigitize={onDigitize}
           />
         ) : (
+          <>
+            {!pdfFile && pdfQueue.length > 0 && (
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+                <div>
+                  <p className="font-semibold">Fila guardada com {pdfQueue.length} lote(s){savedPdfMeta ? ` do arquivo "${savedPdfMeta.fileName}"` : ""}.</p>
+                  <p className="mt-1 text-xs">Os lotes já processados continuam disponíveis para revisão abaixo. Para processar lotes pendentes ou reprocessar, reenvie o mesmo PDF — a fila será mantida.</p>
+                </div>
+                <Button type="button" variant="ghost" size="sm" onClick={clearPdfQueue}>Descartar fila</Button>
+              </div>
+            )}
           <PdfUploadPanel
             steps={pdfSteps}
             pdfInfo={pdfInfo}
