@@ -340,6 +340,7 @@ export function DigitalizarPage() {
   const clearPdfQueue = () => {
     setAndStorePdfQueue([]);
     clearPdfQueueStorage();
+    setSavedPdfMeta(null);
     toast.success("Fila de PDF limpa.");
   };
 
