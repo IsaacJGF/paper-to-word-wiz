@@ -1,18 +1,34 @@
 import { PDF_QUEUE_KEY, type PdfQueueJob } from "./types";
 
+const PDF_FILE_META_KEY = "digitalizador.pdfMeta";
+
+export type PdfFileMeta = {
+  fileName: string;
+  fileSize: number;
+  pageCount: number;
+};
+
+// Use localStorage so a fila sobrevive a navegações, refresh e fechamento de aba.
+function safeStorage() {
+  if (typeof window === "undefined") return null;
+  try { return window.localStorage; } catch { return null; }
+}
+
 export function persistPdfQueue(queue: PdfQueueJob[]) {
-  if (typeof window === "undefined") return;
+  const store = safeStorage();
+  if (!store) return;
   try {
-    sessionStorage.setItem(PDF_QUEUE_KEY, JSON.stringify(queue));
+    store.setItem(PDF_QUEUE_KEY, JSON.stringify(queue));
   } catch (error) {
-    console.warn("Não foi possível guardar a fila temporária do PDF:", error);
+    console.warn("Não foi possível guardar a fila do PDF:", error);
   }
 }
 
 export function loadPdfQueue(): PdfQueueJob[] {
-  if (typeof window === "undefined") return [];
+  const store = safeStorage();
+  if (!store) return [];
   try {
-    const raw = sessionStorage.getItem(PDF_QUEUE_KEY);
+    const raw = store.getItem(PDF_QUEUE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as PdfQueueJob[];
     if (!Array.isArray(parsed)) return [];
@@ -25,6 +41,33 @@ export function loadPdfQueue(): PdfQueueJob[] {
 }
 
 export function clearPdfQueueStorage() {
-  if (typeof window === "undefined") return;
-  try { sessionStorage.removeItem(PDF_QUEUE_KEY); } catch {}
+  const store = safeStorage();
+  if (!store) return;
+  try {
+    store.removeItem(PDF_QUEUE_KEY);
+    store.removeItem(PDF_FILE_META_KEY);
+  } catch {}
+}
+
+export function persistPdfFileMeta(meta: PdfFileMeta) {
+  const store = safeStorage();
+  if (!store) return;
+  try { store.setItem(PDF_FILE_META_KEY, JSON.stringify(meta)); } catch {}
+}
+
+export function loadPdfFileMeta(): PdfFileMeta | null {
+  const store = safeStorage();
+  if (!store) return null;
+  try {
+    const raw = store.getItem(PDF_FILE_META_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PdfFileMeta;
+    if (!parsed?.fileName || typeof parsed.fileSize !== "number") return null;
+    return parsed;
+  } catch { return null; }
+}
+
+export function isSamePdfFile(a: PdfFileMeta | null, b: PdfFileMeta | null) {
+  if (!a || !b) return false;
+  return a.fileName === b.fileName && a.fileSize === b.fileSize && a.pageCount === b.pageCount;
 }
