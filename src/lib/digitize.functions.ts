@@ -139,7 +139,7 @@ export const digitizeQuestion = createServerFn({ method: "POST" })
         apiKey,
         model: "google/gemini-2.5-flash",
         systemPrompt: SYSTEM,
-        userText: "Digitalize esta questão seguindo as regras do sistema. Preserve a formatação visual básica quando ela estiver clara. Se a imagem tiver partes sequenciais, leia de cima para baixo e una o conteúdo na ordem correta. Sugira também a classificação pedagógica quando houver evidência suficiente.",
+        userText: "Digitalize esta imagem seguindo as regras do sistema. ATENÇÃO: a imagem pode conter MÚLTIPLAS questões independentes — identifique cada uma pelo número/identificador e crie um objeto separado em 'questoes' para cada uma. Não combine questões diferentes em um só objeto. Preserve a formatação visual quando clara. Se houver partes sequenciais da mesma questão, leia de cima para baixo e una o conteúdo. Sugira também a classificação pedagógica quando houver evidência suficiente.",
         imageDataUrl: data.imageDataUrl,
       });
 
