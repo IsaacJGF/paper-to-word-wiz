@@ -9,7 +9,7 @@ import { formatFileSize, isPdfFile, pageRange, readPdfDocumentSummary, renderPdf
 import { toast } from "sonner";
 import { ImageUploadPanel } from "./ImageUploadPanel";
 import { PdfUploadPanel } from "./PdfUploadPanel";
-import { clearPdfQueueStorage, loadPdfQueue, persistPdfQueue } from "./storage";
+import { clearPdfQueueStorage, isSamePdfFile, loadPdfFileMeta, loadPdfQueue, persistPdfFileMeta, persistPdfQueue, type PdfFileMeta } from "./storage";
 import {
   MAX_FILES,
   MAX_PDF_PAGES,
@@ -56,6 +56,7 @@ export function DigitalizarPage() {
   const [pdfDigitizing, setPdfDigitizing] = useState(false);
   const [renderedPdfImage, setRenderedPdfImage] = useState<PdfRenderedImage | null>(null);
   const [pdfQueue, setPdfQueue] = useState<PdfQueueJob[]>(() => loadPdfQueue());
+  const [savedPdfMeta, setSavedPdfMeta] = useState<PdfFileMeta | null>(() => loadPdfFileMeta());
   const [activeQueueJobId, setActiveQueueJobId] = useState<string | null>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
@@ -128,16 +129,26 @@ export function DigitalizarPage() {
     setPdfFile(null);
     setSelectedPdfPages(new Set());
     setRenderedPdfImage(null);
-    setPdfQueue([]);
-    clearPdfQueueStorage();
     try {
       const summary = await readPdfDocumentSummary(file, { maxPages: MAX_PDF_PAGES });
+      const meta: PdfFileMeta = { fileName: summary.fileName, fileSize: summary.fileSize, pageCount: summary.pageCount };
+      const matchesSaved = isSamePdfFile(savedPdfMeta, meta);
+
+      // Só apaga a fila se for um PDF diferente. Reenviar o mesmo arquivo continua a fila.
+      if (!matchesSaved) {
+        setPdfQueue([]);
+        clearPdfQueueStorage();
+      }
+      persistPdfFileMeta(meta);
+      setSavedPdfMeta(meta);
       setPdfFile(file);
       setPdfInfo(summary);
       setSelectedPdfPages(new Set([1]));
       setRangeStart("1");
       setRangeEnd("1");
-      if (summary.isOverPageLimit) {
+      if (matchesSaved && pdfQueue.length > 0) {
+        toast.success(`PDF reconectado. Fila com ${pdfQueue.length} lote(s) mantida.`);
+      } else if (summary.isOverPageLimit) {
         toast.warning(`PDF lido com ${summary.pageCount} páginas. Neste fluxo, vamos preparar até ${MAX_PDF_PAGES} páginas para seleção.`);
       } else {
         toast.success(`PDF lido: ${summary.pageCount} página${summary.pageCount > 1 ? "s" : ""}.`);
@@ -149,7 +160,7 @@ export function DigitalizarPage() {
       setPdfLoading(false);
       if (pdfInputRef.current) pdfInputRef.current.value = "";
     }
-  }, []);
+  }, [savedPdfMeta, pdfQueue.length]);
 
   const removeImage = (index: number) => {
     setImages((current) => {
@@ -329,6 +340,7 @@ export function DigitalizarPage() {
   const clearPdfQueue = () => {
     setAndStorePdfQueue([]);
     clearPdfQueueStorage();
+    setSavedPdfMeta(null);
     toast.success("Fila de PDF limpa.");
   };
 
@@ -456,6 +468,16 @@ export function DigitalizarPage() {
             onDigitize={onDigitize}
           />
         ) : (
+          <>
+            {!pdfFile && pdfQueue.length > 0 && (
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+                <div>
+                  <p className="font-semibold">Fila guardada com {pdfQueue.length} lote(s){savedPdfMeta ? ` do arquivo "${savedPdfMeta.fileName}"` : ""}.</p>
+                  <p className="mt-1 text-xs">Os lotes já processados continuam disponíveis para revisão abaixo. Para processar lotes pendentes ou reprocessar, reenvie o mesmo PDF — a fila será mantida.</p>
+                </div>
+                <Button type="button" variant="ghost" size="sm" onClick={clearPdfQueue}>Descartar fila</Button>
+              </div>
+            )}
           <PdfUploadPanel
             steps={pdfSteps}
             pdfInfo={pdfInfo}
@@ -489,6 +511,7 @@ export function DigitalizarPage() {
             onOpenMassQueueReview={openMassQueueReview}
             onClearQueue={clearPdfQueue}
           />
+          </>
         )}
       </div>
     </AppLayout>
