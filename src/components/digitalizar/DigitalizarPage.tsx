@@ -81,10 +81,11 @@ export function DigitalizarPage() {
     const saved = saveDraft(draft);
     if (!saved) {
       toast.error("Não foi possível preparar a revisão. Tente reduzir o lote ou revisar menos páginas por vez.");
-      return;
+      return false;
     }
     if (successMessage) toast.success(successMessage);
     navigate({ to: "/revisar" });
+    return true;
   };
 
   const handleFiles = useCallback((list: FileList | File[] | undefined | null) => {
