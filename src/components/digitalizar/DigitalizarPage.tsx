@@ -9,6 +9,7 @@ import { formatFileSize, isPdfFile, pageRange, readPdfDocumentSummary, renderPdf
 import { toast } from "sonner";
 import { ImageUploadPanel } from "./ImageUploadPanel";
 import { PdfUploadPanel } from "./PdfUploadPanel";
+import { PdfQueuePanel } from "./PdfQueuePanel";
 import { clearPdfQueueStorage, isSamePdfFile, loadPdfFileMeta, loadPdfQueue, persistPdfFileMeta, persistPdfQueue, type PdfFileMeta } from "./storage";
 import {
   MAX_FILES,
@@ -38,7 +39,7 @@ import {
 
 export function DigitalizarPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<UploadMode>("image");
+  const [mode, setMode] = useState<UploadMode>(() => (loadPdfQueue().length > 0 ? "pdf" : "image"));
   const [images, setImages] = useState<SelectedImage[]>([]);
   const [rotation, setRotation] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -470,12 +471,25 @@ export function DigitalizarPage() {
         ) : (
           <>
             {!pdfFile && pdfQueue.length > 0 && (
-              <div className="mb-4 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-                <div>
-                  <p className="font-semibold">Fila guardada com {pdfQueue.length} lote(s){savedPdfMeta ? ` do arquivo "${savedPdfMeta.fileName}"` : ""}.</p>
-                  <p className="mt-1 text-xs">Os lotes já processados continuam disponíveis para revisão abaixo. Para processar lotes pendentes ou reprocessar, reenvie o mesmo PDF — a fila será mantida.</p>
+              <div className="mb-4 space-y-4">
+                <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+                  <div>
+                    <p className="font-semibold">Fila guardada com {pdfQueue.length} lote(s){savedPdfMeta ? ` do arquivo "${savedPdfMeta.fileName}"` : ""}.</p>
+                    <p className="mt-1 text-xs">Você pode abrir as revisões dos lotes já concluídos abaixo. Para processar lotes pendentes ou reprocessar com erro, reenvie o mesmo PDF — a fila será mantida.</p>
+                  </div>
+                  <Button type="button" variant="ghost" size="sm" onClick={clearPdfQueue}>Descartar fila</Button>
                 </div>
-                <Button type="button" variant="ghost" size="sm" onClick={clearPdfQueue}>Descartar fila</Button>
+                <PdfQueuePanel
+                  queue={pdfQueue}
+                  activeQueueJobId={activeQueueJobId}
+                  isBusy={false}
+                  canProcess={false}
+                  onProcessNext={processNextQueueJob}
+                  onProcessJob={(id) => { void processQueueJob(id); }}
+                  onOpenReview={openQueueJobReview}
+                  onOpenMassReview={openMassQueueReview}
+                  onClearQueue={clearPdfQueue}
+                />
               </div>
             )}
           <PdfUploadPanel
