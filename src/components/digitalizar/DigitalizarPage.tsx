@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { FileText, ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppLayout } from "@/components/AppLayout";
@@ -39,7 +39,7 @@ import {
 
 export function DigitalizarPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<UploadMode>(() => (loadPdfQueue().length > 0 ? "pdf" : "image"));
+  const [mode, setMode] = useState<UploadMode>("image");
   const [images, setImages] = useState<SelectedImage[]>([]);
   const [rotation, setRotation] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -56,10 +56,18 @@ export function DigitalizarPage() {
   const [pdfRendering, setPdfRendering] = useState(false);
   const [pdfDigitizing, setPdfDigitizing] = useState(false);
   const [renderedPdfImage, setRenderedPdfImage] = useState<PdfRenderedImage | null>(null);
-  const [pdfQueue, setPdfQueue] = useState<PdfQueueJob[]>(() => loadPdfQueue());
-  const [savedPdfMeta, setSavedPdfMeta] = useState<PdfFileMeta | null>(() => loadPdfFileMeta());
+  const [pdfQueue, setPdfQueue] = useState<PdfQueueJob[]>([]);
+  const [savedPdfMeta, setSavedPdfMeta] = useState<PdfFileMeta | null>(null);
   const [activeQueueJobId, setActiveQueueJobId] = useState<string | null>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const savedQueue = loadPdfQueue();
+    const savedMeta = loadPdfFileMeta();
+    setPdfQueue(savedQueue);
+    setSavedPdfMeta(savedMeta);
+    if (savedQueue.length > 0) setMode("pdf");
+  }, []);
 
   const setAndStorePdfQueue = (updater: PdfQueueJob[] | ((current: PdfQueueJob[]) => PdfQueueJob[])) => {
     setPdfQueue((current) => {
@@ -73,10 +81,11 @@ export function DigitalizarPage() {
     const saved = saveDraft(draft);
     if (!saved) {
       toast.error("Não foi possível preparar a revisão. Tente reduzir o lote ou revisar menos páginas por vez.");
-      return;
+      return false;
     }
     if (successMessage) toast.success(successMessage);
     navigate({ to: "/revisar" });
+    return true;
   };
 
   const handleFiles = useCallback((list: FileList | File[] | undefined | null) => {
@@ -405,8 +414,8 @@ export function DigitalizarPage() {
       toast.info("Esse lote ainda não tem resultado para revisar.");
       return;
     }
+    if (!saveDraftAndReview(job.result.draft)) return;
     markQueueJobsAsReviewed([jobId]);
-    saveDraftAndReview(job.result.draft);
   };
 
   const openMassQueueReview = () => {
@@ -416,8 +425,8 @@ export function DigitalizarPage() {
       return;
     }
     const draft = mergeQueueJobsIntoDraft(doneJobs);
+    if (!saveDraftAndReview(draft, `${draft.questoes.length} item${draft.questoes.length > 1 ? "s" : ""} enviado${draft.questoes.length > 1 ? "s" : ""} para revisão em massa.`)) return;
     markQueueJobsAsReviewed(doneJobs.map((job) => job.id));
-    saveDraftAndReview(draft, `${draft.questoes.length} item${draft.questoes.length > 1 ? "s" : ""} enviado${draft.questoes.length > 1 ? "s" : ""} para revisão em massa.`);
   };
 
   const markQueueJobsAsReviewed = (ids: string[]) => {
