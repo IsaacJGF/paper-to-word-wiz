@@ -104,5 +104,6 @@ function compactPdfQueue(queue: PdfQueueJob[]): PdfQueueJob[] {
 }
 
 function compactImage(value?: string | null) {
-  return value?.startsWith("data:image") ? undefined : value;
+  if (!value || value.startsWith("data:image")) return undefined;
+  return value;
 }
