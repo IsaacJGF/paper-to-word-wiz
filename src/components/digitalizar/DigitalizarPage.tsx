@@ -9,6 +9,7 @@ import { formatFileSize, isPdfFile, pageRange, readPdfDocumentSummary, renderPdf
 import { toast } from "sonner";
 import { ImageUploadPanel } from "./ImageUploadPanel";
 import { PdfUploadPanel } from "./PdfUploadPanel";
+import { PdfQueuePanel } from "./PdfQueuePanel";
 import { clearPdfQueueStorage, isSamePdfFile, loadPdfFileMeta, loadPdfQueue, persistPdfFileMeta, persistPdfQueue, type PdfFileMeta } from "./storage";
 import {
   MAX_FILES,
