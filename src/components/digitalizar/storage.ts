@@ -20,7 +20,11 @@ export function persistPdfQueue(queue: PdfQueueJob[]) {
   try {
     store.setItem(PDF_QUEUE_KEY, JSON.stringify(queue));
   } catch (error) {
-    console.warn("Não foi possível guardar a fila do PDF:", error);
+    try {
+      store.setItem(PDF_QUEUE_KEY, JSON.stringify(compactPdfQueue(queue)));
+    } catch (compactError) {
+      console.warn("Não foi possível guardar a fila do PDF:", compactError || error);
+    }
   }
 }
 
@@ -70,4 +74,35 @@ export function loadPdfFileMeta(): PdfFileMeta | null {
 export function isSamePdfFile(a: PdfFileMeta | null, b: PdfFileMeta | null) {
   if (!a || !b) return false;
   return a.fileName === b.fileName && a.fileSize === b.fileSize && a.pageCount === b.pageCount;
+}
+
+function compactPdfQueue(queue: PdfQueueJob[]): PdfQueueJob[] {
+  return queue.map((job) => {
+    if (!job.result) return job;
+    return {
+      ...job,
+      result: {
+        ...job.result,
+        imageDataUrl: "",
+        draft: {
+          ...job.result.draft,
+          imageDataUrl: undefined,
+          imageDataUrls: undefined,
+          referencia_imagem: compactImage(job.result.draft.referencia_imagem),
+          questoes: job.result.draft.questoes.map((question) => ({
+            ...question,
+            enunciado_imagem: compactImage(question.enunciado_imagem),
+            alternativas: question.alternativas.map((alternativa) => ({
+              ...alternativa,
+              imagem: compactImage(alternativa.imagem),
+            })),
+          })),
+        },
+      },
+    };
+  });
+}
+
+function compactImage(value?: string | null) {
+  return value?.startsWith("data:image") ? undefined : value;
 }
