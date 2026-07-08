@@ -39,7 +39,7 @@ import {
 
 export function DigitalizarPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<UploadMode>("image");
+  const [mode, setMode] = useState<UploadMode>(() => (loadPdfQueue().length > 0 ? "pdf" : "image"));
   const [images, setImages] = useState<SelectedImage[]>([]);
   const [rotation, setRotation] = useState(0);
   const [loading, setLoading] = useState(false);
