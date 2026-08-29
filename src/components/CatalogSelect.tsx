@@ -215,11 +215,24 @@ export function CatalogMultiSelect({
               })}
             </CommandGroup>
           </CommandList>
-          {selected.length > 0 && (
-            <div className="border-t p-2">
-              <button type="button" className="w-full rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted" onClick={clear}>
-                Limpar seleção
-              </button>
+          {(canCreate || selected.length > 0) && (
+            <div className="space-y-1 border-t p-2">
+              {canCreate && (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-primary hover:bg-muted disabled:opacity-60"
+                  onClick={() => void create()}
+                  disabled={creating}
+                >
+                  {creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                  {createLabel} “{term}” e salvar no catálogo
+                </button>
+              )}
+              {selected.length > 0 && (
+                <button type="button" className="w-full rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted" onClick={clear}>
+                  Limpar seleção
+                </button>
+              )}
             </div>
           )}
         </Command>
