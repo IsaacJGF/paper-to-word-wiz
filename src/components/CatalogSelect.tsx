@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Check, ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, Loader2, Plus, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -63,19 +64,45 @@ export function CatalogMultiSelect({
   options,
   placeholder = "Buscar e selecionar",
   emptyHint = "Nenhum item cadastrado.",
+  onCreate,
+  createLabel = "Criar",
 }: {
   values: string[];
   onChange: (v: string[]) => void;
   options: Option[];
   placeholder?: string;
   emptyHint?: string;
+  /** Cria o item no catálogo e retorna o nome salvo (ou null em caso de erro). */
+  onCreate?: (nome: string) => Promise<string | null>;
+  createLabel?: string;
 }) {
+  const [search, setSearch] = useState("");
+  const [creating, setCreating] = useState(false);
+
   const active = options.filter((o) => o.ativo || values.includes(o.nome));
   const selected = values.filter(Boolean);
   const selectedPreview = selected.slice(0, 2);
   const remaining = selected.length - selectedPreview.length;
 
-  if (active.length === 0 && selected.length === 0) {
+  const term = search.trim();
+  const canCreate =
+    Boolean(onCreate) &&
+    term.length > 0 &&
+    !options.some((o) => o.nome.trim().toLowerCase() === term.toLowerCase());
+
+  const create = async () => {
+    if (!onCreate || !canCreate || creating) return;
+    setCreating(true);
+    try {
+      const nome = await onCreate(term);
+      if (nome && !selected.includes(nome)) onChange([...selected, nome]);
+      if (nome) setSearch("");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  if (active.length === 0 && selected.length === 0 && !onCreate) {
     return (
       <div className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
         {emptyHint}{" "}
@@ -86,6 +113,7 @@ export function CatalogMultiSelect({
       </div>
     );
   }
+
 
   const toggle = (nome: string) => {
     onChange(selected.includes(nome) ? selected.filter((v) => v !== nome) : [...selected, nome]);
@@ -140,9 +168,33 @@ export function CatalogMultiSelect({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[min(520px,calc(100vw-2rem))] p-0">
         <Command>
-          <CommandInput placeholder="Buscar opção..." />
+          <CommandInput
+            placeholder={onCreate ? "Buscar ou digitar para criar..." : "Buscar opção..."}
+            value={search}
+            onValueChange={setSearch}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && canCreate) {
+                e.preventDefault();
+                void create();
+              }
+            }}
+          />
           <CommandList className="max-h-72">
-            <CommandEmpty>Nenhuma opção encontrada.</CommandEmpty>
+            <CommandEmpty>
+              {canCreate ? (
+                <button
+                  type="button"
+                  className="mx-auto flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-primary hover:bg-muted"
+                  onClick={() => void create()}
+                  disabled={creating}
+                >
+                  {creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                  {createLabel} “{term}”
+                </button>
+              ) : (
+                "Nenhuma opção encontrada."
+              )}
+            </CommandEmpty>
             <CommandGroup>
               {active.map((o) => {
                 const checked = selected.includes(o.nome);
@@ -163,11 +215,24 @@ export function CatalogMultiSelect({
               })}
             </CommandGroup>
           </CommandList>
-          {selected.length > 0 && (
-            <div className="border-t p-2">
-              <button type="button" className="w-full rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted" onClick={clear}>
-                Limpar seleção
-              </button>
+          {(canCreate || selected.length > 0) && (
+            <div className="space-y-1 border-t p-2">
+              {canCreate && (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-primary hover:bg-muted disabled:opacity-60"
+                  onClick={() => void create()}
+                  disabled={creating}
+                >
+                  {creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                  {createLabel} “{term}” e salvar no catálogo
+                </button>
+              )}
+              {selected.length > 0 && (
+                <button type="button" className="w-full rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted" onClick={clear}>
+                  Limpar seleção
+                </button>
+              )}
             </div>
           )}
         </Command>
