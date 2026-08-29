@@ -231,6 +231,31 @@ function Page() {
   const setRelacionadosSel = (next: string[]) => update("conteudos_relacionados", next);
   const setTagsSel = (next: string[]) => update("tags_livres", next);
 
+  const createCatalogItem = async (
+    table: "catalog_relacionados" | "catalog_tags",
+    nome: string,
+    setter: React.Dispatch<React.SetStateAction<CatalogItem[]>>,
+    current: CatalogItem[],
+  ): Promise<string | null> => {
+    const clean = nome.trim();
+    if (!clean) return null;
+    const existing = current.find((i) => i.nome.trim().toLowerCase() === clean.toLowerCase());
+    if (existing) return existing.nome;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
+      .from(table)
+      .insert({ nome: clean, ativo: true })
+      .select("*")
+      .single();
+    if (error || !data) {
+      toast.error("Não foi possível criar o item no catálogo.");
+      return null;
+    }
+    setter((prev) => [...prev, data as CatalogItem].sort((a, b) => a.nome.localeCompare(b.nome)));
+    toast.success(`"${clean}" adicionado ao catálogo.`);
+    return (data as CatalogItem).nome;
+  };
+
   const suggestMetadata = () => {
     if (areas.length === 0 && conteudos.length === 0 && subconteudos.length === 0) {
       toast.info("Cadastre itens em Catálogos para gerar sugestões.");
