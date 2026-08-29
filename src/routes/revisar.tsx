@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import {
   AlignCenter,
   AlignLeft,
@@ -234,7 +234,7 @@ function Page() {
   const createCatalogItem = async (
     table: "catalog_relacionados" | "catalog_tags",
     nome: string,
-    setter: React.Dispatch<React.SetStateAction<CatalogItem[]>>,
+    setter: Dispatch<SetStateAction<CatalogItem[]>>,
     current: CatalogItem[],
   ): Promise<string | null> => {
     const clean = nome.trim();
