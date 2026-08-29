@@ -634,6 +634,8 @@ function Page() {
                     values={relatedSelection}
                     onChange={setRelacionadosSel}
                     options={relacionados}
+                    onCreate={(nome) => createCatalogItem("catalog_relacionados", nome, setRelacionados, relacionados)}
+                    createLabel="Criar conteúdo relacionado"
                   />
                 </div>
 
@@ -643,6 +645,8 @@ function Page() {
                     values={tagSelection}
                     onChange={setTagsSel}
                     options={tagsCat}
+                    onCreate={(nome) => createCatalogItem("catalog_tags", nome, setTagsCat, tagsCat)}
+                    createLabel="Criar tag"
                   />
                 </div>
 
