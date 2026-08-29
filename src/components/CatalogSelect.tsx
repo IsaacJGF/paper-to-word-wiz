@@ -168,9 +168,33 @@ export function CatalogMultiSelect({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[min(520px,calc(100vw-2rem))] p-0">
         <Command>
-          <CommandInput placeholder="Buscar opção..." />
+          <CommandInput
+            placeholder={onCreate ? "Buscar ou digitar para criar..." : "Buscar opção..."}
+            value={search}
+            onValueChange={setSearch}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && canCreate) {
+                e.preventDefault();
+                void create();
+              }
+            }}
+          />
           <CommandList className="max-h-72">
-            <CommandEmpty>Nenhuma opção encontrada.</CommandEmpty>
+            <CommandEmpty>
+              {canCreate ? (
+                <button
+                  type="button"
+                  className="mx-auto flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-primary hover:bg-muted"
+                  onClick={() => void create()}
+                  disabled={creating}
+                >
+                  {creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                  {createLabel} “{term}”
+                </button>
+              ) : (
+                "Nenhuma opção encontrada."
+              )}
+            </CommandEmpty>
             <CommandGroup>
               {active.map((o) => {
                 const checked = selected.includes(o.nome);
