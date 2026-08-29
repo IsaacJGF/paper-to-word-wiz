@@ -64,19 +64,45 @@ export function CatalogMultiSelect({
   options,
   placeholder = "Buscar e selecionar",
   emptyHint = "Nenhum item cadastrado.",
+  onCreate,
+  createLabel = "Criar",
 }: {
   values: string[];
   onChange: (v: string[]) => void;
   options: Option[];
   placeholder?: string;
   emptyHint?: string;
+  /** Cria o item no catálogo e retorna o nome salvo (ou null em caso de erro). */
+  onCreate?: (nome: string) => Promise<string | null>;
+  createLabel?: string;
 }) {
+  const [search, setSearch] = useState("");
+  const [creating, setCreating] = useState(false);
+
   const active = options.filter((o) => o.ativo || values.includes(o.nome));
   const selected = values.filter(Boolean);
   const selectedPreview = selected.slice(0, 2);
   const remaining = selected.length - selectedPreview.length;
 
-  if (active.length === 0 && selected.length === 0) {
+  const term = search.trim();
+  const canCreate =
+    Boolean(onCreate) &&
+    term.length > 0 &&
+    !options.some((o) => o.nome.trim().toLowerCase() === term.toLowerCase());
+
+  const create = async () => {
+    if (!onCreate || !canCreate || creating) return;
+    setCreating(true);
+    try {
+      const nome = await onCreate(term);
+      if (nome && !selected.includes(nome)) onChange([...selected, nome]);
+      if (nome) setSearch("");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  if (active.length === 0 && selected.length === 0 && !onCreate) {
     return (
       <div className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
         {emptyHint}{" "}
@@ -87,6 +113,7 @@ export function CatalogMultiSelect({
       </div>
     );
   }
+
 
   const toggle = (nome: string) => {
     onChange(selected.includes(nome) ? selected.filter((v) => v !== nome) : [...selected, nome]);
