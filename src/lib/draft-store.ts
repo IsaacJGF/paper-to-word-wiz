@@ -1,5 +1,6 @@
 import { Alternativa as AlternativaBase, DigitalizacaoExtraida, QuestaoExtraida } from "@/lib/digitize.functions";
-import type { ImagePlacementLayout } from "@/lib/image-layout";
+import type { ExtraImage, ImagePlacementLayout } from "@/lib/image-layout";
+import { normalizeExtraImages } from "@/lib/image-layout";
 
 export type Alternativa = AlternativaBase & { imagem?: string };
 export type ReferenceImagePosition = "antes" | "entre" | "depois" | "livre";
@@ -22,6 +23,7 @@ export type DraftQuestion = Omit<QuestaoExtraida, "alternativas"> & {
   enunciado_imagem?: string;
   enunciado_imagem_pos?: "antes" | "depois" | "livre";
   enunciado_imagem_layout?: ImagePlacementLayout;
+  enunciado_imagens_extra?: ExtraImage[];
 };
 export type DraftDigitization = {
   referencia_texto: string;
@@ -29,11 +31,13 @@ export type DraftDigitization = {
   referencia_imagem?: string;
   referencia_imagem_pos?: ReferenceImagePosition;
   referencia_imagem_layout?: ImagePlacementLayout;
+  referencia_imagens_extra?: ExtraImage[];
   referencia_texto_apos?: string;
   imageDataUrl?: string;
   imageDataUrls?: string[];
   questoes: DraftQuestion[];
 };
+
 
 const KEY = "digitalizador.draft";
 
@@ -82,14 +86,18 @@ function compactDraftForStorage(q: DraftDigitization | DraftQuestion): DraftDigi
     compact.referencia_imagem_layout = undefined;
   }
 
+  compact.referencia_imagens_extra = dropLargeExtras(compact.referencia_imagens_extra);
+
   compact.questoes = compact.questoes.map((question) => ({
     ...question,
     enunciado_imagem: isLargeDataUrl(question.enunciado_imagem) ? undefined : question.enunciado_imagem,
+    enunciado_imagens_extra: dropLargeExtras(question.enunciado_imagens_extra),
     alternativas: question.alternativas.map((alternativa) => ({
       ...alternativa,
       imagem: isLargeDataUrl(alternativa.imagem) ? undefined : alternativa.imagem,
     })),
   }));
+
 
   return compact;
 }
@@ -97,6 +105,12 @@ function compactDraftForStorage(q: DraftDigitization | DraftQuestion): DraftDigi
 function isLargeDataUrl(value?: string | null) {
   return Boolean(value?.startsWith("data:image") && value.length > 1_500_000);
 }
+
+function dropLargeExtras(extras?: ExtraImage[]) {
+  const list = (extras ?? []).filter((item) => !isLargeDataUrl(item.url));
+  return list.length > 0 ? list : undefined;
+}
+
 
 function normalizeDraft(draft: DraftDigitization | DraftQuestion): DraftDigitization {
   if ("questoes" in draft && Array.isArray(draft.questoes)) {
@@ -106,20 +120,24 @@ function normalizeDraft(draft: DraftDigitization | DraftQuestion): DraftDigitiza
       referencia_imagem: draft.referencia_imagem,
       referencia_imagem_pos: draft.referencia_imagem_pos,
       referencia_imagem_layout: draft.referencia_imagem_layout,
+      referencia_imagens_extra: normalizeExtraImages(draft.referencia_imagens_extra),
       referencia_texto_apos: draft.referencia_texto_apos ?? "",
       imageDataUrl: draft.imageDataUrl,
       imageDataUrls: Array.isArray(draft.imageDataUrls) ? draft.imageDataUrls.filter(Boolean) : undefined,
-      questoes: draft.questoes.length > 0 ? draft.questoes : [{
-        numero: "",
-        enunciado: "",
-        alternativas: [],
-        tipo: "discursiva",
-        resposta: "",
-        fonte: "",
-        tem_equacao: false,
-        tem_imagem: false,
-        baixa_confianca: [],
-      }],
+      questoes: draft.questoes.length > 0
+        ? draft.questoes.map((q) => ({ ...q, enunciado_imagens_extra: normalizeExtraImages(q.enunciado_imagens_extra) }))
+        : [{
+          numero: "",
+          enunciado: "",
+          alternativas: [],
+          tipo: "discursiva",
+          resposta: "",
+          fonte: "",
+          tem_equacao: false,
+          tem_imagem: false,
+          baixa_confianca: [],
+        }],
+
     };
   }
 

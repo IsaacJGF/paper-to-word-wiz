@@ -219,6 +219,7 @@ export type Database = {
           enunciado_imagem: string | null
           enunciado_imagem_layout: Json | null
           enunciado_imagem_pos: string | null
+          enunciado_imagens_extra: Json
           fonte: string | null
           grupo_id: string | null
           id: string
@@ -231,6 +232,7 @@ export type Database = {
           referencia_imagem: string | null
           referencia_imagem_layout: Json | null
           referencia_imagem_pos: string | null
+          referencia_imagens_extra: Json
           referencia_texto: string | null
           referencia_texto_apos: string | null
           resposta: string | null
@@ -256,6 +258,7 @@ export type Database = {
           enunciado_imagem?: string | null
           enunciado_imagem_layout?: Json | null
           enunciado_imagem_pos?: string | null
+          enunciado_imagens_extra?: Json
           fonte?: string | null
           grupo_id?: string | null
           id?: string
@@ -268,6 +271,7 @@ export type Database = {
           referencia_imagem?: string | null
           referencia_imagem_layout?: Json | null
           referencia_imagem_pos?: string | null
+          referencia_imagens_extra?: Json
           referencia_texto?: string | null
           referencia_texto_apos?: string | null
           resposta?: string | null
@@ -293,6 +297,7 @@ export type Database = {
           enunciado_imagem?: string | null
           enunciado_imagem_layout?: Json | null
           enunciado_imagem_pos?: string | null
+          enunciado_imagens_extra?: Json
           fonte?: string | null
           grupo_id?: string | null
           id?: string
@@ -305,6 +310,7 @@ export type Database = {
           referencia_imagem?: string | null
           referencia_imagem_layout?: Json | null
           referencia_imagem_pos?: string | null
+          referencia_imagens_extra?: Json
           referencia_texto?: string | null
           referencia_texto_apos?: string | null
           resposta?: string | null
