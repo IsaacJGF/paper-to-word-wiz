@@ -120,20 +120,24 @@ function normalizeDraft(draft: DraftDigitization | DraftQuestion): DraftDigitiza
       referencia_imagem: draft.referencia_imagem,
       referencia_imagem_pos: draft.referencia_imagem_pos,
       referencia_imagem_layout: draft.referencia_imagem_layout,
+      referencia_imagens_extra: normalizeExtraImages(draft.referencia_imagens_extra),
       referencia_texto_apos: draft.referencia_texto_apos ?? "",
       imageDataUrl: draft.imageDataUrl,
       imageDataUrls: Array.isArray(draft.imageDataUrls) ? draft.imageDataUrls.filter(Boolean) : undefined,
-      questoes: draft.questoes.length > 0 ? draft.questoes : [{
-        numero: "",
-        enunciado: "",
-        alternativas: [],
-        tipo: "discursiva",
-        resposta: "",
-        fonte: "",
-        tem_equacao: false,
-        tem_imagem: false,
-        baixa_confianca: [],
-      }],
+      questoes: draft.questoes.length > 0
+        ? draft.questoes.map((q) => ({ ...q, enunciado_imagens_extra: normalizeExtraImages(q.enunciado_imagens_extra) }))
+        : [{
+          numero: "",
+          enunciado: "",
+          alternativas: [],
+          tipo: "discursiva",
+          resposta: "",
+          fonte: "",
+          tem_equacao: false,
+          tem_imagem: false,
+          baixa_confianca: [],
+        }],
+
     };
   }
 
