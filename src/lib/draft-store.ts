@@ -86,14 +86,18 @@ function compactDraftForStorage(q: DraftDigitization | DraftQuestion): DraftDigi
     compact.referencia_imagem_layout = undefined;
   }
 
+  compact.referencia_imagens_extra = dropLargeExtras(compact.referencia_imagens_extra);
+
   compact.questoes = compact.questoes.map((question) => ({
     ...question,
     enunciado_imagem: isLargeDataUrl(question.enunciado_imagem) ? undefined : question.enunciado_imagem,
+    enunciado_imagens_extra: dropLargeExtras(question.enunciado_imagens_extra),
     alternativas: question.alternativas.map((alternativa) => ({
       ...alternativa,
       imagem: isLargeDataUrl(alternativa.imagem) ? undefined : alternativa.imagem,
     })),
   }));
+
 
   return compact;
 }
