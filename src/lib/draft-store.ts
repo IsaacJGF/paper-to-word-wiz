@@ -1,5 +1,6 @@
 import { Alternativa as AlternativaBase, DigitalizacaoExtraida, QuestaoExtraida } from "@/lib/digitize.functions";
-import type { ImagePlacementLayout } from "@/lib/image-layout";
+import type { ExtraImage, ImagePlacementLayout } from "@/lib/image-layout";
+import { normalizeExtraImages } from "@/lib/image-layout";
 
 export type Alternativa = AlternativaBase & { imagem?: string };
 export type ReferenceImagePosition = "antes" | "entre" | "depois" | "livre";
@@ -22,6 +23,7 @@ export type DraftQuestion = Omit<QuestaoExtraida, "alternativas"> & {
   enunciado_imagem?: string;
   enunciado_imagem_pos?: "antes" | "depois" | "livre";
   enunciado_imagem_layout?: ImagePlacementLayout;
+  enunciado_imagens_extra?: ExtraImage[];
 };
 export type DraftDigitization = {
   referencia_texto: string;
@@ -29,11 +31,13 @@ export type DraftDigitization = {
   referencia_imagem?: string;
   referencia_imagem_pos?: ReferenceImagePosition;
   referencia_imagem_layout?: ImagePlacementLayout;
+  referencia_imagens_extra?: ExtraImage[];
   referencia_texto_apos?: string;
   imageDataUrl?: string;
   imageDataUrls?: string[];
   questoes: DraftQuestion[];
 };
+
 
 const KEY = "digitalizador.draft";
 
