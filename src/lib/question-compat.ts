@@ -51,7 +51,6 @@ const OPTIONAL_INSERT_COLUMNS = [
   "enunciado_imagem_pos",
   "enunciado_imagem_layout",
   "enunciado_imagens_extra",
-
   "area_geral",
   "conteudo_principal",
   "subconteudo_principal",
