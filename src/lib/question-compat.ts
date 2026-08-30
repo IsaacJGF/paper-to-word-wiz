@@ -83,10 +83,13 @@ const DOCUMENT_SELECT_COLUMNS = [
   "referencia_imagem",
   "referencia_imagem_pos",
   "referencia_imagem_layout",
+  "referencia_imagens_extra",
   "referencia_texto_apos",
   "enunciado_imagem",
   "enunciado_imagem_pos",
   "enunciado_imagem_layout",
+  "enunciado_imagens_extra",
+
   "prova",
   "instituicao",
   "ano",
