@@ -106,6 +106,12 @@ function isLargeDataUrl(value?: string | null) {
   return Boolean(value?.startsWith("data:image") && value.length > 1_500_000);
 }
 
+function dropLargeExtras(extras?: ExtraImage[]) {
+  const list = (extras ?? []).filter((item) => !isLargeDataUrl(item.url));
+  return list.length > 0 ? list : undefined;
+}
+
+
 function normalizeDraft(draft: DraftDigitization | DraftQuestion): DraftDigitization {
   if ("questoes" in draft && Array.isArray(draft.questoes)) {
     return {
