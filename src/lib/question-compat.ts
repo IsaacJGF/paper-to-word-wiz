@@ -89,7 +89,6 @@ const DOCUMENT_SELECT_COLUMNS = [
   "enunciado_imagem_pos",
   "enunciado_imagem_layout",
   "enunciado_imagens_extra",
-
   "prova",
   "instituicao",
   "ano",
