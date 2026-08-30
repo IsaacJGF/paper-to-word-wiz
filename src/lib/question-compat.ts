@@ -29,10 +29,13 @@ export type DocumentQuestion = {
   referencia_imagem: string | null;
   referencia_imagem_pos: string | null;
   referencia_imagem_layout: ImagePlacementLayout | null;
+  referencia_imagens_extra: ExtraImage[];
   referencia_texto_apos: string | null;
   enunciado_imagem: string | null;
   enunciado_imagem_pos: string | null;
   enunciado_imagem_layout: ImagePlacementLayout | null;
+  enunciado_imagens_extra: ExtraImage[];
+
   prova: string | null;
   instituicao: string | null;
   ano: string | null;
@@ -42,10 +45,13 @@ const OPTIONAL_INSERT_COLUMNS = [
   "referencia_imagem",
   "referencia_imagem_pos",
   "referencia_imagem_layout",
+  "referencia_imagens_extra",
   "referencia_texto_apos",
   "enunciado_imagem",
   "enunciado_imagem_pos",
   "enunciado_imagem_layout",
+  "enunciado_imagens_extra",
+
   "area_geral",
   "conteudo_principal",
   "subconteudo_principal",
