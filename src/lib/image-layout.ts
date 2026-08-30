@@ -31,6 +31,36 @@ export const DEFAULT_REFERENCE_IMAGE_BLOCK_LAYOUT: ImagePlacementLayout = {
   mode: "block",
 };
 
+export type ExtraImagePosition = "antes" | "entre" | "depois";
+
+export type ExtraImage = {
+  url: string;
+  layout: ImagePlacementLayout;
+  pos: ExtraImagePosition;
+};
+
+export function normalizeExtraImage(value: unknown): ExtraImage | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Partial<ExtraImage> & { layout?: Partial<ImagePlacementLayout> | null };
+  const url = typeof raw.url === "string" ? raw.url : "";
+  if (!url) return null;
+  return {
+    url,
+    layout: normalizeImagePlacementLayout({
+      ...DEFAULT_REFERENCE_IMAGE_BLOCK_LAYOUT,
+      ...(raw.layout ?? {}),
+      mode: "block",
+    }),
+    pos: raw.pos === "antes" || raw.pos === "entre" ? raw.pos : "depois",
+  };
+}
+
+export function normalizeExtraImages(value: unknown): ExtraImage[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(normalizeExtraImage).filter((item): item is ExtraImage => Boolean(item));
+}
+
+
 export function normalizeImagePlacementLayout(value?: Partial<ImagePlacementLayout> | null): ImagePlacementLayout {
   const base = { ...DEFAULT_IMAGE_PLACEMENT_LAYOUT, ...(value ?? {}) };
   const width = clampNumber(base.width, 8, 95);
