@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
-import type { ImagePlacementLayout } from "@/lib/image-layout";
+import { normalizeExtraImages, type ExtraImage, type ImagePlacementLayout } from "@/lib/image-layout";
+
 
 export type QuestionInsertRow = Record<string, unknown>;
 
