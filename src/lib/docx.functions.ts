@@ -27,7 +27,7 @@ import {
   UnderlineType,
   WidthType,
 } from "docx";
-import { normalizeImagePlacementLayout, type ImagePlacementLayout } from "@/lib/image-layout";
+import { normalizeExtraImages, normalizeImagePlacementLayout, type ExtraImagePosition, type ImagePlacementLayout } from "@/lib/image-layout";
 import { parseRichInlines, parseRichText, type RichAlign, type RichBlock, type RichInline } from "@/lib/rich-text";
 
 const Alt = z.object({ letra: z.string(), texto: z.string(), imagem: z.string().nullable().optional() });
