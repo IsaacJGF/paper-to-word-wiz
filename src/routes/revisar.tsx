@@ -237,6 +237,16 @@ function Page() {
   const setRelacionadosSel = (next: string[]) => update("conteudos_relacionados", next);
   const setTagsSel = (next: string[]) => update("tags_livres", next);
 
+  const referenceExtras = normalizeExtraImages(draft.referencia_imagens_extra);
+  const statementExtras = normalizeExtraImages(active.enunciado_imagens_extra);
+
+  const setReferenceExtras = (images: ExtraImage[]) => {
+    setDraft((current) => (current ? { ...current, referencia_imagens_extra: images } : current));
+  };
+  const setStatementExtras = (images: ExtraImage[]) => {
+    updateQuestion(activeIndex, (q) => ({ ...q, enunciado_imagens_extra: images }));
+  };
+
   const createCatalogItem = async (
     table: "catalog_relacionados" | "catalog_tags",
     nome: string,
