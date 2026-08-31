@@ -45,10 +45,12 @@ const QInput = z.object({
   referencia_imagem_pos: z.string().nullable().optional(),
   referencia_imagem_layout: ImagePlacement,
   referencia_texto_apos: z.string().nullable().optional(),
+  referencia_imagens_extra: z.any().nullable().optional(),
   grupo_id: z.string().nullable().optional(),
   enunciado_imagem: z.string().nullable().optional(),
   enunciado_imagem_pos: z.string().nullable().optional(),
   enunciado_imagem_layout: ImagePlacement,
+  enunciado_imagens_extra: z.any().nullable().optional(),
 });
 
 const Input = z.object({
