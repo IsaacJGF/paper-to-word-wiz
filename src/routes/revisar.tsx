@@ -751,7 +751,11 @@ function Page() {
         open={!!cropTarget}
         imageUrl={cropImageSources[0]?.url ?? draft.imageDataUrl}
         imageSources={cropImageSources}
-        title={cropTarget?.kind === "referencia" ? "Inserir imagem na referência" : cropTarget?.kind === "alt" ? `Inserir imagem na alternativa ${active.alternativas[cropTarget.index]?.letra ?? ""}` : "Inserir imagem no enunciado"}
+        title={cropTarget?.kind === "referencia" || cropTarget?.kind === "ref-extra"
+          ? "Inserir imagem na referência"
+          : cropTarget?.kind === "alt"
+            ? `Inserir imagem na alternativa ${active.alternativas[cropTarget.index]?.letra ?? ""}`
+            : "Inserir imagem no enunciado"}
         onCancel={() => setCropTarget(null)}
         onConfirm={(dataUrl) => {
           if (!cropTarget) return;
@@ -759,6 +763,11 @@ function Page() {
             setDraft((current) => current
               ? applyReferenceImageToDraft(current, dataUrl, cropTarget.cursor ?? referenceCursor, cropTarget.replace)
               : current);
+          } else if (cropTarget.kind === "ref-extra") {
+            const next = upsertExtraImage(referenceExtras, dataUrl, cropTarget.index);
+            setReferenceExtras(next);
+          } else if (cropTarget.kind === "enun-extra") {
+            setStatementExtras(upsertExtraImage(statementExtras, dataUrl, cropTarget.index));
           } else if (cropTarget.kind === "enunciado") {
             updateQuestion(activeIndex, (q) => ({
               ...q,
