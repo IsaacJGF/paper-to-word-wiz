@@ -514,8 +514,10 @@ export const generateDocx = createServerFn({ method: "POST" })
         : null;
       if (freeEnunciadoImg) children.push(freeEnunciadoImg);
       if (enunciadoImg && q.enunciado_imagem_pos === "antes") children.push(enunciadoImg);
+      children.push(...extrasAt(statementExtras, "antes"));
       children.push(...richChildrenFromText(q.enunciado, { size, spacingAfter: 120 }));
       if (enunciadoImg && q.enunciado_imagem_pos !== "antes") children.push(enunciadoImg);
+      children.push(...extrasAt(statementExtras, "entre"), ...extrasAt(statementExtras, "depois"));
       q.alternativas.forEach((a) => {
         children.push(new Paragraph({
           alignment: AlignmentType.LEFT,
