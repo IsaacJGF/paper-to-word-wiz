@@ -466,7 +466,7 @@ export const generateDocx = createServerFn({ method: "POST" })
     // Questions
     questions.forEach((q, idx) => {
       const n = idx + 1;
-      const hasReference = Boolean(q.referencia_texto || q.referencia_texto_apos || q.referencia_imagem);
+      const hasReference = Boolean(q.referencia_texto || q.referencia_texto_apos || q.referencia_imagem || normalizeExtraImages(q.referencia_imagens_extra).length > 0);
       const referenceKey = q.grupo_id || [q.referencia_texto, q.referencia_texto_apos, q.referencia_imagem, JSON.stringify(q.referencia_imagem_layout ?? null)].filter(Boolean).join("|");
       const shouldRenderReference = hasReference && referenceKey !== previousReferenceKey;
       const referenceExtras = normalizeExtraImages(q.referencia_imagens_extra);
