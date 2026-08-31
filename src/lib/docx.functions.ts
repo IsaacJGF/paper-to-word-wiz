@@ -482,14 +482,17 @@ export const generateDocx = createServerFn({ method: "POST" })
         const imagePos = q.referencia_imagem_pos ?? "depois";
         const imageIsFloating = Boolean(q.referencia_imagem_layout && normalizeImagePlacementLayout(q.referencia_imagem_layout as Partial<ImagePlacementLayout>).mode !== "block");
         if (referenceImage && (imageIsFloating || imagePos === "antes")) children.push(referenceImage);
+        children.push(...extrasAt(referenceExtras, "antes"));
         if (q.referencia_texto) {
           children.push(...richChildrenFromText(q.referencia_texto, { size, spacingAfter: 100 }));
         }
         if (referenceImage && !imageIsFloating && imagePos === "entre") children.push(referenceImage);
+        children.push(...extrasAt(referenceExtras, "entre"));
         if (q.referencia_texto_apos) {
           children.push(...richChildrenFromText(q.referencia_texto_apos, { size, spacingAfter: 100 }));
         }
         if (referenceImage && !imageIsFloating && imagePos !== "antes" && imagePos !== "entre") children.push(referenceImage);
+        children.push(...extrasAt(referenceExtras, "depois"));
         if (q.referencia_fonte) {
           children.push(paragraphFromText(q.referencia_fonte, { size: size - 2, align: AlignmentType.RIGHT, spacingAfter: 180 }));
         }
