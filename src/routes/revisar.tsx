@@ -37,11 +37,15 @@ import { ImageCropDialog, type ImageCropSource } from "@/components/ImageCropDia
 import { ImageLayoutEditor } from "@/components/ImageLayoutEditor";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { CatalogSelect, CatalogMultiSelect } from "@/components/CatalogSelect";
+import { ExtraImagesEditor } from "@/components/ExtraImagesEditor";
 import { loadDraft, clearDraft, LETRAS, reletter, DraftDigitization, DraftQuestion } from "@/lib/draft-store";
 import {
   DEFAULT_IMAGE_PLACEMENT_LAYOUT,
   DEFAULT_REFERENCE_IMAGE_BLOCK_LAYOUT,
+  normalizeExtraImage,
   normalizeImagePlacementLayout,
+  normalizeExtraImages,
+  type ExtraImage,
   type ImagePlacementAlign,
   type ImagePlacementLayout,
 } from "@/lib/image-layout";
@@ -57,6 +61,8 @@ type SharedMetadataKey = "ano" | "prova" | "instituicao";
 type CropTarget =
   | { kind: "referencia"; cursor?: ReferenceCursor; replace?: boolean; currentImage?: string }
   | { kind: "enunciado"; currentImage?: string }
+  | { kind: "ref-extra"; index?: number; currentImage?: string }
+  | { kind: "enun-extra"; index?: number; currentImage?: string }
   | { kind: "alt"; index: number; currentImage?: string };
 
 export const Route = createFileRoute("/revisar")({
@@ -231,6 +237,16 @@ function Page() {
   const setRelacionadosSel = (next: string[]) => update("conteudos_relacionados", next);
   const setTagsSel = (next: string[]) => update("tags_livres", next);
 
+  const referenceExtras = normalizeExtraImages(draft.referencia_imagens_extra);
+  const statementExtras = normalizeExtraImages(active.enunciado_imagens_extra);
+
+  const setReferenceExtras = (images: ExtraImage[]) => {
+    setDraft((current) => (current ? { ...current, referencia_imagens_extra: images } : current));
+  };
+  const setStatementExtras = (images: ExtraImage[]) => {
+    updateQuestion(activeIndex, (q) => ({ ...q, enunciado_imagens_extra: images }));
+  };
+
   const createCatalogItem = async (
     table: "catalog_relacionados" | "catalog_tags",
     nome: string,
@@ -379,13 +395,20 @@ function Page() {
         referencia_imagem_pos: referenceImagePos,
         referencia_imagem_layout: referenceImageLayout,
         referencia_texto_apos: draft.referencia_texto_apos || null,
+        referencia_imagens_extra: normalizeExtraImages(draft.referencia_imagens_extra),
         grupo_id: grupoId,
         tem_equacao: q.tem_equacao,
-        tem_imagem: q.tem_imagem || !!draft.referencia_imagem || !!q.enunciado_imagem || q.alternativas.some((a) => !!a.imagem),
+        tem_imagem: q.tem_imagem
+          || !!draft.referencia_imagem
+          || !!q.enunciado_imagem
+          || normalizeExtraImages(draft.referencia_imagens_extra).length > 0
+          || normalizeExtraImages(q.enunciado_imagens_extra).length > 0
+          || q.alternativas.some((a) => !!a.imagem),
         imagem_original_url: draft.imageDataUrl ?? null,
         enunciado_imagem: q.enunciado_imagem ?? null,
         enunciado_imagem_pos: q.enunciado_imagem ? "livre" : q.enunciado_imagem_pos ?? null,
         enunciado_imagem_layout: q.enunciado_imagem ? normalizeImagePlacementLayout(q.enunciado_imagem_layout) : null,
+        enunciado_imagens_extra: normalizeExtraImages(q.enunciado_imagens_extra),
       }));
       const { removedColumns } = await insertQuestionsWithCompatibility(rows);
       clearDraft();
@@ -466,6 +489,18 @@ function Page() {
               onImageLayoutChange={updateReferenceImageLayout}
             />
 
+            <div className="rounded-lg border p-3">
+              <ExtraImagesEditor
+                images={referenceExtras}
+                onChange={setReferenceExtras}
+                onAdd={() => setCropTarget({ kind: "ref-extra" })}
+                onReplace={(index) => setCropTarget({ kind: "ref-extra", index, currentImage: referenceExtras[index]?.url })}
+                label="Imagens adicionais da referência"
+                addLabel="Adicionar imagem"
+              />
+            </div>
+
+
             {draft.questoes.length > 1 && (
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {draft.questoes.map((q, i) => (
@@ -537,6 +572,17 @@ function Page() {
                 placeholder="Enunciado"
                 className="font-mono text-sm"
               />
+              <div className="mt-3">
+                <ExtraImagesEditor
+                  images={statementExtras}
+                  onChange={setStatementExtras}
+                  onAdd={() => setCropTarget({ kind: "enun-extra" })}
+                  onReplace={(index) => setCropTarget({ kind: "enun-extra", index, currentImage: statementExtras[index]?.url })}
+                  allowBetween={false}
+                  label="Imagens adicionais do enunciado"
+                  addLabel="Adicionar imagem"
+                />
+              </div>
             </div>
 
             {active.tipo === "multipla_escolha" && (
@@ -705,7 +751,11 @@ function Page() {
         open={!!cropTarget}
         imageUrl={cropImageSources[0]?.url ?? draft.imageDataUrl}
         imageSources={cropImageSources}
-        title={cropTarget?.kind === "referencia" ? "Inserir imagem na referência" : cropTarget?.kind === "alt" ? `Inserir imagem na alternativa ${active.alternativas[cropTarget.index]?.letra ?? ""}` : "Inserir imagem no enunciado"}
+        title={cropTarget?.kind === "referencia" || cropTarget?.kind === "ref-extra"
+          ? "Inserir imagem na referência"
+          : cropTarget?.kind === "alt"
+            ? `Inserir imagem na alternativa ${active.alternativas[cropTarget.index]?.letra ?? ""}`
+            : "Inserir imagem no enunciado"}
         onCancel={() => setCropTarget(null)}
         onConfirm={(dataUrl) => {
           if (!cropTarget) return;
@@ -713,6 +763,11 @@ function Page() {
             setDraft((current) => current
               ? applyReferenceImageToDraft(current, dataUrl, cropTarget.cursor ?? referenceCursor, cropTarget.replace)
               : current);
+          } else if (cropTarget.kind === "ref-extra") {
+            const next = upsertExtraImage(referenceExtras, dataUrl, cropTarget.index);
+            setReferenceExtras(next);
+          } else if (cropTarget.kind === "enun-extra") {
+            setStatementExtras(upsertExtraImage(statementExtras, dataUrl, cropTarget.index));
           } else if (cropTarget.kind === "enunciado") {
             updateQuestion(activeIndex, (q) => ({
               ...q,
@@ -898,10 +953,25 @@ function getCropImageSources(draft: DraftDigitization, active: DraftQuestion, ta
   add("scan-full", "Imagem completa da digitalização", draft.imageDataUrl);
   add("reference-current", "Imagem atual da referência", draft.referencia_imagem);
   add("statement-current", "Imagem atual do enunciado", active.enunciado_imagem);
+  normalizeExtraImages(draft.referencia_imagens_extra).forEach((image, index) => {
+    add(`reference-extra-${index}`, `Imagem extra da referência ${index + 1}`, image.url);
+  });
+  normalizeExtraImages(active.enunciado_imagens_extra).forEach((image, index) => {
+    add(`statement-extra-${index}`, `Imagem extra do enunciado ${index + 1}`, image.url);
+  });
   active.alternativas.forEach((alt, index) => {
     add(`alternative-${index}`, `Imagem da alternativa ${alt.letra || index + 1}`, alt.imagem);
   });
   return sources;
+}
+
+function upsertExtraImage(images: ExtraImage[], url: string, index?: number): ExtraImage[] {
+  const created = normalizeExtraImage({ url, pos: "depois" });
+  if (!created) return images;
+  if (typeof index === "number" && images[index]) {
+    return images.map((image, i) => (i === index ? { ...image, url } : image));
+  }
+  return [...images, created];
 }
 
 function applyReferenceImageToDraft(current: DraftDigitization, dataUrl: string, cursor?: ReferenceCursor, replace?: boolean): DraftDigitization {

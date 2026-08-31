@@ -27,7 +27,7 @@ import {
   UnderlineType,
   WidthType,
 } from "docx";
-import { normalizeImagePlacementLayout, type ImagePlacementLayout } from "@/lib/image-layout";
+import { normalizeExtraImages, normalizeImagePlacementLayout, type ExtraImagePosition, type ImagePlacementLayout } from "@/lib/image-layout";
 import { parseRichInlines, parseRichText, type RichAlign, type RichBlock, type RichInline } from "@/lib/rich-text";
 
 const Alt = z.object({ letra: z.string(), texto: z.string(), imagem: z.string().nullable().optional() });
@@ -45,10 +45,12 @@ const QInput = z.object({
   referencia_imagem_pos: z.string().nullable().optional(),
   referencia_imagem_layout: ImagePlacement,
   referencia_texto_apos: z.string().nullable().optional(),
+  referencia_imagens_extra: z.any().nullable().optional(),
   grupo_id: z.string().nullable().optional(),
   enunciado_imagem: z.string().nullable().optional(),
   enunciado_imagem_pos: z.string().nullable().optional(),
   enunciado_imagem_layout: ImagePlacement,
+  enunciado_imagens_extra: z.any().nullable().optional(),
 });
 
 const Input = z.object({
@@ -464,9 +466,15 @@ export const generateDocx = createServerFn({ method: "POST" })
     // Questions
     questions.forEach((q, idx) => {
       const n = idx + 1;
-      const hasReference = Boolean(q.referencia_texto || q.referencia_texto_apos || q.referencia_imagem);
+      const hasReference = Boolean(q.referencia_texto || q.referencia_texto_apos || q.referencia_imagem || normalizeExtraImages(q.referencia_imagens_extra).length > 0);
       const referenceKey = q.grupo_id || [q.referencia_texto, q.referencia_texto_apos, q.referencia_imagem, JSON.stringify(q.referencia_imagem_layout ?? null)].filter(Boolean).join("|");
       const shouldRenderReference = hasReference && referenceKey !== previousReferenceKey;
+      const referenceExtras = normalizeExtraImages(q.referencia_imagens_extra);
+      const statementExtras = normalizeExtraImages(q.enunciado_imagens_extra);
+      const extrasAt = (list: typeof referenceExtras, pos: ExtraImagePosition) => list
+        .filter((image) => image.pos === pos)
+        .map((image) => imageParagraph(image.url, CONTENT_WIDTH_PX, AlignmentType.CENTER, undefined, image.layout))
+        .filter((paragraph): paragraph is NonNullable<typeof paragraph> => Boolean(paragraph));
       if (shouldRenderReference) {
         const referenceImage = q.referencia_imagem
           ? imageParagraph(q.referencia_imagem, CONTENT_WIDTH_PX, AlignmentType.CENTER, undefined, q.referencia_imagem_layout)
@@ -474,14 +482,17 @@ export const generateDocx = createServerFn({ method: "POST" })
         const imagePos = q.referencia_imagem_pos ?? "depois";
         const imageIsFloating = Boolean(q.referencia_imagem_layout && normalizeImagePlacementLayout(q.referencia_imagem_layout as Partial<ImagePlacementLayout>).mode !== "block");
         if (referenceImage && (imageIsFloating || imagePos === "antes")) children.push(referenceImage);
+        children.push(...extrasAt(referenceExtras, "antes"));
         if (q.referencia_texto) {
           children.push(...richChildrenFromText(q.referencia_texto, { size, spacingAfter: 100 }));
         }
         if (referenceImage && !imageIsFloating && imagePos === "entre") children.push(referenceImage);
+        children.push(...extrasAt(referenceExtras, "entre"));
         if (q.referencia_texto_apos) {
           children.push(...richChildrenFromText(q.referencia_texto_apos, { size, spacingAfter: 100 }));
         }
         if (referenceImage && !imageIsFloating && imagePos !== "antes" && imagePos !== "entre") children.push(referenceImage);
+        children.push(...extrasAt(referenceExtras, "depois"));
         if (q.referencia_fonte) {
           children.push(paragraphFromText(q.referencia_fonte, { size: size - 2, align: AlignmentType.RIGHT, spacingAfter: 180 }));
         }
@@ -503,8 +514,10 @@ export const generateDocx = createServerFn({ method: "POST" })
         : null;
       if (freeEnunciadoImg) children.push(freeEnunciadoImg);
       if (enunciadoImg && q.enunciado_imagem_pos === "antes") children.push(enunciadoImg);
+      children.push(...extrasAt(statementExtras, "antes"));
       children.push(...richChildrenFromText(q.enunciado, { size, spacingAfter: 120 }));
       if (enunciadoImg && q.enunciado_imagem_pos !== "antes") children.push(enunciadoImg);
+      children.push(...extrasAt(statementExtras, "entre"), ...extrasAt(statementExtras, "depois"));
       q.alternativas.forEach((a) => {
         children.push(new Paragraph({
           alignment: AlignmentType.LEFT,
