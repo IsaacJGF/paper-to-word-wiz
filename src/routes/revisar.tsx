@@ -560,6 +560,17 @@ function Page() {
                 placeholder="Enunciado"
                 className="font-mono text-sm"
               />
+              <div className="mt-3">
+                <ExtraImagesEditor
+                  images={statementExtras}
+                  onChange={setStatementExtras}
+                  onAdd={() => setCropTarget({ kind: "enun-extra" })}
+                  onReplace={(index) => setCropTarget({ kind: "enun-extra", index, currentImage: statementExtras[index]?.url })}
+                  allowBetween={false}
+                  label="Imagens adicionais do enunciado"
+                  addLabel="Adicionar imagem"
+                />
+              </div>
             </div>
 
             {active.tipo === "multipla_escolha" && (
