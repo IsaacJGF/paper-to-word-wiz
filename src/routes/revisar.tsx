@@ -37,11 +37,15 @@ import { ImageCropDialog, type ImageCropSource } from "@/components/ImageCropDia
 import { ImageLayoutEditor } from "@/components/ImageLayoutEditor";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { CatalogSelect, CatalogMultiSelect } from "@/components/CatalogSelect";
+import { ExtraImagesEditor } from "@/components/ExtraImagesEditor";
 import { loadDraft, clearDraft, LETRAS, reletter, DraftDigitization, DraftQuestion } from "@/lib/draft-store";
 import {
   DEFAULT_IMAGE_PLACEMENT_LAYOUT,
   DEFAULT_REFERENCE_IMAGE_BLOCK_LAYOUT,
+  normalizeExtraImage,
   normalizeImagePlacementLayout,
+  normalizeExtraImages,
+  type ExtraImage,
   type ImagePlacementAlign,
   type ImagePlacementLayout,
 } from "@/lib/image-layout";
@@ -57,6 +61,8 @@ type SharedMetadataKey = "ano" | "prova" | "instituicao";
 type CropTarget =
   | { kind: "referencia"; cursor?: ReferenceCursor; replace?: boolean; currentImage?: string }
   | { kind: "enunciado"; currentImage?: string }
+  | { kind: "ref-extra"; index?: number; currentImage?: string }
+  | { kind: "enun-extra"; index?: number; currentImage?: string }
   | { kind: "alt"; index: number; currentImage?: string };
 
 export const Route = createFileRoute("/revisar")({
