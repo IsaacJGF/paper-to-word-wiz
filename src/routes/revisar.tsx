@@ -395,13 +395,20 @@ function Page() {
         referencia_imagem_pos: referenceImagePos,
         referencia_imagem_layout: referenceImageLayout,
         referencia_texto_apos: draft.referencia_texto_apos || null,
+        referencia_imagens_extra: normalizeExtraImages(draft.referencia_imagens_extra),
         grupo_id: grupoId,
         tem_equacao: q.tem_equacao,
-        tem_imagem: q.tem_imagem || !!draft.referencia_imagem || !!q.enunciado_imagem || q.alternativas.some((a) => !!a.imagem),
+        tem_imagem: q.tem_imagem
+          || !!draft.referencia_imagem
+          || !!q.enunciado_imagem
+          || normalizeExtraImages(draft.referencia_imagens_extra).length > 0
+          || normalizeExtraImages(q.enunciado_imagens_extra).length > 0
+          || q.alternativas.some((a) => !!a.imagem),
         imagem_original_url: draft.imageDataUrl ?? null,
         enunciado_imagem: q.enunciado_imagem ?? null,
         enunciado_imagem_pos: q.enunciado_imagem ? "livre" : q.enunciado_imagem_pos ?? null,
         enunciado_imagem_layout: q.enunciado_imagem ? normalizeImagePlacementLayout(q.enunciado_imagem_layout) : null,
+        enunciado_imagens_extra: normalizeExtraImages(q.enunciado_imagens_extra),
       }));
       const { removedColumns } = await insertQuestionsWithCompatibility(rows);
       clearDraft();
