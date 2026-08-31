@@ -475,7 +475,7 @@ export const generateDocx = createServerFn({ method: "POST" })
         .filter((image) => image.pos === pos)
         .map((image) => imageParagraph(image.url, CONTENT_WIDTH_PX, AlignmentType.CENTER, undefined, image.layout))
         .filter((paragraph): paragraph is NonNullable<typeof paragraph> => Boolean(paragraph));
-      if (shouldRenderReference || referenceExtras.length > 0) {
+      if (shouldRenderReference) {
         const referenceImage = q.referencia_imagem
           ? imageParagraph(q.referencia_imagem, CONTENT_WIDTH_PX, AlignmentType.CENTER, undefined, q.referencia_imagem_layout)
           : null;
