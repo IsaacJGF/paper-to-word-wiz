@@ -953,10 +953,25 @@ function getCropImageSources(draft: DraftDigitization, active: DraftQuestion, ta
   add("scan-full", "Imagem completa da digitalização", draft.imageDataUrl);
   add("reference-current", "Imagem atual da referência", draft.referencia_imagem);
   add("statement-current", "Imagem atual do enunciado", active.enunciado_imagem);
+  normalizeExtraImages(draft.referencia_imagens_extra).forEach((image, index) => {
+    add(`reference-extra-${index}`, `Imagem extra da referência ${index + 1}`, image.url);
+  });
+  normalizeExtraImages(active.enunciado_imagens_extra).forEach((image, index) => {
+    add(`statement-extra-${index}`, `Imagem extra do enunciado ${index + 1}`, image.url);
+  });
   active.alternativas.forEach((alt, index) => {
     add(`alternative-${index}`, `Imagem da alternativa ${alt.letra || index + 1}`, alt.imagem);
   });
   return sources;
+}
+
+function upsertExtraImage(images: ExtraImage[], url: string, index?: number): ExtraImage[] {
+  const created = normalizeExtraImage({ url, pos: "depois" });
+  if (!created) return images;
+  if (typeof index === "number" && images[index]) {
+    return images.map((image, i) => (i === index ? { ...image, url } : image));
+  }
+  return [...images, created];
 }
 
 function applyReferenceImageToDraft(current: DraftDigitization, dataUrl: string, cursor?: ReferenceCursor, replace?: boolean): DraftDigitization {
