@@ -489,6 +489,18 @@ function Page() {
               onImageLayoutChange={updateReferenceImageLayout}
             />
 
+            <div className="rounded-lg border p-3">
+              <ExtraImagesEditor
+                images={referenceExtras}
+                onChange={setReferenceExtras}
+                onAdd={() => setCropTarget({ kind: "ref-extra" })}
+                onReplace={(index) => setCropTarget({ kind: "ref-extra", index, currentImage: referenceExtras[index]?.url })}
+                label="Imagens adicionais da referência"
+                addLabel="Adicionar imagem"
+              />
+            </div>
+
+
             {draft.questoes.length > 1 && (
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {draft.questoes.map((q, i) => (
