@@ -469,7 +469,13 @@ export const generateDocx = createServerFn({ method: "POST" })
       const hasReference = Boolean(q.referencia_texto || q.referencia_texto_apos || q.referencia_imagem);
       const referenceKey = q.grupo_id || [q.referencia_texto, q.referencia_texto_apos, q.referencia_imagem, JSON.stringify(q.referencia_imagem_layout ?? null)].filter(Boolean).join("|");
       const shouldRenderReference = hasReference && referenceKey !== previousReferenceKey;
-      if (shouldRenderReference) {
+      const referenceExtras = normalizeExtraImages(q.referencia_imagens_extra);
+      const statementExtras = normalizeExtraImages(q.enunciado_imagens_extra);
+      const extrasAt = (list: typeof referenceExtras, pos: ExtraImagePosition) => list
+        .filter((image) => image.pos === pos)
+        .map((image) => imageParagraph(image.url, CONTENT_WIDTH_PX, AlignmentType.CENTER, undefined, image.layout))
+        .filter((paragraph): paragraph is NonNullable<typeof paragraph> => Boolean(paragraph));
+      if (shouldRenderReference || referenceExtras.length > 0) {
         const referenceImage = q.referencia_imagem
           ? imageParagraph(q.referencia_imagem, CONTENT_WIDTH_PX, AlignmentType.CENTER, undefined, q.referencia_imagem_layout)
           : null;
